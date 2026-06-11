@@ -1,0 +1,168 @@
+.connection-info {
+  margin: 0 18px 20px;
+  background: var(--popup-background);
+  border-radius: 18px;
+  padding: 18px;
+  border: solid 1px var(--card-border);
+  box-shadow: var(--shadow);
+
+  .connection-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--success);
+    margin-bottom: 14px;
+
+    span[class^="icon-"] {
+      font-size: 14px;
+    }
+
+    button:first-of-type {
+      margin-left: auto;
+    }
+
+    button {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+      transition:
+        transform 0.15s ease,
+        background-color 0.15s ease,
+        border-color 0.15s ease;
+
+      &.danger {
+        color: var(--danger);
+      }
+
+      span[class^="icon-"] {
+        font-size: 17px;
+      }
+
+      &:active {
+        transform: scale(0.96);
+        background: color-mix(in srgb, var(--danger) 16%, var(--surface-soft));
+        border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+      }
+    }
+  }
+
+  .connection-details-group {
+    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 16px;
+
+    .connection-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+
+      .connection-icon {
+        font-size: 16px;
+        width: 18px;
+        text-align: center;
+        flex-shrink: 0;
+        color: var(--secondary-text);
+        margin-top: 12px;
+        line-height: 1;
+      }
+
+      .connection-details {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+
+      .connection-label {
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--secondary-text);
+        opacity: 0.5;
+      }
+
+      .connection-value {
+        font-size: 13px;
+        color: var(--primary-text);
+        word-break: break-all;
+        font-family: "Courier New", monospace;
+        line-height: 1.4;
+
+        &--placeholder {
+          opacity: 0.3;
+          font-style: italic;
+        }
+      }
+    }
+  }
+
+  .connection-info-actions {
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .connection-icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--line-soft, rgba(255, 255, 255, 0.07));
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent),
+      var(--surface-soft);
+    color: var(--primary-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.15s;
+
+    span[class^="icon-"] {
+      font-size: 22px;
+    }
+
+    img {
+      width: 22px;
+      height: 22px;
+      object-fit: contain;
+      border-radius: 5px;
+    }
+
+    &:active {
+      background: var(--card-border);
+    }
+
+    &--danger {
+      border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+      background: color-mix(in srgb, var(--danger) 8%, transparent);
+      color: var(--danger);
+
+      &:active {
+        background: color-mix(in srgb, var(--danger) 15%, transparent);
+      }
+    }
+  }
+
+  .connection-agent-more {
+    color: var(--secondary-text);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+}

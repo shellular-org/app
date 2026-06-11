@@ -1,0 +1,25 @@
+.chat-user-text {
+  white-space: pre-wrap;
+  min-width: 0;
+
+  a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  &--truncatable {
+    display: block;
+    position: relative;
+    padding-bottom: 20px;
+  }
+
+  .bubble-expand-icon {
+    height: 20px;
+    width: 20px;
+    font-weight: bold;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+  }
+}

@@ -1,0 +1,43 @@
+.connection-status {
+	position: fixed;
+	inset: 0;
+	z-index: 200;
+	background: color-mix(in srgb, var(--primary) 52%, transparent);
+	backdrop-filter: blur(8px);
+	-webkit-backdrop-filter: blur(8px);
+	height: fit-content;
+	padding: 10px;
+	top: var(--page-header-height, --sat);
+	display: flex;
+	align-items: center;
+	box-shadow: 0 4px 8px var(--shadow-color);
+
+	.mascot {
+		margin-right: 10px;
+	}
+
+	.connection-status-message {
+		margin: 0;
+		font-size: 18px;
+		font-weight: 700;
+		line-height: 1.2;
+	}
+
+	&.is-connecting .connection-status-message {
+		--connect-glow-color: var(--accent);
+		color: var(--accent);
+	}
+
+	&.is-disconnected .connection-status-message {
+		--connect-glow-color: var(--danger);
+		color: var(--danger);
+	}
+
+	.connection-status-hint {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 500;
+		line-height: 1.4;
+		color: var(--secondary-text);
+	}
+}

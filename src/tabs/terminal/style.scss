@@ -1,0 +1,192 @@
+.terminal-tab {
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--vh) - var(--tabbar-h));
+  overflow: hidden;
+  position: relative;
+
+  * {
+    scrollbar-width: none;
+  }
+
+  &--empty {
+    height: calc(var(--vh) - var(--tabbar-h));
+  }
+
+  .terminal-paste-textarea {
+    flex: 1;
+    width: 100%;
+    padding: 8px 12px;
+    box-sizing: border-box;
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--primary-text);
+    background: var(--secondary);
+    border: none;
+    border-radius: 0;
+    resize: none;
+    outline: none;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    user-select: text;
+    -webkit-user-select: text;
+    padding-bottom: var(--keyboard-height);
+
+    &::placeholder {
+      color: var(--secondary-text);
+      opacity: 0.4;
+    }
+
+    .keyboard-toolbar:not(.swipe-left-open) & {
+      caret-color: transparent;
+    }
+  }
+
+  .terminal-tab-bar {
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+
+    .terminal-title-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+      padding: 4px 8px;
+      border: none;
+      background: transparent;
+      color: var(--primary-text);
+      cursor: pointer;
+      border-radius: 8px;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      &:active {
+        background: rgba(255, 255, 255, 0.08);
+      }
+    }
+
+    .terminal-title-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 500;
+      text-align: left;
+    }
+
+    .terminal-title-btn span[class^='icon-chevron'] {
+      flex-shrink: 0;
+      font-size: 14px;
+      color: var(--secondary-text);
+    }
+
+    .terminal-tab-add,
+    .terminal-tab-menu {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--secondary-text);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s, opacity 0.3s;
+      -webkit-tap-highlight-color: transparent;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--primary-text);
+      }
+
+      svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      span[class^='icon-'] {
+        font-size: 18px;
+      }
+    }
+  }
+}
+
+.terminal-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+
+  >* {
+    position: absolute;
+    top: 0;
+    left: 4px;
+    right: 4px;
+    bottom: 0;
+    transition: bottom 0.2s ease-out;
+  }
+
+  @include keyboard-visible {
+    >* {
+      bottom: 79px;
+    }
+  }
+
+  .xterm-decoration-overview-ruler {
+    opacity: 0.2;
+  }
+
+  .xterm-wrapper {
+    background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
+
+
+    .scrollbar {
+      overflow-x: visible;
+
+      .slider {
+        width: 18px !important;
+        background-color: var(--accent) !important;
+      }
+    }
+
+    .xterm {
+      height: 100%;
+      background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
+    }
+
+    .xterm-viewport {
+      overflow-y: scroll !important;
+      overscroll-behavior: contain;
+      scroll-behavior: auto !important;
+      -webkit-overflow-scrolling: auto !important;
+      touch-action: none;
+      background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
+      user-select: text;
+    }
+
+    .xterm-scrollable-element {
+      height: 100%;
+      background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
+    }
+
+    textarea.xterm-helper-textarea {
+      caret-color: transparent !important;
+      -webkit-text-fill-color: transparent !important;
+      autocomplete: off;
+      autocorrect: off;
+      autocapitalize: off;
+      spellcheck: false;
+    }
+  }
+}

@@ -1,0 +1,123 @@
+/* ── Page Header (shared) ─────────────────────────────────────── */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 48px;
+  box-sizing: border-box;
+}
+
+.page-header--has-subtitle .page-header-title {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+
+.page-header-subtitle {
+  font-size: 10px;
+  color: var(--secondary-text);
+  opacity: 0.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.page-header-back {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--secondary-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  &:active {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  span[class^='icon-'] {
+    font-size: 20px;
+  }
+}
+
+.page-header-spacer {
+  width: 36px;
+  flex-shrink: 0;
+}
+
+.page-header-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.page-header-title-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  flex: 1;
+}
+
+.page-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Action buttons inside the right slot */
+.page-header-action {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--secondary-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  &:active {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  &:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+  }
+
+  span[class^='icon-'] {
+    font-size: 18px;
+  }
+}

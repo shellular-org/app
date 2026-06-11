@@ -1,0 +1,32 @@
+.file-reference {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: min(100%, 280px);
+  margin: 0 2px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  font-family: "Courier New", monospace;
+  font-size: 0.85em;
+  font-style: normal;
+  white-space: nowrap;
+  cursor: default;
+
+  >span:not([class^="icon-"]) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  >em {
+    font-size: 10px;
+    font-style: normal;
+    opacity: 0.55;
+    flex-shrink: 0;
+  }
+
+  &+p {
+    display: inline;
+  }
+}

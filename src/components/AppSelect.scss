@@ -1,0 +1,123 @@
+.app-select {
+  position: relative;
+  min-width: 0;
+  display: inline-flex;
+}
+
+.app-select__button {
+  min-width: 0;
+  min-height: 34px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--primary-text);
+  padding: 0 9px 0 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.app-select__value {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.app-select__chevron {
+  flex-shrink: 0;
+  color: var(--secondary-text);
+  font-size: 15px;
+  transition: transform 120ms ease;
+}
+
+.app-select__button[data-open] .app-select__chevron {
+  transform: rotate(180deg);
+}
+
+.app-select--compact {
+  .app-select__button {
+    min-height: 34px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: 12px;
+  }
+
+  .app-select__value {
+    flex: 1 1 auto;
+    text-align: right;
+  }
+}
+
+.app-select-menu {
+  z-index: 10001;
+  overflow: auto;
+  width: min(max(var(--button-width), 180px), calc(100vw - 20px));
+  min-width: 0;
+  max-height: min(280px, var(--available-height));
+  padding: 6px;
+  border: 1px solid var(--popup-border-color);
+  border-radius: 12px;
+  background: var(--popup-background);
+  color: var(--primary-text);
+  box-shadow: 0 14px 46px var(--shadow-color);
+  backdrop-filter: var(--popup-backdrop-filter);
+  -webkit-backdrop-filter: var(--popup-backdrop-filter);
+  animation: slide-in-little 120ms ease both;
+}
+
+.app-select-menu__item {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary-text);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+
+  span:first-child {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .icon-check {
+    flex-shrink: 0;
+    color: var(--popup-active-text);
+    font-size: 14px;
+  }
+}
+
+.app-select-menu__item--active,
+.app-select-menu__item[aria-selected="true"] {
+  background: var(--popup-active-background);
+  color: var(--popup-active-text);
+}

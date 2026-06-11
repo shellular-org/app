@@ -1,0 +1,59 @@
+<?xml version='1.0' encoding='utf-8'?>
+<manifest xmlns:tools="http://schemas.android.com/tools" android:hardwareAccelerated="true"
+    android:versionCode="25" android:versionName="0.0.25"
+    xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application android:name=".Shellular" android:hardwareAccelerated="true"
+        android:icon="@mipmap/ic_launcher" android:label="@string/app_name" android:largeHeap="true"
+        android:networkSecurityConfig="@xml/network_security_config" android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:exported="true" android:label="@string/activity_name"
+            android:launchMode="singleTop" android:name="MainActivity"
+            android:theme="@style/Theme.App.SplashScreen"
+            android:windowLayoutInDisplayCutoutMode="never"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter android:label="@string/launcher_name">
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter android:label="@string/launcher_name">
+                <data android:scheme="shellular" />
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+        </activity>
+
+        <provider android:authorities="${applicationId}.provider" android:exported="false"
+            android:grantUriPermissions="true" android:name="androidx.core.content.FileProvider">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider" />
+        </provider>
+        <service android:exported="false" android:foregroundServiceType="dataSync"
+            android:name="io.foxbiz.shellular.foregroundService.SocketService" />
+    </application>
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
+        tools:ignore="ManifestOrder" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <supports-screens android:anyDensity="true" android:largeScreens="true"
+        android:normalScreens="true" android:resizeable="true" android:smallScreens="true"
+        android:xlargeScreens="true" />
+</manifest>

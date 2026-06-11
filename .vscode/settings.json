@@ -1,0 +1,70 @@
+{
+	"cSpell.words": [
+		"Accum",
+		"acode",
+		"backbutton",
+		"browserdidclose",
+		"browserdidmaximize",
+		"browserdidminimize",
+		"browserwillopen",
+		"ciphertext",
+		"Eruda",
+		"foxbiz",
+		"gradlew",
+		"hideconsole",
+		"keyboardhide",
+		"keyboardshow",
+		"KEYBYTES",
+		"lezer",
+		"libsodium",
+		"NONCEBYTES",
+		"OLED",
+		"opencode",
+		"opfs",
+		"pasteview",
+		"PGDN",
+		"PGUP",
+		"readback",
+		"secretbox",
+		"shellular",
+		"showconsole",
+		"textify",
+		"textview",
+		"truncatable",
+		"unlisten",
+		"Unrevert",
+		"unsub",
+		"unsubscribers",
+		"visualstudiocode",
+		"winget",
+		"xcodeproj"
+	],
+	"editor.codeActionsOnSave": {
+		"quickFix.biome": "explicit",
+		"source.organizeImports.biome": "explicit"
+	},
+	"[javascript]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[typescriptreact]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[typescript]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"[json]": {
+		"editor.defaultFormatter": "vscode.json-language-features"
+	},
+	"[css]": {
+		"editor.defaultFormatter": "biomejs.biome"
+	},
+	"scss.lint.unknownProperties": "ignore",
+	"editor.quickSuggestions": { "strings": true },
+	"tailwindCSS.includeLanguages": {
+		"typescript": "typescript",
+		"typescriptreact": "typescript"
+	},
+	"tailwindCSS.experimental.configFile": "src/tailwind.css",
+	"css.lint.unknownAtRules": "ignore",
+	"scss.lint.unknownAtRules": "ignore"
+}

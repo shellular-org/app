@@ -1,0 +1,17 @@
+// Agent-chat-specific chrome around the shared `.diff-view`. The diff rendering
+// styles themselves live in components/DiffView.scss.
+.chat-agent-diff {
+  margin: 0;
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-soft);
+}
+
+// Full-screen agent diff page wrapper (opened from a chat file-change card).
+.chat-diff-viewer {
+  > .page-content {
+    padding: 0;
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+  }
+}

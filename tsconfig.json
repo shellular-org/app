@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES6",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "paths": {
+      "*": ["./src/*"],
+    },
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "types": ["./src/index.d.ts"],
+    "noEmit": true,
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"],
+}

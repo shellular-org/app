@@ -1,0 +1,77 @@
+.app-menu {
+  display: contents;
+  position: relative;
+  z-index: 1;
+}
+
+.app-menu-dropdown {
+  z-index: 10001;
+  background: var(--secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  min-width: 180px;
+  max-height: min(360px, var(--available-height));
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 0 4px 20px var(--shadow-color, rgba(0, 0, 0, 0.5));
+  transform-origin: top right;
+  transition:
+    opacity 110ms ease-out,
+    transform 110ms ease-out;
+
+  &[data-closed] {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.96);
+  }
+
+  >div {
+    display: contents;
+  }
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 20px;
+    border: none;
+    background: transparent;
+    color: var(--primary-text);
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+
+    span[class^='icon-'] {
+      font-size: 16px;
+      opacity: 0.75;
+      flex-shrink: 0;
+    }
+
+    .app-menu-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+    }
+
+    &:active,
+    &.app-menu-item--active {
+      background: var(--surface-soft);
+    }
+
+    &.app-menu-danger {
+      color: #ef4444;
+
+      span[class^='icon-'] {
+        opacity: 1;
+      }
+    }
+  }
+}
+
+.app-menu-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 0;
+}

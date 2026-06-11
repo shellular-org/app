@@ -1,0 +1,330 @@
+.projects-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(var(--vh) - var(--tabbar-h));
+  overflow: hidden;
+}
+
+.projects-add-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--primary-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  span[class^="icon-"] {
+    font-size: 18px;
+  }
+
+  &--hidden {
+    position: absolute;
+    top: calc(var(--sat, 0px) + 16px);
+    right: 16px;
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+.projects-empty-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--button-text);
+  background: var(--button-background);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    transform 0.1s;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+
+  &:hover {
+    background: var(--button-background-active);
+  }
+
+  &:active {
+    background: var(--button-background-active);
+    transform: scale(0.98);
+  }
+
+  @include icon {
+    font-size: 20px;
+  }
+}
+
+.project-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 0 var(--tabbar-h);
+
+  &:not(:empty) {
+    flex: 1;
+  }
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+
+  &[data-removing="true"] {
+    opacity: 0.5;
+    pointer-events: none;
+    animation: pulse 1.5s infinite;
+  }
+}
+
+.project-item-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding: 12px 0 12px 16px;
+  border: none;
+  background: transparent;
+  color: var(--primary-text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.project-item-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+
+  span[class^="icon-"] {
+    font-size: 22px;
+  }
+}
+
+.project-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.project-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-item-path {
+  font-size: 11px;
+  color: var(--secondary-text);
+  opacity: 0.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-item-git {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.project-git-branch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--info);
+  opacity: 0.8;
+
+  span[class^="icon-"] {
+    font-size: 11px;
+  }
+}
+
+.project-git-changes {
+  font-size: 11px;
+  color: #eab308;
+  opacity: 0.85;
+}
+
+.project-git-untracked {
+  font-size: 11px;
+  color: #64748b;
+  opacity: 0.8;
+}
+
+.project-item-menu-btn {
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: transparent;
+  color: var(--secondary-text);
+  opacity: 0.45;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  margin-right: 16px;
+
+  &:hover,
+  &:active {
+    opacity: 0.8;
+  }
+
+  span[class^="icon-"] {
+    font-size: 18px;
+  }
+}
+
+/* ── Picker overlay ──────────────────────────────────────────── */
+.projects-picker {
+  display: flex;
+  flex-direction: column;
+  height: var(--vh);
+  overflow: hidden;
+
+  /* FileBrowserPage embedded inside: remove its own status-bar top padding,
+     and let it fill remaining height rather than full viewport height */
+  .files-header {
+    padding-top: 10px;
+  }
+
+  .files-page {
+    height: auto;
+    flex: 1;
+  }
+}
+
+.projects-picker-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(14px + var(--sat, 0px)) 16px 10px;
+  background: var(--secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.projects-picker-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--info);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+
+  span[class^="icon-"] {
+    font-size: 16px;
+  }
+}
+
+.projects-picker-title {
+  flex: 1;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary-text);
+  margin-right: 60px;
+  /* balance the back button width */
+}
+
+/* ── Project browser (browsing files inside a project) ───────── */
+.projects-browser {
+  display: flex;
+  flex-direction: column;
+  height: var(--vh);
+  overflow: hidden;
+
+  /* FileBrowserPage embedded inside: remove its own status-bar top padding,
+     and let it fill remaining height rather than full viewport height */
+  .files-header {
+    padding-top: 10px;
+  }
+
+  .files-page {
+    height: auto;
+    flex: 1;
+  }
+}
+
+.projects-browser-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: calc(14px + var(--sat, 0px)) 16px 10px;
+  background: var(--secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.projects-browser-back {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: var(--info);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+
+  span[class^="icon-"] {
+    font-size: 16px;
+  }
+}
+
+.projects-browser-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

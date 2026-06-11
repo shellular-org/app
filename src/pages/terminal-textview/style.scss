@@ -1,0 +1,13 @@
+.terminal-textview {
+  .terminal-textview-pre {
+    margin: 0;
+    font-family: 'JetBrainsMono Nerd Font', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: currentColor;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: text;
+    -webkit-user-select: text;
+  }
+}

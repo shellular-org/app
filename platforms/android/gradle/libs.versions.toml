@@ -1,0 +1,33 @@
+[versions]
+agp = "9.2.0"
+barcodeScanning = "18.11.0"
+browser = "1.8.0"
+cameraCamera2 = "1.4.2"
+cameraLifecycle = "1.4.2"
+cameraView = "1.4.2"
+coreSplashscreen = "1.0.1"
+junit = "4.13.2"
+junitVersion = "1.2.1"
+espressoCore = "3.6.1"
+appcompat = "1.7.1"
+socketIoClient = "2.1.2"
+webkit = "1.14.0"
+
+[libraries]
+androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
+androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "cameraLifecycle" }
+androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "cameraView" }
+androidx-core-splashscreen = { module = "androidx.core:core-splashscreen", version.ref = "coreSplashscreen" }
+barcode-scanning = { module = "com.google.mlkit:barcode-scanning", version = "17.3.0" }
+camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "cameraCamera2" }
+common = { module = "com.google.mlkit:common", version.ref = "barcodeScanning" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+socket-io-client = { module = "io.socket:socket.io-client", version.ref = "socketIoClient" }
+webkit = { group = "androidx.webkit", name = "webkit", version.ref = "webkit" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+

@@ -1,0 +1,50 @@
+.file-change {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  font-size: 0.85em;
+  vertical-align: baseline;
+  cursor: pointer;
+  overflow: hidden;
+  max-width: 100%;
+
+  .file-change-status {
+    font-size: 10px;
+    color: var(--secondary-text);
+    opacity: 0.55;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .file-change-kind {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--border-color);
+    color: var(--accent);
+    flex-shrink: 0;
+
+    .file-change[data-kind="create"] & {
+      color: #34d399;
+      background: rgba(52, 211, 153, 0.12);
+    }
+
+    .file-change[data-kind="delete"] & {
+      color: #f87171;
+      background: rgba(248, 113, 113, 0.12);
+    }
+
+    .file-change[data-kind="edit"] &,
+    .file-change[data-kind="modify"] & {
+      color: var(--accent2, var(--accent));
+      background: rgba(var(--accent-rgb, 0 0 0), 0.1);
+    }
+  }
+}

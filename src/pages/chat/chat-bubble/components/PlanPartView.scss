@@ -1,0 +1,50 @@
+.chat-plan-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  margin-top: -10px !important;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  .chat-plan-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 0.88em;
+    line-height: 1;
+
+    &--completed {
+      opacity: 0.7;
+    }
+
+    .mascot {
+      margin-top: -2px;
+    }
+
+    .chat-plan-status {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 1px 6px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      margin-top: 1px;
+      background: var(--surface-soft);
+      color: var(--secondary-text);
+
+      .chat-plan-item--in-progress & {
+        color: #f59e0b;
+        background: rgba(245, 158, 11, 0.12);
+      }
+
+      .chat-plan-item--completed & {
+        color: #34d399;
+        background: rgba(52, 211, 153, 0.12);
+      }
+    }
+  }
+}

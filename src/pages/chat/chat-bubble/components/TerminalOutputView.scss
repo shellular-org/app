@@ -1,0 +1,35 @@
+.chat-terminal-output {
+  pre {
+    margin: 0;
+    padding: 9px 10px 11px;
+    max-height: 260px;
+    overflow: auto;
+    background: transparent;
+    color: #d7dae0;
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .chat-terminal-output-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    color: #abb2bf;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+
+    em {
+      margin-left: auto;
+      color: #7f8490;
+      font-style: normal;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+  }
+}

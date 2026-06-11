@@ -1,0 +1,1959 @@
+import "./style.scss";
+import { pushPage } from "App";
+import type {
+	AcpAvailableCommand,
+	AcpMessage,
+	AcpMessagePart,
+	AiBackend,
+} from "@shellular/protocol";
+import native from "bridge/native";
+import AppCombobox from "components/AppCombobox";
+import AppSelect from "components/AppSelect";
+import BottomSheet from "components/BottomSheet";
+import EmptyState from "components/EmptyState";
+import Loader from "components/Loader";
+import Page from "components/Page";
+import { getAgentIcon } from "lib/agents";
+import { registerShellularDiffThemes } from "lib/diffsTheme";
+import keyboard from "lib/keyboard";
+import { normalizeRemoteWorkspacePath } from "lib/remotePath";
+import EditorPage from "pages/editor";
+import type React from "react";
+import {
+	useCallback,
+	useEffect,
+	useEffectEvent,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { useShellular } from "state";
+import type {
+	AcpPermissionRequest,
+	AcpPromptCallbacks,
+	AcpSessionEvent,
+	AiSessionConfigOption,
+} from "state/acp";
+import {
+	acpAttachSession,
+	acpCancel,
+	acpCreateSession,
+	acpDetachSession,
+	acpPermissionReply,
+	acpPrompt,
+	acpSetConfigOption,
+	acpSetMode,
+	acpSetModel,
+	acpSubscribeSessionEvents,
+	acpWriteAttachmentBase64,
+} from "state/acp";
+import { listDir, searchProjectFiles } from "state/filesystem";
+import {
+	getSessionActivity,
+	getSessionStreaming,
+	setSessionStreaming,
+	subscribeSessionActivities,
+} from "state/sessions";
+import {
+	ChatComposer,
+	type ComposerAttachment,
+	type ComposerPart,
+	type ComposerTrigger,
+	clearComposer,
+	composerPartsToAcpContent,
+	composerPartsToMessageParts,
+	composerPartsToText,
+	fileSuggestionFromDirectoryEntry,
+	fileSuggestionFromSearchEntry,
+	findComposerTrigger,
+	getPromptSuggestions,
+	insertAttachmentSuggestion,
+	insertComposerParts,
+	type PromptSuggestion,
+	readComposerParts,
+	replaceComposerTrigger,
+	updateComposerAttachment,
+} from "./ChatComposer";
+import ChatBubble from "./chat-bubble";
+import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
+import {
+	formatStopReason,
+	getMessageKey,
+} from "./chat-bubble/lib/messageParts";
+import { bytesToBase64, findLastIndex } from "./chat-bubble/lib/utils";
+import ContextWindowMeter from "./composer/ContextWindowMeter";
+import {
+	type ContextWindowUsage,
+	formatTokenCount,
+	getContextWindowPercentage,
+	getContextWindowState,
+	readContextWindowUsage,
+} from "./composer/contextWindowUsage";
+
+const PAGE_SIZE = 30;
+const STOP_REASON_METADATA = "stop-reason";
+
+registerShellularDiffThemes();
+
+export interface ChatConversationPageProps {
+	sessionId: string;
+	agentId: AiBackend;
+	workspacePath: string;
+	title: string;
+	assistantName: string;
+	agentAvailable?: boolean;
+	unavailableMessage?: string;
+	providerName?: string;
+	agentCapabilities?: Record<string, unknown>;
+	cacheMessages?: boolean;
+	createOnFirstMessage?: boolean;
+}
+
+export default function ChatConversationPage({
+	sessionId,
+	agentId,
+	workspacePath,
+	title,
+	assistantName,
+	agentAvailable = true,
+	unavailableMessage,
+	providerName,
+	createOnFirstMessage = false,
+}: ChatConversationPageProps) {
+	const { connectionStatus, hostDir } = useShellular();
+	const resolvedWorkspacePath = useMemo(
+		() => normalizeRemoteWorkspacePath(workspacePath, hostDir),
+		[hostDir, workspacePath],
+	);
+	const [allMessages, setAllMessages] = useState<AcpMessage[]>([]);
+	const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+	const [loading, setLoading] = useState(true);
+	const [loadingMore, setLoadingMore] = useState(false);
+	const [scrollAdjust, setScrollAdjust] = useState(0);
+	const [syncing, setSyncing] = useState(false);
+	const [activeSessionId, setActiveSessionId] = useState(sessionId);
+	const [displayTitle, setDisplayTitle] = useState(
+		() => getSessionActivity(agentId, sessionId)?.title ?? title,
+	);
+	const [isStreaming, setIsStreaming] = useState(
+		getSessionStreaming(agentId, sessionId),
+	);
+	const [composerParts, setComposerParts] = useState<ComposerPart[]>([]);
+	const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger>(null);
+	const [fileSuggestions, setFileSuggestions] = useState<PromptSuggestion[]>(
+		[],
+	);
+	const [error, setError] = useState("");
+	const [configOptions, setConfigOptions] = useState<AiSessionConfigOption[]>(
+		[],
+	);
+	const [availableCommands, setAvailableCommands] = useState<
+		AcpAvailableCommand[]
+	>([]);
+	const [configSavingId, setConfigSavingId] = useState<string | null>(null);
+	const [showConfigSheet, setShowConfigSheet] = useState(false);
+	const [showContextSheet, setShowContextSheet] = useState(false);
+	const [pendingPermissions, setPendingPermissions] = useState<
+		AcpPermissionRequest[]
+	>([]);
+	const [contextWindowUsage, setContextWindowUsage] =
+		useState<ContextWindowUsage | null>(null);
+	const [permissionScrollTick, setPermissionScrollTick] = useState(0);
+	const [historyScrollReady, setHistoryScrollReady] = useState(false);
+	const [activePromptSuggestionIndex, setActivePromptSuggestionIndex] =
+		useState(0);
+
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const sentinelRef = useRef<HTMLDivElement>(null);
+	const historyContentRef = useRef<HTMLDivElement>(null);
+	const inputBarRef = useRef<HTMLDivElement>(null);
+	const promptInputRef = useRef<HTMLDivElement>(null);
+	const connectionStatusRef = useRef(connectionStatus);
+	const stickToBottomRef = useRef(true);
+	const prevScrollHeightRef = useRef(0);
+	const autoScrollFrameRef = useRef(0);
+	const autoScrollSuppressedRef = useRef(false);
+	const autoScrollSuppressionCountRef = useRef(0);
+	const cleanupRef = useRef<(() => void) | null>(null);
+	const cleanupSendRef = useRef<(() => void) | null>(null);
+	const attachedSessionIdRef = useRef<string | null>(null);
+	const attachedRevisionRef = useRef(0);
+	const attachReadyRef = useRef(false);
+	const pendingAttachEventsRef = useRef<AcpSessionEvent[]>([]);
+	const createSessionPromiseRef = useRef<Promise<{
+		sessionId: string;
+		configOptions: AiSessionConfigOption[];
+		availableCommands: AcpAvailableCommand[];
+		messages: AcpMessage[];
+		revision: number;
+		syncing?: boolean;
+	}> | null>(null);
+	const composerDraftRef = useRef<string>("");
+	const streamingAssistantIdRef = useRef<string | null>(null);
+	const streamingUserIdRef = useRef<string | null>(null);
+	const sentTurnStartRef = useRef(0);
+	const allMessagesLengthRef = useRef(0);
+	const upsertAcpMessageRef = useRef<(msg: AcpMessage) => void>(() => {});
+
+	connectionStatusRef.current = connectionStatus;
+
+	const visibleMessages = useMemo(
+		() => allMessages.slice(-Math.min(visibleCount, allMessages.length)),
+		[allMessages, visibleCount],
+	);
+	const visibleMessageItems = useMemo(() => {
+		const seen = new Map<string, number>();
+		return visibleMessages.map((message) => {
+			const messageKey = getMessageKey(message);
+			const count = seen.get(messageKey) ?? 0;
+			seen.set(messageKey, count + 1);
+			return {
+				message,
+				messageKey,
+				renderKey:
+					count === 0 ? messageKey : `${messageKey}:duplicate-${count}`,
+			};
+		});
+	}, [visibleMessages]);
+	const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
+
+	useEffect(() => {
+		allMessagesLengthRef.current = allMessages.length;
+	}, [allMessages.length]);
+
+	const hasMore = allMessages.length > visibleCount;
+	const promptSuggestions = useMemo(
+		() =>
+			composerTrigger?.trigger === "/"
+				? getPromptSuggestions(composerTrigger.query, availableCommands)
+				: composerTrigger?.trigger === "@"
+					? fileSuggestions
+					: [],
+		[availableCommands, composerTrigger, fileSuggestions],
+	);
+	const canSendPrompt = useMemo(
+		() =>
+			composerParts.some(
+				(part) => part.type === "attachment" || part.text.trim().length > 0,
+			) &&
+			!composerParts.some(
+				(part) => part.type === "attachment" && part.attachment.status,
+			),
+		[composerParts],
+	);
+	const contextMeter = useMemo(
+		() =>
+			contextWindowUsage ? (
+				<ContextWindowMeter
+					usedTokens={contextWindowUsage.usedTokens}
+					maxTokens={contextWindowUsage.maxTokens}
+					onClick={() => setShowContextSheet(true)}
+				/>
+			) : null,
+		[contextWindowUsage],
+	);
+
+	const startAutoScrollSuppression = useCallback(() => {
+		autoScrollSuppressionCountRef.current += 1;
+		autoScrollSuppressedRef.current = autoScrollSuppressionCountRef.current > 0;
+		if (autoScrollFrameRef.current) {
+			cancelAnimationFrame(autoScrollFrameRef.current);
+			autoScrollFrameRef.current = 0;
+		}
+	}, []);
+
+	const endAutoScrollSuppression = useCallback(() => {
+		autoScrollSuppressionCountRef.current = Math.max(
+			0,
+			autoScrollSuppressionCountRef.current - 1,
+		);
+		autoScrollSuppressedRef.current = autoScrollSuppressionCountRef.current > 0;
+	}, []);
+
+	const scrollToBottomNow = useCallback((force = false) => {
+		if (!force && autoScrollSuppressedRef.current) return;
+		if (force) autoScrollSuppressedRef.current = false;
+		const container = scrollRef.current;
+		if (!container) return;
+		container.scrollTop = Math.max(
+			0,
+			container.scrollHeight - container.clientHeight,
+		);
+	}, []);
+
+	const scrollToBottom = useCallback(
+		(force = false) => {
+			if (autoScrollFrameRef.current) return;
+			autoScrollFrameRef.current = requestAnimationFrame(() => {
+				autoScrollFrameRef.current = 0;
+				scrollToBottomNow(force);
+			});
+		},
+		[scrollToBottomNow],
+	);
+
+	const triggerLoadMore = useCallback(() => {
+		if (!historyScrollReady || !hasMore || loadingMore || !scrollRef.current) {
+			return;
+		}
+		prevScrollHeightRef.current = scrollRef.current.scrollHeight;
+		setLoadingMore(true);
+		setVisibleCount((c) => c + PAGE_SIZE);
+		setScrollAdjust((n) => n + 1);
+	}, [hasMore, historyScrollReady, loadingMore]);
+
+	const handleSessionStatus = useCallback(
+		(properties: Record<string, unknown>) => {
+			const nextUsage = readContextWindowUsage(properties);
+			if (nextUsage) setContextWindowUsage(nextUsage);
+			const nextOptions =
+				readConfigOptions(properties.configOptions) ??
+				readConfigOptions(
+					(properties.status as { configOptions?: unknown })?.configOptions,
+				);
+			if (nextOptions) setConfigOptions(nextOptions);
+			const nextCommands = readAvailableCommands(properties.availableCommands);
+			if (nextCommands) setAvailableCommands(nextCommands);
+		},
+		[],
+	);
+
+	const handlePermissionRequest = useCallback(
+		(permission: AcpPermissionRequest) => {
+			setPendingPermissions((prev) => {
+				const existing = prev.findIndex((item) => item.id === permission.id);
+				if (existing >= 0) {
+					const next = [...prev];
+					next[existing] = permission;
+					return next;
+				}
+				return [...prev, permission];
+			});
+			setPermissionScrollTick((tick) => tick + 1);
+		},
+		[],
+	);
+
+	const processSessionEvent = useEffectEvent((event: AcpSessionEvent) => {
+		if (event.type === "permission.updated") {
+			const permission = readPendingActivityPermission(event.properties);
+			if (permission) handlePermissionRequest(permission);
+			return;
+		}
+
+		if (event.type === "session.status") {
+			if (event.properties.syncing === "messages") {
+				setSyncing(true);
+			} else if (event.properties.syncing === false) {
+				setSyncing(false);
+			}
+			handleSessionStatus(event.properties as Record<string, unknown>);
+			return;
+		}
+
+		if (event.type === "session.snapshot") {
+			const messages = event.properties.messages;
+			if (Array.isArray(messages)) {
+				setAllMessages(messages as AcpMessage[]);
+				setVisibleCount(PAGE_SIZE);
+				stickToBottomRef.current = true;
+				requestAnimationFrame(() => scrollToBottomNow(true));
+			}
+			const state = event.properties.state;
+			if (state && typeof state === "object") {
+				const nextOptions = readConfigOptions(
+					(state as { configOptions?: unknown }).configOptions,
+				);
+				if (nextOptions) setConfigOptions(nextOptions);
+				const nextCommands = readAvailableCommands(
+					(state as { availableCommands?: unknown }).availableCommands,
+				);
+				if (nextCommands) setAvailableCommands(nextCommands);
+			}
+			setLoading(false);
+			setSyncing(false);
+			return;
+		}
+
+		if (event.type === "message") {
+			const message = event.properties.message;
+			if (message) upsertAcpMessageRef.current(message as AcpMessage);
+			return;
+		}
+
+		if (event.type === "error" || event.type === "prompt_error") {
+			finishStreamingTurn(activeSessionId || sessionId);
+			setError(String(event.properties.error ?? "Prompt failed"));
+			return;
+		}
+
+		if (event.type === "end" || event.type === "cancelled") {
+			const usage = (event.properties as { usage?: unknown }).usage;
+			if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+				const nextUsage = readContextWindowUsage({ usage });
+				if (nextUsage) setContextWindowUsage(nextUsage);
+			}
+			const stopReason = (event.properties as { stopReason?: unknown })
+				.stopReason;
+			if (typeof stopReason === "string" && shouldShowStopReason(stopReason)) {
+				appendStopReason(stopReason);
+			}
+			finishStreamingTurn(activeSessionId || sessionId);
+		}
+	});
+
+	const applyRevisionedSessionEvent = useEffectEvent(
+		(event: AcpSessionEvent) => {
+			if (!attachReadyRef.current) {
+				pendingAttachEventsRef.current.push(event);
+				return;
+			}
+
+			const revision = event.revision ?? 0;
+			if (revision > 0) {
+				if (revision <= attachedRevisionRef.current) return;
+				attachedRevisionRef.current = revision;
+			}
+
+			processSessionEvent(event);
+		},
+	);
+
+	const updateInputOffset = useCallback(() => {
+		const inputBar = inputBarRef.current;
+		const container = scrollRef.current;
+		if (!inputBar || !container) return;
+		container.style.setProperty(
+			"--chat-input-offset",
+			`${Math.ceil(inputBar.getBoundingClientRect().height) + 50}px`,
+		);
+		if (stickToBottomRef.current) scrollToBottomNow();
+	}, [scrollToBottomNow]);
+
+	useEffect(() => {
+		const sentinel = sentinelRef.current;
+		const container = scrollRef.current;
+		if (!sentinel || !container || !hasMore || !historyScrollReady) return;
+		const handleClick = (event: MouseEvent) =>
+			handleFiles(event, resolvedWorkspacePath);
+
+		const observer = new IntersectionObserver(
+			([entry]) => {
+				if (entry.isIntersecting) triggerLoadMore();
+			},
+			{ root: container, rootMargin: "300px 0px 0px 0px" },
+		);
+		observer.observe(sentinel);
+		container.addEventListener("click", handleClick);
+		return () => {
+			observer.disconnect();
+			container.removeEventListener("click", handleClick);
+		};
+	}, [hasMore, historyScrollReady, resolvedWorkspacePath, triggerLoadMore]);
+
+	useEffect(() => {
+		const container = scrollRef.current;
+		if (!container) return;
+		const handleClick = (event: MouseEvent) =>
+			handleFiles(event, resolvedWorkspacePath);
+		container.addEventListener("click", handleClick);
+		return () => {
+			container.removeEventListener("click", handleClick);
+		};
+	}, [resolvedWorkspacePath]);
+
+	useEffect(() => {
+		if (composerTrigger?.trigger !== "@" || !resolvedWorkspacePath) {
+			setFileSuggestions([]);
+			return;
+		}
+
+		let cancelled = false;
+		const query = composerTrigger.query.trim();
+		const timer = window.setTimeout(() => {
+			const suggestionsPromise = query
+				? searchProjectFiles(resolvedWorkspacePath, query, { limit: 8 }).then(
+						(result) => result.entries.map(fileSuggestionFromSearchEntry),
+					)
+				: listDir(resolvedWorkspacePath).then((entries) =>
+						entries
+							.slice(0, 8)
+							.map((entry) =>
+								fileSuggestionFromDirectoryEntry(entry, resolvedWorkspacePath),
+							),
+					);
+
+			suggestionsPromise
+				.then((result) => {
+					if (cancelled) return;
+					setFileSuggestions(result);
+				})
+				.catch(() => {
+					if (!cancelled) setFileSuggestions([]);
+				});
+		}, 120);
+
+		return () => {
+			cancelled = true;
+			window.clearTimeout(timer);
+		};
+	}, [composerTrigger, resolvedWorkspacePath]);
+
+	useEffect(() => {
+		setActiveSessionId(sessionId);
+		stickToBottomRef.current = true;
+		setPendingPermissions([]);
+		setHistoryScrollReady(false);
+	}, [sessionId]);
+
+	useEffect(() => {
+		if (connectionStatus !== "connected") return;
+		if (createOnFirstMessage) {
+			setAllMessages([]);
+			setVisibleCount(PAGE_SIZE);
+			stickToBottomRef.current = true;
+			setHistoryScrollReady(true);
+			setConfigOptions([]);
+			setAvailableCommands([]);
+			if (!agentAvailable) {
+				setLoading(false);
+				return;
+			}
+
+			let cancelled = false;
+			setLoading(true);
+			if (!createSessionPromiseRef.current) {
+				createSessionPromiseRef.current = acpCreateSession(
+					agentId,
+					resolvedWorkspacePath || ".",
+					"",
+				).then(async (result) => {
+					const nextSessionId = result.session.id ?? "";
+					if (!nextSessionId) {
+						return {
+							sessionId: "",
+							configOptions: result.configOptions,
+							availableCommands: result.availableCommands,
+							messages: [],
+							revision: 0,
+							syncing: false,
+						};
+					}
+					const attached = await acpAttachSession(
+						agentId,
+						nextSessionId,
+						resolvedWorkspacePath || ".",
+					);
+					return {
+						sessionId: nextSessionId,
+						configOptions: attached.configOptions,
+						availableCommands: attached.availableCommands,
+						messages: attached.messages,
+						revision: attached.revision,
+						syncing: attached.syncing,
+					};
+				});
+			}
+
+			createSessionPromiseRef.current
+				.then((result) => {
+					if (cancelled) return;
+					if (!result.sessionId) {
+						throw new Error("Unable to create ACP session");
+					}
+					setActiveSessionId(result.sessionId);
+					setConfigOptions(result.configOptions);
+					setAvailableCommands(result.availableCommands);
+					setAllMessages(result.messages);
+					setSyncing(Boolean(result.syncing));
+					cleanupRef.current?.();
+					attachReadyRef.current = true;
+					attachedSessionIdRef.current = result.sessionId;
+					attachedRevisionRef.current = result.revision;
+					cleanupRef.current = acpSubscribeSessionEvents(
+						agentId,
+						result.sessionId,
+						applyRevisionedSessionEvent,
+					);
+					setLoading(false);
+				})
+				.catch((err) => {
+					createSessionPromiseRef.current = null;
+					if (!cancelled) {
+						setError((err as Error).message);
+						setLoading(false);
+					}
+				});
+
+			return () => {
+				cancelled = true;
+				cleanupRef.current?.();
+				cleanupRef.current = null;
+				setLoading(false);
+			};
+		}
+
+		const hasVisibleMessages = allMessagesLengthRef.current > 0;
+		setLoading(!hasVisibleMessages);
+		setSyncing(hasVisibleMessages);
+		setVisibleCount(PAGE_SIZE);
+		setContextWindowUsage(null);
+		stickToBottomRef.current = true;
+		setHistoryScrollReady(false);
+		attachReadyRef.current = false;
+		attachedSessionIdRef.current = null;
+		attachedRevisionRef.current = 0;
+		pendingAttachEventsRef.current = [];
+
+		let cancelled = false;
+		cleanupRef.current = acpSubscribeSessionEvents(
+			agentId,
+			sessionId,
+			applyRevisionedSessionEvent,
+		);
+
+		acpAttachSession(agentId, sessionId, resolvedWorkspacePath || ".")
+			.then((result) => {
+				if (cancelled) return;
+				setConfigOptions(result.configOptions);
+				setAvailableCommands(result.availableCommands);
+				setAllMessages(result.messages);
+				attachedSessionIdRef.current = sessionId;
+				attachedRevisionRef.current = result.revision;
+				attachReadyRef.current = true;
+				setSyncing(Boolean(result.syncing));
+				if (getSessionStreaming(agentId, sessionId)) {
+					const lastUser = findLast(result.messages, (m) => m.role === "user");
+					const lastAssistant = findLast(
+						result.messages,
+						(m) => m.role === "assistant",
+					);
+					streamingUserIdRef.current = lastUser?.id ?? null;
+					streamingAssistantIdRef.current = lastAssistant?.id ?? null;
+					sentTurnStartRef.current = lastUser?.timestamp ?? 0;
+				}
+				const buffered = pendingAttachEventsRef.current
+					.splice(0)
+					.sort((a, b) => (a.revision ?? 0) - (b.revision ?? 0));
+				for (const event of buffered) {
+					applyRevisionedSessionEvent(event);
+				}
+				setLoading(false);
+				setSyncing(false);
+			})
+			.catch((err) => {
+				if (!cancelled) {
+					setError((err as Error).message);
+					setLoading(false);
+					setSyncing(false);
+				}
+			});
+
+		return () => {
+			cancelled = true;
+			const attachedSessionId = attachedSessionIdRef.current;
+			if (attachedSessionId && connectionStatusRef.current === "connected") {
+				void acpDetachSession(agentId, attachedSessionId).catch(() => {});
+			}
+			cleanupRef.current?.();
+			cleanupRef.current = null;
+			attachReadyRef.current = false;
+			attachedSessionIdRef.current = null;
+			pendingAttachEventsRef.current = [];
+			setLoading(false);
+		};
+	}, [
+		agentId,
+		connectionStatus,
+		createOnFirstMessage,
+		agentAvailable,
+		sessionId,
+		resolvedWorkspacePath,
+	]);
+
+	// Scroll to bottom after React commits new messages or streaming tokens
+	// biome-ignore lint/correctness/useExhaustiveDependencies: allMessages/streamingText are used as change triggers
+	useEffect(() => {
+		if (stickToBottomRef.current) scrollToBottom();
+	}, [allMessages, scrollToBottom]);
+
+	useLayoutEffect(() => {
+		if (permissionScrollTick === 0) return;
+		stickToBottomRef.current = true;
+		scrollToBottomNow(true);
+		const frame = requestAnimationFrame(() => {
+			scrollToBottomNow(true);
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [permissionScrollTick, scrollToBottomNow]);
+
+	useEffect(() => {
+		if (loading || !composerDraftRef.current) return;
+		const input = promptInputRef.current;
+		if (!input || input.textContent?.trim()) return;
+		input.innerHTML = composerDraftRef.current;
+		setComposerParts(readComposerParts(input));
+		setComposerTrigger(findComposerTrigger(input));
+		setActivePromptSuggestionIndex(0);
+	}, [loading]);
+
+	useEffect(() => {
+		const content = historyContentRef.current;
+		if (!content) return;
+
+		let frame = 0;
+		let lastHeight = 0;
+		const pinToBottom = () => {
+			frame = 0;
+			if (stickToBottomRef.current && !loadingMore) scrollToBottomNow();
+		};
+		const observer = new ResizeObserver((entries) => {
+			if (!entries.length) return;
+			const height = entries[0].contentRect.height;
+			if (height === lastHeight) return;
+			lastHeight = height;
+			if (frame) cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(pinToBottom);
+		});
+
+		observer.observe(content);
+		return () => {
+			if (frame) cancelAnimationFrame(frame);
+			observer.disconnect();
+		};
+	}, [loadingMore, scrollToBottomNow]);
+
+	useEffect(() => {
+		const inputBar = inputBarRef.current;
+		const container = scrollRef.current;
+		if (!inputBar || !container) return;
+
+		const initialFrame = requestAnimationFrame(updateInputOffset);
+		let observerFrame = 0;
+		let lastInputHeight = 0;
+		const observer = new ResizeObserver((entries) => {
+			if (!entries.length) return;
+			const height = entries[0].contentRect.height;
+			if (height === lastInputHeight) return;
+			lastInputHeight = height;
+			if (observerFrame) cancelAnimationFrame(observerFrame);
+			observerFrame = requestAnimationFrame(updateInputOffset);
+		});
+		observer.observe(inputBar);
+		return () => {
+			cancelAnimationFrame(initialFrame);
+			if (observerFrame) cancelAnimationFrame(observerFrame);
+			observer.disconnect();
+		};
+	}, [updateInputOffset]);
+
+	useLayoutEffect(() => {
+		if (loading || createOnFirstMessage || historyScrollReady) return;
+		if (allMessages.length === 0) {
+			setHistoryScrollReady(true);
+			return;
+		}
+		stickToBottomRef.current = true;
+		scrollToBottomNow(true);
+		setHistoryScrollReady(true);
+		const frame = requestAnimationFrame(() => {
+			scrollToBottomNow(true);
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [
+		allMessages.length,
+		createOnFirstMessage,
+		historyScrollReady,
+		loading,
+		scrollToBottomNow,
+	]);
+
+	useEffect(() => {
+		const onKeyboardShow = () => {
+			if (stickToBottomRef.current) scrollToBottom();
+		};
+		keyboard.on("show", onKeyboardShow);
+		return () => keyboard.off("show", onKeyboardShow);
+	}, [scrollToBottom]);
+
+	useEffect(() => {
+		const getDistanceFromBottom = () => {
+			if (!scrollRef.current) return 0;
+			const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+			return scrollHeight - scrollTop - clientHeight;
+		};
+		const handleScroll = () => {
+			const distanceFromBottom = getDistanceFromBottom();
+			stickToBottomRef.current = distanceFromBottom < 100;
+		};
+		const handleUserScrollIntent = () => {
+			const distanceFromBottom = getDistanceFromBottom();
+			if (distanceFromBottom >= 24) {
+				stickToBottomRef.current = false;
+				if (autoScrollFrameRef.current) {
+					cancelAnimationFrame(autoScrollFrameRef.current);
+					autoScrollFrameRef.current = 0;
+				}
+			}
+		};
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.key === "ArrowUp" ||
+				event.key === "PageUp" ||
+				event.key === "Home" ||
+				event.key === " "
+			) {
+				handleUserScrollIntent();
+			}
+		};
+		const handleDisclosureAnimationStart = () => {
+			startAutoScrollSuppression();
+			stickToBottomRef.current = false;
+		};
+		const handleDisclosureAnimationEnd = () => {
+			endAutoScrollSuppression();
+		};
+		const container = scrollRef.current;
+		if (container) {
+			container.addEventListener("scroll", handleScroll);
+			container.addEventListener("wheel", handleUserScrollIntent, {
+				passive: true,
+			});
+			container.addEventListener("touchmove", handleUserScrollIntent, {
+				passive: true,
+			});
+			container.addEventListener("keydown", handleKeyDown);
+			container.addEventListener(
+				"chat-disclosure-animation-start",
+				handleDisclosureAnimationStart,
+			);
+			container.addEventListener(
+				"chat-disclosure-animation-end",
+				handleDisclosureAnimationEnd,
+			);
+		}
+		return () => {
+			cleanupSendRef.current?.();
+			container?.removeEventListener("scroll", handleScroll);
+			container?.removeEventListener("wheel", handleUserScrollIntent);
+			container?.removeEventListener("touchmove", handleUserScrollIntent);
+			container?.removeEventListener("keydown", handleKeyDown);
+			container?.removeEventListener(
+				"chat-disclosure-animation-start",
+				handleDisclosureAnimationStart,
+			);
+			container?.removeEventListener(
+				"chat-disclosure-animation-end",
+				handleDisclosureAnimationEnd,
+			);
+			if (autoScrollFrameRef.current) {
+				cancelAnimationFrame(autoScrollFrameRef.current);
+				autoScrollFrameRef.current = 0;
+			}
+		};
+	}, [endAutoScrollSuppression, startAutoScrollSuppression]);
+
+	useLayoutEffect(() => {
+		if (scrollAdjust > 0 && scrollRef.current) {
+			scrollRef.current.scrollTop +=
+				scrollRef.current.scrollHeight - prevScrollHeightRef.current;
+			setLoadingMore(false);
+		}
+	}, [scrollAdjust]);
+
+	useEffect(() => {
+		const refreshActivity = () => {
+			const targetSessionId = activeSessionId || sessionId;
+			if (!targetSessionId) {
+				setIsStreaming(false);
+				return;
+			}
+			setIsStreaming(getSessionStreaming(agentId, targetSessionId));
+			const activity = getSessionActivity(agentId, targetSessionId);
+			if (activity?.title) setDisplayTitle(activity.title);
+			const pendingPermission = readPendingActivityPermission(
+				activity?.pendingPermission,
+			);
+			if (pendingPermission) {
+				handlePermissionRequest(pendingPermission);
+			} else if (activity && activity.status !== "waiting_for_permission") {
+				setPendingPermissions((prev) =>
+					prev.filter((item) => item.sessionId !== targetSessionId),
+				);
+			}
+		};
+		refreshActivity();
+		return subscribeSessionActivities(refreshActivity);
+	}, [activeSessionId, agentId, handlePermissionRequest, sessionId]);
+
+	useEffect(() => {
+		const targetSessionId = activeSessionId || sessionId;
+		setDisplayTitle(
+			getSessionActivity(agentId, targetSessionId)?.title ?? title,
+		);
+	}, [activeSessionId, agentId, sessionId, title]);
+
+	useEffect(() => {
+		upsertAcpMessageRef.current = (incomingMessage: AcpMessage) => {
+			const msg = incomingMessage;
+			setAllMessages((prev) => {
+				const incomingKey = getMessageStateKey(msg);
+				const byId = incomingKey
+					? prev.findIndex(
+							(message) => getMessageStateKey(message) === incomingKey,
+						)
+					: -1;
+				if (byId >= 0) {
+					const existing = prev[byId];
+					const existingTs = existing.timestamp ?? 0;
+					const localAssistantId = streamingAssistantIdRef.current;
+					const localAssistantIndex = localAssistantId
+						? prev.findIndex((message) => message.id === localAssistantId)
+						: -1;
+					if (
+						isStreaming &&
+						msg.role === "assistant" &&
+						existing.role === "assistant" &&
+						((existingTs > 0 && existingTs < sentTurnStartRef.current - 250) ||
+							(localAssistantIndex >= 0 && byId !== localAssistantIndex))
+					) {
+						streamingAssistantIdRef.current = msg.id ?? localAssistantId;
+						if (localAssistantIndex >= 0) {
+							const next = prev
+								.filter((_, index) => index !== byId)
+								.map((message) =>
+									message.id === localAssistantId ? msg : message,
+								);
+							return next;
+						}
+						return [...prev, msg];
+					}
+					const next = [...prev];
+					next[byId] =
+						msg.role === "user" ? mergeLocalUserText(msg, existing) : msg;
+					return next;
+				}
+
+				const byRequest =
+					msg.requestId === undefined
+						? -1
+						: prev.findIndex(
+								(message) =>
+									message.requestId === msg.requestId &&
+									message.role === msg.role,
+							);
+				if (byRequest >= 0) {
+					const next = [...prev];
+					next[byRequest] =
+						msg.role === "user"
+							? mergeLocalUserText(msg, prev[byRequest])
+							: msg;
+					return next;
+				}
+
+				if (isStreaming && msg.role === "user") {
+					const localUserId = streamingUserIdRef.current;
+					if (!localUserId) return prev;
+					const localUserIndex = localUserId
+						? prev.findIndex((message) => message.id === localUserId)
+						: -1;
+					if (localUserIndex >= 0) {
+						const next = [...prev];
+						next[localUserIndex] = {
+							...mergeLocalUserText(msg, prev[localUserIndex]),
+							id: msg.id || localUserId,
+							requestId: msg.requestId || localUserId,
+						};
+						return next;
+					}
+				}
+
+				if (isStreaming && msg.role === "assistant") {
+					const localAssistantId = streamingAssistantIdRef.current;
+					const localAssistantIndex = localAssistantId
+						? prev.findIndex((message) => message.id === localAssistantId)
+						: -1;
+					streamingAssistantIdRef.current = msg.id ?? localAssistantId;
+					if (localAssistantIndex >= 0) {
+						const next = [...prev];
+						next[localAssistantIndex] = msg;
+						return next;
+					}
+				}
+
+				return [...prev, msg];
+			});
+		};
+	}, [isStreaming]);
+
+	if (connectionStatus !== "connected" && !allMessages.length) {
+		return (
+			<Page title={displayTitle} subtitle={providerName} noBottomSafeArea>
+				<EmptyState message="Not connected to a device" mascot="sleep" />
+			</Page>
+		);
+	}
+
+	return (
+		<Page
+			title={displayTitle}
+			subtitle={workspacePath.split("/").slice(-2).join("/")}
+			noBottomSafeArea
+			className="chat-page"
+			scrollRef={scrollRef}
+			titleSlot={
+				<span
+					className={`chat-header-agent-icon ${getAgentIcon(agentId)}`}
+					aria-hidden="true"
+				/>
+			}
+			rightSlot={syncing ? <Loader size={18} mascot={false} /> : undefined}
+		>
+			{loading && allMessages.length === 0 && (
+				<EmptyState message="Loading messages…" mascot="loading" />
+			)}
+			{!loading && !syncing && allMessages.length === 0 && !isStreaming && (
+				<EmptyState message="No messages yet" mascot="greeting" />
+			)}
+			<div ref={historyContentRef} className="chat-history-content">
+				{syncing && allMessages.length === 0 && <ChatHistorySkeleton />}
+				{hasMore && historyScrollReady && (
+					<div ref={sentinelRef} className="chat-sentinel">
+						{loadingMore && <Loader size={24} />}
+					</div>
+				)}
+				{visibleMessageItems.map(({ message: msg, messageKey, renderKey }) => {
+					return (
+						<ChatBubble
+							key={renderKey}
+							messageKey={messageKey}
+							parts={msg.parts}
+							messageRole={msg.role}
+							assistantName={assistantName}
+							streaming={
+								isStreaming &&
+								msg.role === "assistant" &&
+								msg === lastVisibleMessage
+							}
+						/>
+					);
+				})}
+				{isStreaming && lastVisibleMessage?.role === "user" && (
+					<ChatBubble
+						key="assistant-streaming-placeholder"
+						messageKey="assistant-streaming-placeholder"
+						parts={[]}
+						messageRole="assistant"
+						assistantName={assistantName}
+						streaming
+					/>
+				)}
+				{pendingPermissions.map((permission) => (
+					<PermissionRequestCard
+						key={permission.id}
+						permission={permission}
+						onReply={handlePermissionReply}
+					/>
+				))}
+				{error && (
+					<div className="chat-error">
+						<span className="icon-alert-triangle" aria-hidden="true" />
+						{error}
+					</div>
+				)}
+				<div className="chat-bottom-anchor" />
+			</div>
+			<ChatComposer
+				inputBarRef={inputBarRef}
+				inputRef={promptInputRef}
+				agentAvailable={agentAvailable}
+				isConnected={connectionStatus === "connected" && !syncing}
+				unavailableMessage={unavailableMessage}
+				isStreaming={isStreaming}
+				canSendPrompt={canSendPrompt}
+				promptSuggestions={promptSuggestions}
+				activePromptSuggestionIndex={activePromptSuggestionIndex}
+				onPromptSuggestion={applyPromptSuggestion}
+				onPromptSuggestionHover={setActivePromptSuggestionIndex}
+				onInput={handleComposerInput}
+				onKeyDown={handlePromptKeyDown}
+				onPaste={handleComposerPaste}
+				onSend={handleSend}
+				onStop={handleStop}
+				contextMeter={contextMeter}
+				configControls={
+					<button
+						type="button"
+						className="chat-config-trigger"
+						onClick={() => setShowConfigSheet(true)}
+					>
+						<span className="icon-settings" aria-hidden="true" />
+						{getProminentConfigOptions(configOptions).flatMap((option, i) => {
+							const options = flattenConfigValues(option);
+							const current = options.find(
+								(o) => String(o.value) === String(option.currentValue),
+							);
+							const tag = (
+								<span
+									key={`${option.id}-value`}
+									className={`chat-config-tag chat-config-tag--${option.category ?? "default"}`}
+								>
+									{current?.name ?? String(option.currentValue)}
+								</span>
+							);
+							return i === 0
+								? [tag]
+								: [
+										<span key={`${option.id}-sep`} className="chat-config-sep">
+											·
+										</span>,
+										tag,
+									];
+						})}
+					</button>
+				}
+			/>
+			<BottomSheet
+				open={showConfigSheet}
+				onClose={() => {
+					setShowConfigSheet(false);
+					requestAnimationFrame(() => {
+						promptInputRef.current?.focus();
+					});
+				}}
+				title="Session Configuration"
+			>
+				<div className="flex flex-col">
+					{getProminentConfigOptions(configOptions).map((option) => {
+						const options = flattenConfigValues(option).map((item) => ({
+							value: item.value,
+							label: item.name,
+						}));
+						const ConfigControl = shouldUseConfigCombobox(option, options)
+							? AppCombobox
+							: AppSelect;
+						return (
+							<div
+								key={option.id}
+								className="flex items-center justify-between gap-3 py-3 px-1 border-b border-(--card-border) last:border-b-0"
+							>
+								<div className="flex items-center gap-3 min-w-0 shrink-0">
+									<span
+										className={`${getConfigIcon(option)} text-(--secondary-text) text-lg shrink-0`}
+										aria-hidden="true"
+									/>
+									<span className="text-sm font-medium text-(--primary-text)">
+										{option.name}
+									</span>
+								</div>
+								<ConfigControl
+									value={String(option.currentValue)}
+									disabled={isStreaming || configSavingId === option.id}
+									onChange={(nextValue) =>
+										handleConfigChange(option, nextValue)
+									}
+									ariaLabel={option.name}
+									options={options}
+									size="compact"
+									menuPlacement="top"
+									className={`min-w-0 flex-1 justify-end ${configSavingId === option.id ? "opacity-45" : ""}`}
+								/>
+							</div>
+						);
+					})}
+				</div>
+			</BottomSheet>
+			<BottomSheet
+				open={showContextSheet}
+				onClose={() => {
+					setShowContextSheet(false);
+					requestAnimationFrame(() => {
+						promptInputRef.current?.focus();
+					});
+				}}
+				title="Context Window"
+			>
+				{contextWindowUsage && (
+					<ContextWindowDetails usage={contextWindowUsage} />
+				)}
+			</BottomSheet>
+		</Page>
+	);
+
+	async function handleSend() {
+		const parts = readComposerParts(promptInputRef.current);
+		const text = composerPartsToText(parts).trim();
+		if (!text && !parts.some((part) => part.type === "attachment")) return;
+		if (
+			parts.some((part) => part.type === "attachment" && part.attachment.status)
+		) {
+			return;
+		}
+
+		setError("");
+		setComposerParts([]);
+		setComposerTrigger(null);
+		setFileSuggestions([]);
+		clearComposer(promptInputRef.current);
+		scrollToBottom(true);
+		stickToBottomRef.current = true;
+
+		const sentAt = Date.now();
+		sentTurnStartRef.current = sentAt;
+		const userId = `user_local_${sentAt}`;
+		streamingUserIdRef.current = userId;
+		streamingAssistantIdRef.current = null;
+		setAllMessages((prev) => [
+			...prev,
+			{
+				id: userId,
+				requestId: userId,
+				role: "user",
+				parts: composerPartsToMessageParts(parts),
+				timestamp: Date.now(),
+			},
+		]);
+
+		const callbacks: AcpPromptCallbacks = {
+			onToken: () => {},
+			onUsage: (usage) => {
+				const nextUsage = readContextWindowUsage({ usage });
+				if (nextUsage) setContextWindowUsage(nextUsage);
+			},
+			onEnd: (stopReason) => {
+				if (shouldShowStopReason(stopReason)) {
+					appendStopReason(stopReason);
+				}
+				finishStreamingTurn(activeSessionId || sessionId);
+			},
+			onError: (err) => {
+				finishStreamingTurn(activeSessionId || sessionId);
+				setError(err);
+			},
+			onMessage: (msg) => {
+				upsertAcpMessageRef.current(msg);
+			},
+			onPermission: handlePermissionRequest,
+		};
+
+		try {
+			let targetSessionId = activeSessionId;
+			if (createOnFirstMessage && !targetSessionId) {
+				if (!createSessionPromiseRef.current) {
+					createSessionPromiseRef.current = acpCreateSession(
+						agentId,
+						resolvedWorkspacePath || ".",
+						"",
+					).then(async (result) => {
+						const nextSessionId = result.session.id ?? "";
+						if (!nextSessionId) {
+							return {
+								sessionId: "",
+								configOptions: result.configOptions,
+								availableCommands: result.availableCommands,
+								messages: [],
+								revision: 0,
+								syncing: false,
+							};
+						}
+						const attached = await acpAttachSession(
+							agentId,
+							nextSessionId,
+							resolvedWorkspacePath || ".",
+						);
+						return {
+							sessionId: nextSessionId,
+							configOptions: attached.configOptions,
+							availableCommands: attached.availableCommands,
+							messages: attached.messages,
+							revision: attached.revision,
+							syncing: attached.syncing,
+						};
+					});
+				}
+				const result = await createSessionPromiseRef.current;
+				targetSessionId = result.sessionId;
+				setActiveSessionId(targetSessionId);
+				setConfigOptions(result.configOptions);
+				setAvailableCommands(result.availableCommands);
+				setAllMessages(result.messages);
+				setSyncing(Boolean(result.syncing));
+				cleanupRef.current?.();
+				attachReadyRef.current = true;
+				attachedSessionIdRef.current = targetSessionId;
+				attachedRevisionRef.current = result.revision;
+				cleanupRef.current = acpSubscribeSessionEvents(
+					agentId,
+					targetSessionId,
+					applyRevisionedSessionEvent,
+				);
+			}
+			if (!targetSessionId) throw new Error("Unable to create ACP session");
+			const content = await composerPartsToAcpContent(parts);
+			setSessionStreaming(agentId, targetSessionId, true);
+			const cleanup = acpPrompt(
+				agentId,
+				targetSessionId,
+				text,
+				callbacks,
+				content,
+			);
+			cleanupSendRef.current = cleanup;
+		} catch (err) {
+			finishStreamingTurn(activeSessionId || sessionId);
+			setError((err as Error).message);
+		}
+	}
+
+	function applyPromptSuggestion(suggestion: PromptSuggestion) {
+		if (suggestion.trigger === "@" && suggestion.file) {
+			insertAttachmentSuggestion(
+				promptInputRef.current,
+				suggestion.file,
+				composerTrigger,
+			);
+		} else {
+			replaceComposerTrigger(
+				promptInputRef.current,
+				composerTrigger,
+				suggestion.replacement,
+			);
+		}
+		const nextParts = readComposerParts(promptInputRef.current);
+		setComposerParts(nextParts);
+		setComposerTrigger(null);
+		setFileSuggestions([]);
+		setActivePromptSuggestionIndex(0);
+		requestAnimationFrame(() => {
+			const input = promptInputRef.current;
+			if (!input) return;
+			input.focus();
+		});
+	}
+
+	async function handlePermissionReply(
+		permission: AcpPermissionRequest,
+		optionId: string,
+	) {
+		setPendingPermissions((prev) =>
+			prev.filter((item) => item.id !== permission.id),
+		);
+		try {
+			await acpPermissionReply(
+				agentId,
+				permission.sessionId || activeSessionId || sessionId,
+				permission.id,
+				optionId,
+			);
+		} catch (err) {
+			setError((err as Error).message);
+		}
+	}
+
+	async function handleStop() {
+		try {
+			if (activeSessionId) await acpCancel(agentId, activeSessionId);
+		} catch (err) {
+			finishStreamingTurn(activeSessionId);
+			setError((err as Error).message);
+		}
+	}
+
+	function appendStopReason(stopReason: string) {
+		const activeId = streamingAssistantIdRef.current;
+		const activeUserId = streamingUserIdRef.current;
+		const stopReasonPart = createStopReasonPart(stopReason);
+		if (!stopReasonPart) return;
+		setAllMessages((prev) => {
+			const userIndex = activeUserId
+				? prev.findIndex((message) => message.id === activeUserId)
+				: -1;
+			const fallbackUserIndex = findLastIndex(
+				prev,
+				(message) => message.role === "user",
+			);
+			const turnStartIndex = userIndex >= 0 ? userIndex : fallbackUserIndex;
+			if (turnStartIndex < 0) return prev;
+
+			const assistantIndex = prev.findIndex(
+				(message, index) =>
+					index > turnStartIndex &&
+					message.role === "assistant" &&
+					(!activeId || message.id === activeId || !hasVisibleText(message)),
+			);
+
+			if (assistantIndex < 0) {
+				return [
+					...prev.slice(0, turnStartIndex + 1),
+					createStopReasonMessage(stopReasonPart),
+					...prev.slice(turnStartIndex + 1),
+				];
+			}
+
+			return prev.map((message, index) => {
+				if (index !== assistantIndex) return message;
+				const parts = removeStopReasonParts(message.parts);
+				return {
+					...message,
+					parts: [...parts, stopReasonPart],
+				};
+			});
+		});
+	}
+
+	function finishStreamingTurn(sessionIdToUse: string) {
+		cleanupSendRef.current?.();
+		cleanupSendRef.current = null;
+		setSessionStreaming(agentId, sessionIdToUse, false);
+		streamingUserIdRef.current = null;
+		streamingAssistantIdRef.current = null;
+	}
+
+	async function handleConfigChange(
+		option: AiSessionConfigOption,
+		value: string,
+	) {
+		const nextValue =
+			typeof option.currentValue === "boolean" ? value === "true" : value;
+		setError("");
+		setConfigSavingId(option.id);
+		setConfigOptions((prev) =>
+			prev.map((item) =>
+				item.id === option.id ? { ...item, currentValue: nextValue } : item,
+			),
+		);
+		try {
+			const targetSessionId = activeSessionId || sessionId;
+			const setMethod = (option as { _setMethod?: unknown })._setMethod;
+			if (setMethod === "mode") {
+				await acpSetMode(agentId, targetSessionId, String(nextValue));
+			} else if (setMethod === "model") {
+				await acpSetModel(agentId, targetSessionId, String(nextValue));
+			} else {
+				const nextOptions = await acpSetConfigOption(
+					agentId,
+					targetSessionId,
+					option.id,
+					nextValue,
+				);
+				if (nextOptions.length) setConfigOptions(nextOptions);
+			}
+		} catch (err) {
+			setError((err as Error).message);
+		} finally {
+			setConfigSavingId(null);
+			requestAnimationFrame(() => {
+				promptInputRef.current?.focus();
+			});
+		}
+	}
+
+	function handleComposerInput() {
+		composerDraftRef.current = promptInputRef.current?.innerHTML ?? "";
+		const nextParts = readComposerParts(promptInputRef.current);
+		setComposerParts(nextParts);
+		setComposerTrigger(findComposerTrigger(promptInputRef.current));
+		setActivePromptSuggestionIndex(0);
+	}
+
+	async function handleComposerPaste(
+		event: React.ClipboardEvent<HTMLDivElement>,
+	) {
+		event.preventDefault();
+		const clipboard = event.clipboardData;
+		const pastedParts: ComposerPart[] = [];
+		const text = plainTextFromClipboard(clipboard);
+		if (text) pastedParts.push({ type: "text", text });
+
+		const images = imageFilesFromClipboard(clipboard);
+		const pendingUploads: { file: File; attachment: ComposerAttachment }[] = [];
+		for (let index = 0; index < images.length; index += 1) {
+			if (pastedParts.length) pastedParts.push({ type: "text", text: " " });
+			const attachment = createPendingPastedImageAttachment(
+				images[index],
+				index,
+			);
+			pastedParts.push({ type: "attachment", attachment });
+			pastedParts.push({ type: "text", text: " " });
+			pendingUploads.push({ file: images[index], attachment });
+		}
+
+		if (!pastedParts.length) return;
+		insertComposerParts(promptInputRef.current, pastedParts);
+		handleComposerInput();
+		updateInputOffset();
+
+		for (const upload of pendingUploads) {
+			savePastedImageAttachment(upload.file, upload.attachment)
+				.then((attachment) => {
+					updateComposerAttachment(
+						promptInputRef.current,
+						upload.attachment.id,
+						attachment,
+					);
+					handleComposerInput();
+					updateInputOffset();
+				})
+				.catch((err) => {
+					updateComposerAttachment(
+						promptInputRef.current,
+						upload.attachment.id,
+						{
+							...upload.attachment,
+							status: "error",
+						},
+					);
+					handleComposerInput();
+					updateInputOffset();
+					setError((err as Error).message);
+				});
+		}
+	}
+
+	function createPendingPastedImageAttachment(file: File, index: number) {
+		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+		const ext = imageExtension(file);
+		const name = `pasted-image-${timestamp}-${index + 1}.${ext}`;
+		return {
+			id: `att:pending:${timestamp}:${index + 1}`,
+			path: "",
+			relativePath: name,
+			name,
+			size: file.size,
+			mimeType: file.type || `image/${ext}`,
+			status: "pending" as const,
+		};
+	}
+
+	async function savePastedImageAttachment(
+		file: File,
+		pendingAttachment: ComposerAttachment,
+	) {
+		const attachmentSessionId = await getAttachmentSessionId();
+		const ext = imageExtension(file);
+		const bytes = new Uint8Array(await file.arrayBuffer());
+		const attachment = await acpWriteAttachmentBase64({
+			agentId,
+			sessionId: attachmentSessionId,
+			name: pendingAttachment.name,
+			content: bytesToBase64(bytes),
+			mimeType: file.type || `image/${ext}`,
+		});
+		return {
+			id: pendingAttachment.id,
+			path: attachment.path,
+			relativePath: attachment.name,
+			name: attachment.name,
+			size: attachment.size,
+			mimeType: attachment.mimeType || file.type || `image/${ext}`,
+		};
+	}
+
+	async function getAttachmentSessionId() {
+		if (activeSessionId) return activeSessionId;
+		if (sessionId) return sessionId;
+		if (createSessionPromiseRef.current) {
+			const result = await createSessionPromiseRef.current;
+			if (result.sessionId) return result.sessionId;
+		}
+		return "draft";
+	}
+
+	function handlePromptKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+		if (promptSuggestions.length > 0) {
+			if (e.key === "ArrowDown") {
+				e.preventDefault();
+				setActivePromptSuggestionIndex(
+					(index) => (index + 1) % promptSuggestions.length,
+				);
+				return;
+			}
+			if (e.key === "ArrowUp") {
+				e.preventDefault();
+				setActivePromptSuggestionIndex(
+					(index) =>
+						(index - 1 + promptSuggestions.length) % promptSuggestions.length,
+				);
+				return;
+			}
+			if (e.key === "Tab") {
+				e.preventDefault();
+				applyPromptSuggestion(
+					promptSuggestions[
+						Math.min(activePromptSuggestionIndex, promptSuggestions.length - 1)
+					],
+				);
+				return;
+			}
+
+			if (e.key === "Enter") {
+				e.preventDefault();
+			}
+		}
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			handleSend();
+		}
+	}
+}
+
+function ChatHistorySkeleton() {
+	return (
+		<div className="chat-skeleton" aria-hidden="true">
+			<div className="chat-skeleton-row chat-skeleton-row--assistant">
+				<div className="chat-skeleton-label" />
+				<div className="chat-skeleton-bubble">
+					<span className="chat-skeleton-line chat-skeleton-line--wide" />
+					<span className="chat-skeleton-line" />
+					<span className="chat-skeleton-line chat-skeleton-line--short" />
+				</div>
+			</div>
+			<div className="chat-skeleton-row chat-skeleton-row--user">
+				<div className="chat-skeleton-label" />
+				<div className="chat-skeleton-bubble">
+					<span className="chat-skeleton-line chat-skeleton-line--medium" />
+				</div>
+			</div>
+			<div className="chat-skeleton-row chat-skeleton-row--assistant">
+				<div className="chat-skeleton-label" />
+				<div className="chat-skeleton-bubble">
+					<span className="chat-skeleton-line chat-skeleton-line--wide" />
+					<span className="chat-skeleton-line chat-skeleton-line--medium" />
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ContextWindowDetails({ usage }: { usage: ContextWindowUsage }) {
+	const percentage = getContextWindowPercentage(
+		usage.usedTokens,
+		usage.maxTokens,
+	);
+	const clampedPercentage =
+		percentage === null ? 0 : Math.max(0, Math.min(100, percentage));
+	const remainingTokens = Math.max(0, usage.maxTokens - usage.usedTokens);
+	const state = getContextWindowState(clampedPercentage);
+	const percentageLabel =
+		percentage === null ? "Unknown" : `${Math.round(percentage)}%`;
+	return (
+		<section className="chat-context-sheet">
+			<div className="chat-context-sheet__summary">
+				<strong>{percentageLabel} used</strong>
+				<span>{formatExactTokenCount(remainingTokens)} remaining</span>
+			</div>
+			<div className={`chat-context-sheet__bar is-${state}`} aria-hidden="true">
+				<span style={{ width: `${clampedPercentage}%` }} />
+			</div>
+			<div className="chat-context-sheet__meta">
+				<span>
+					Used {formatExactTokenCount(usage.usedTokens)} of{" "}
+					{formatExactTokenCount(usage.maxTokens)}
+				</span>
+				<span>{formatTokenCount(remainingTokens)} left</span>
+			</div>
+		</section>
+	);
+}
+
+function handleFiles(click: MouseEvent, workspacePath: string) {
+	const target = click.target as HTMLElement;
+
+	const anchor = target.closest("a") as HTMLAnchorElement | null;
+	if (anchor) {
+		const href = anchor.getAttribute("href");
+		if (!href) return;
+		click.preventDefault();
+		click.stopPropagation();
+		if (href.startsWith("http")) {
+			native.openInBrowser(href);
+			return;
+		}
+
+		openEditorPath(href, workspacePath, true);
+		return;
+	}
+
+	const fileRef = target.closest(
+		".file-reference, .file-change",
+	) as HTMLElement;
+	if (fileRef) {
+		const path = fileRef.dataset.path;
+		if (path) {
+			click.preventDefault();
+			click.stopPropagation();
+			openEditorPath(path, workspacePath, true);
+		}
+	}
+}
+
+function readPendingActivityPermission(
+	value: unknown,
+): AcpPermissionRequest | null {
+	if (!value || typeof value !== "object") return null;
+	const permission = value as Record<string, unknown>;
+	const id = permission.id;
+	const sessionId = permission.sessionId;
+	if (typeof id !== "string" || typeof sessionId !== "string") return null;
+	return {
+		id,
+		sessionId,
+		callId:
+			typeof permission.callId === "string" ? permission.callId : undefined,
+		kind: typeof permission.kind === "string" ? permission.kind : undefined,
+		title:
+			typeof permission.title === "string"
+				? permission.title
+				: "Permission requested",
+		options: Array.isArray(permission.options) ? permission.options : [],
+		metadata: permission.metadata,
+	};
+}
+
+function plainTextFromClipboard(clipboard: DataTransfer) {
+	const text = clipboard.getData("text/plain");
+	if (text) return text;
+	const html = clipboard.getData("text/html");
+	if (!html) return "";
+	const doc = new DOMParser().parseFromString(html, "text/html");
+	for (const node of Array.from(doc.querySelectorAll("style, script"))) {
+		node.remove();
+	}
+	return doc.body.textContent ?? "";
+}
+
+function imageFilesFromClipboard(clipboard: DataTransfer) {
+	const files: File[] = [];
+	const seen = new Set<string>();
+	const appendFile = (file: File) => {
+		if (!file.type.startsWith("image/")) return;
+		const key = `${file.name}:${file.type}:${file.size}:${file.lastModified}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		files.push(file);
+	};
+	for (const item of Array.from(clipboard.items)) {
+		if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+		const file = item.getAsFile();
+		if (file) appendFile(file);
+	}
+	for (const file of Array.from(clipboard.files)) {
+		appendFile(file);
+	}
+	return files;
+}
+
+function imageExtension(file: File) {
+	const fromName = file.name.split(".").pop()?.toLowerCase();
+	if (fromName && /^[a-z0-9]+$/.test(fromName)) return fromName;
+	switch (file.type) {
+		case "image/jpeg":
+			return "jpg";
+		case "image/gif":
+			return "gif";
+		case "image/webp":
+			return "webp";
+		case "image/avif":
+			return "avif";
+		case "image/svg+xml":
+			return "svg";
+		default:
+			return "png";
+	}
+}
+
+function openEditorPath(
+	rawPath: string,
+	workspacePath: string,
+	readOnly?: boolean,
+) {
+	const target = normalizeEditorPath(rawPath, workspacePath);
+	const pageKey = target.line ? `${target.path}:${target.line}` : target.path;
+	pushPage(
+		pageKey,
+		<EditorPage
+			readOnly={readOnly}
+			filePath={target.path}
+			initialLine={target.line}
+			initialColumn={target.column}
+		/>,
+	);
+}
+
+function normalizeEditorPath(rawPath: string, workspacePath: string) {
+	let path = decodeURIComponent(rawPath.trim())
+		.replace(/^file:\/\//, "")
+		.replace(/^#L(\d+)$/, "");
+	let line: number | undefined;
+	let column: number | undefined;
+
+	const hashLineMatch = path.match(/^(.*?)#L(\d+)(?:-L\d+)?$/);
+	if (hashLineMatch) {
+		path = hashLineMatch[1];
+		line = Number(hashLineMatch[2]);
+	}
+	path = path.replace(/\?[^/?]*$/, "");
+
+	const lineMatch = path.match(/^(.*?):(\d+)(?::(\d+))?$/);
+	if (lineMatch?.[1]) {
+		path = lineMatch[1];
+		line = Number(lineMatch[2]);
+		column = lineMatch[3] ? Number(lineMatch[3]) : undefined;
+	}
+
+	if (workspacePath && !path.startsWith("/") && !path.includes("://")) {
+		path = `${workspacePath.replace(/\/$/, "")}/${path.replace(/^\.\//, "")}`;
+	}
+
+	return { path, line, column };
+}
+
+function readConfigOptions(value: unknown): AiSessionConfigOption[] | null {
+	return Array.isArray(value) ? (value as AiSessionConfigOption[]) : null;
+}
+
+function readAvailableCommands(value: unknown): AcpAvailableCommand[] | null {
+	return Array.isArray(value) ? (value as AcpAvailableCommand[]) : null;
+}
+
+function getMessageStateKey(message: AcpMessage): string | null {
+	if (!message.id) return null;
+	if (message.timestamp) {
+		return `${message.id}:${message.role}:${message.timestamp}`;
+	}
+	return `${message.id}:${message.role}`;
+}
+
+function getProminentConfigOptions(options: AiSessionConfigOption[]) {
+	const supported = options.filter(
+		(option) => option.type === "select" && flattenConfigValues(option).length,
+	);
+	const preferred = supported.filter((option) =>
+		["mode", "model", "thought_level"].includes(String(option.category ?? "")),
+	);
+	return (preferred.length ? preferred : supported).slice(0, 3);
+}
+
+function flattenConfigValues(option: AiSessionConfigOption) {
+	const values: { value: string; name: string }[] = [];
+	for (const item of option.options ?? []) {
+		if ("options" in item && Array.isArray(item.options)) {
+			for (const child of item.options) {
+				values.push({
+					value: String(child.value),
+					name: child.name || String(child.value),
+				});
+			}
+			continue;
+		}
+		if ("value" in item) {
+			values.push({
+				value: String(item.value),
+				name: item.name || String(item.value),
+			});
+		}
+	}
+	return values;
+}
+
+function shouldUseConfigCombobox(
+	option: AiSessionConfigOption,
+	options: { value: string; label: string }[],
+) {
+	return option.category === "model" || options.length > 10;
+}
+
+function formatExactTokenCount(value: number) {
+	return Math.round(value).toLocaleString();
+}
+
+function getConfigIcon(option: AiSessionConfigOption) {
+	if (option.category === "model") return "icon-tool";
+	if (option.category === "thought_level") return "icon-message-square";
+	return "icon-settings";
+}
+
+function hasVisibleText(message: AcpMessage) {
+	return message.parts.some(
+		(part) => part.type === "text" && part.text.trim().length > 0,
+	);
+}
+
+function mergeLocalUserText(
+	incoming: AcpMessage,
+	local: AcpMessage,
+): AcpMessage {
+	if (incoming.role !== "user") return incoming;
+	const missingLocalAttachments = local.parts.filter(
+		(part) =>
+			part.type === "file_reference" &&
+			!incoming.parts.some(
+				(incomingPart) =>
+					incomingPart.type === "file_reference" &&
+					incomingPart.path === part.path,
+			),
+	);
+	if (hasVisibleText(incoming)) {
+		return missingLocalAttachments.length
+			? {
+					...incoming,
+					parts: local.parts,
+				}
+			: incoming;
+	}
+	const localTextParts = local.parts.filter(
+		(part) => part.type === "text" && part.text.trim().length > 0,
+	);
+	const localFallbackParts = [...localTextParts, ...missingLocalAttachments];
+	if (!localFallbackParts.length) return incoming;
+	return {
+		...incoming,
+		parts: incoming.parts.length
+			? [...incoming.parts, ...localFallbackParts]
+			: localFallbackParts,
+	};
+}
+
+function findLast<T>(arr: T[], predicate: (item: T) => boolean): T | undefined {
+	for (let i = arr.length - 1; i >= 0; i--) {
+		if (predicate(arr[i])) return arr[i];
+	}
+}
+
+function removeStopReasonParts(parts: AcpMessagePart[]) {
+	return parts.filter((part) => !isStopReasonPart(part));
+}
+
+function isStopReasonPart(part: AcpMessagePart) {
+	return (
+		part.type === "text" &&
+		"metadata" in part &&
+		(part as { metadata?: unknown }).metadata === STOP_REASON_METADATA
+	);
+}
+
+function shouldShowStopReason(
+	stopReason: string | undefined,
+): stopReason is string {
+	return Boolean(stopReason && formatStopReason(stopReason));
+}
+
+function createStopReasonPart(stopReason: string): AcpMessagePart | null {
+	const text = formatStopReason(stopReason);
+	if (!text) return null;
+	return {
+		type: "text",
+		text,
+		metadata: STOP_REASON_METADATA,
+	};
+}
+
+function createStopReasonMessage(stopReasonPart: AcpMessagePart): AcpMessage {
+	return {
+		id: `assistant_stop_${Date.now()}`,
+		role: "assistant",
+		parts: [stopReasonPart],
+		timestamp: Date.now(),
+	};
+}

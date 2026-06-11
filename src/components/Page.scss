@@ -1,0 +1,65 @@
+.page-overlay {
+  &.closing {
+    .page {
+      animation: slide-out 240ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    }
+  }
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0;
+  background: var(--primary);
+  padding-left: var(--sal, 0px);
+  padding-right: var(--sar, 0px);
+  animation: slide-in 280ms cubic-bezier(0.4, 0, 0.2, 1) both;
+
+  &.no-bottom-safe-area {
+    padding-bottom: 0;
+  }
+
+  @include tablet {
+    @include ios {
+      padding-left: 0;
+      padding-right: 0;
+
+      >.page-content {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+    }
+
+    @include android {
+      padding-left: 0;
+      padding-right: 0;
+
+      >.page-content {
+        padding-left: calc(var(--sat, 0px));
+        padding-right: calc(var(--sab, 0px));
+      }
+
+      .page-header {
+        padding-right: calc(var(--sab, 0px));
+      }
+    }
+  }
+
+  >.page-header {
+    padding-top: calc(8px + var(--sat, 0px));
+    height: var(--page-header-height, 56px);
+  }
+
+  >.page-content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: auto;
+    padding: 16px 16px 15vh 16px;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+}

@@ -1,0 +1,44 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+local.properties
+.env
+
+# Editor directories and files
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Platform-specific files
+.gradle
+platforms/android/app/src/main/assets/bundle
+platforms/ios/shellular/bundle
+platforms/browser/bundle
+platforms/android/app/release
+platforms/android/build
+keystore.jks
+
+/build.json
+dev/terminals.config
+
+*.xcarchive
+xcuserdata
+*.xcuserstate
+
+# Agents
+.claude

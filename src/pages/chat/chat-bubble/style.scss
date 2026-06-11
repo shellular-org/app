@@ -1,0 +1,541 @@
+@use 'tailwindcss';
+
+.chat-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 88%;
+  min-width: 0;
+  margin-bottom: 16px;
+
+  &--user {
+    align-self: flex-end;
+    align-items: flex-end;
+
+    .file-reference {
+      border: 1px solid color-mix(in srgb, var(--button-text) 28%, transparent);
+      background: color-mix(in srgb, var(--button-text) 14%, transparent);
+      color: var(--button-text);
+      max-width: 150px;
+
+      >span[class^="icon-"] {
+        color: currentColor;
+        opacity: 0.82;
+      }
+
+      >em {
+        color: currentColor;
+        opacity: 0.72;
+      }
+    }
+
+    .chat-bubble-text {
+      background: var(--button-background);
+      color: var(--button-text);
+      border-bottom-right-radius: 4px;
+      padding: 10px 14px;
+    }
+
+    +.chat-bubble--user .chat-bubble-role {
+      display: none;
+    }
+
+    code {
+      color: var(--surface-strong) !important;
+    }
+  }
+
+  &--assistant {
+    align-self: stretch;
+    align-items: flex-start;
+    max-width: 100%;
+
+    .chat-bubble-content {
+      width: 100%;
+    }
+
+    .chat-bubble-text {
+      width: 100%;
+      background: transparent;
+      color: var(--primary-text);
+      padding: 4px 0;
+    }
+
+    +.chat-bubble--assistant .chat-bubble-role {
+      display: none;
+    }
+  }
+
+  &--streaming {
+    .chat-bubble-text {
+      opacity: 0.85;
+    }
+  }
+
+  .chat-typing {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 2px;
+    color: var(--secondary-text);
+    font-size: 12px;
+    opacity: 0.72;
+  }
+
+  .chat-part-muted {
+    padding: 0 10px 8px;
+    color: var(--secondary-text);
+    font-family: "Courier New", monospace;
+    font-size: 11px;
+    opacity: 0.65;
+  }
+
+  .chat-part-card {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--surface-soft);
+    overflow: hidden;
+    padding: 0;
+
+
+    &:not(.chat-part-card + .chat-part-card) {
+      margin-top: 8px;
+      border-radius: 8px 8px 0 0;
+    }
+
+    &:not(.chat-part-card + .chat-part-card):not(:has(+ .chat-part-card)) {
+      border-radius: 8px;
+      border: none;
+    }
+
+    &:not(:has(+ .chat-part-card)) {
+      border-radius: 0 0 8px 8px;
+      margin-bottom: 8px;
+      border-bottom: none;
+    }
+
+    &:has(+ .chat-part-card) {
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    &--plan {
+      &[open] summary {
+        margin-bottom: 6px;
+      }
+    }
+
+    .chat-part-card-title {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      font: inherit;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 8px 10px;
+      color: var(--primary-text);
+      font-size: 12px;
+      font-weight: 600;
+      text-align: left;
+      list-style: none;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+
+      &::-webkit-details-marker {
+        display: none;
+      }
+
+      >span:not([class^="icon-"]):not(.mascot) {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .chat-summary-mascot {
+        margin-left: auto;
+      }
+
+      em {
+        margin-left: auto;
+        font-style: normal;
+        font-size: 10px;
+        color: var(--secondary-text);
+        opacity: 0.6;
+        flex-shrink: 0;
+      }
+
+      .chat-summary-mascot+em {
+        margin-left: 0;
+      }
+
+      .chat-details-chevron {
+        color: var(--secondary-text);
+        opacity: 0.45;
+        flex-shrink: 0;
+        transition: opacity 0.18s ease;
+      }
+    }
+
+    pre {
+      margin: 0;
+      padding: 9px 10px;
+      max-height: 260px;
+      overflow: auto;
+      background: var(--card-bg);
+      color: var(--secondary-text);
+      font-family: "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+  }
+
+  .chat-bubble-content {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .chat-bubble-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow: hidden;
+    height: 28px;
+    min-height: 28px;
+    pointer-events: auto;
+
+    .chat-bubble-copy {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--secondary-text);
+      opacity: 0.75;
+      transition:
+        background 120ms ease,
+        color 120ms ease,
+        border-color 120ms ease;
+      user-select: none;
+      -webkit-user-select: none;
+
+      span {
+        font-size: 14px;
+      }
+
+      &:hover {
+        background: var(--card-bg);
+        color: var(--primary-text);
+        opacity: 1;
+      }
+
+      &:active {
+        transform: scale(0.96);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      &--copied {
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+    }
+  }
+
+  .chat-bubble-text {
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+
+    @include tablet {
+      padding: 10px 14px;
+    }
+
+    &--md {
+      white-space: normal;
+
+      p {
+        margin: 0 0 12px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+
+      ul,
+      ol {
+        margin: 4px 0 8px;
+        padding-left: 20px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+
+      ul {
+        list-style: disc;
+      }
+
+      ol {
+        list-style: decimal;
+      }
+
+      li {
+        margin-bottom: 3px;
+
+        &:last-child {
+          margin-bottom: 0;
+        }
+      }
+
+      code {
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+        padding: 2px 5px;
+        border-radius: 4px;
+        color: var(--accent);
+      }
+
+      pre {
+        margin: 6px 0;
+        padding: 10px 12px;
+        background-color: var(--surface-soft);
+        color: currentColor;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+        box-sizing: border-box;
+
+        &[data-lang]::before {
+          content: attr(data-lang);
+          display: block;
+          text-align: right;
+          font-size: 10px;
+          font-family: inherit;
+          color: var(--accent);
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          margin-bottom: 6px;
+          position: sticky;
+          left: 0;
+        }
+
+        code {
+          padding: 0;
+          background: none;
+          font-size: 12px;
+          line-height: 1.5;
+        }
+      }
+
+      blockquote {
+        margin: 6px 0;
+        padding: 4px 12px;
+        border-left: 3px solid var(--border-color);
+        opacity: 0.85;
+
+        p {
+          margin: 0;
+        }
+      }
+
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      h6 {
+        margin: 8px 0 4px;
+        font-weight: 600;
+        line-height: 1.3;
+
+        &:first-child {
+          margin-top: 0;
+        }
+      }
+
+      h1 {
+        font-size: 16px;
+      }
+
+      h2 {
+        font-size: 15px;
+      }
+
+      h3,
+      h4,
+      h5,
+      h6 {
+        font-size: 14px;
+      }
+
+      a {
+        color: var(--link);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+
+      .markdown-reference {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        max-width: min(100%, 320px);
+        margin: 0 2px;
+        padding: 1px 7px 1px 5px;
+        border-radius: 6px;
+        background: var(--surface-soft);
+        border: 1px solid var(--border-color);
+        color: var(--accent);
+        font-family: "Courier New", monospace;
+        font-size: 0.9em;
+        line-height: 1.35;
+        text-decoration: none;
+        vertical-align: baseline;
+        white-space: nowrap;
+
+        >span[class^="icon-"] {
+          flex-shrink: 0;
+          color: currentColor;
+          opacity: 0.78;
+        }
+
+        >span:not([class^="icon-"]) {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        &:hover,
+        &:focus-visible {
+          border-color: var(--accent);
+          background: var(--card-bg);
+        }
+      }
+
+      .markdown-reference--web {
+        color: var(--link);
+      }
+
+      hr {
+        border: none;
+        border-top: 1px solid var(--border-color);
+        margin: 8px 0;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 12px;
+        margin: 6px 0;
+
+        th,
+        td {
+          border: 1px solid var(--border-color);
+          padding: 4px 8px;
+          text-align: left;
+        }
+
+        th {
+          background: var(--surface-soft);
+          font-weight: 600;
+        }
+      }
+
+      *:first-child {
+        margin-top: 0;
+      }
+
+      *:last-child {
+        margin-bottom: 0;
+      }
+    }
+  }
+
+  .chat-bubble-role {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--secondary-text);
+    opacity: 0.5;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0 4px;
+  }
+
+  .tok-keyword {
+    color: #c678dd;
+  }
+
+  .tok-operator {
+    color: #56b6c2;
+  }
+
+  .tok-punctuation {
+    color: #abb2bf;
+  }
+
+  .tok-string,
+  .tok-string2 {
+    color: #98c379;
+  }
+
+  .tok-comment {
+    color: #5c6370;
+    font-style: italic;
+  }
+
+  .tok-number {
+    color: #d19a66;
+  }
+
+  .tok-bool,
+  .tok-null,
+  .tok-atom {
+    color: #d19a66;
+  }
+
+  .tok-typeName,
+  .tok-className {
+    color: #e5c07b;
+  }
+
+  .tok-variableName {
+    color: #abb2bf;
+  }
+
+  .tok-propertyName {
+    color: #61afef;
+  }
+
+  .tok-regexp {
+    color: #98c379;
+  }
+
+  .tok-tagName {
+    color: #e06c75;
+  }
+
+  .tok-attributeName {
+    color: #d19a66;
+  }
+
+  .tok-attributeValue {
+    color: #98c379;
+  }
+}

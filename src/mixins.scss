@@ -1,0 +1,67 @@
+@mixin big-phone {
+  @media (max-width: 520px) {
+    @content;
+  }
+}
+
+@mixin tablet {
+  @media (min-width: 768px) {
+    @content;
+  }
+}
+
+@mixin desktop {
+  @media (min-width: 1024px) {
+    @content;
+  }
+}
+
+@mixin android {
+  body[platform="android"] & {
+    @content;
+  }
+}
+
+@mixin android-keyboard-visible {
+  body[platform="android"].keyboard-visible & {
+    @content;
+  }
+}
+
+@mixin ios {
+  body[platform="ios"] & {
+    @content;
+  }
+}
+
+@mixin ios-keyboard-visible {
+  body[platform="ios"].keyboard-visible & {
+    @content;
+  }
+}
+
+@mixin browser {
+  body[platform="browser"] & {
+    @content;
+  }
+}
+
+@mixin browser-keyboard-visible {
+  body[platform="browser"].keyboard-visible & {
+    @content;
+  }
+}
+
+@mixin keyboard-visible {
+  body.keyboard-visible & {
+    @content;
+  }
+}
+
+@mixin icon {
+
+  [class^='icon-'],
+  [class*=' icon-'] {
+    @content;
+  }
+}

@@ -1,0 +1,802 @@
+import {
+	type BatteryUpdateMsg,
+	ClientHandshakeRespMsgSchema,
+	type ClientIncomingMsg,
+	ClientIncomingMsgSchema,
+	type ClientToHostMsg,
+	type ClientToServerMsg,
+	type HostInfo,
+	MsgType,
+	parseMessage,
+	type SessionJoinedMsg,
+} from "@shellular/protocol";
+import native from "bridge/native";
+import {
+	decryptMessage,
+	decryptProxyBinaryFrame,
+	encryptMessage,
+	isPlaintextMessage,
+	type ProxyBinaryHttpResponseData,
+} from "lib/e2ee";
+import { getBaseServerUrl } from "lib/settings";
+import * as store from "lib/store";
+import { nanoid } from "nanoid";
+
+type OutgoingMsg = ClientToHostMsg | ClientToServerMsg;
+export type SendableMsg = {
+	[TType in OutgoingMsg["type"]]: Omit<
+		Extract<OutgoingMsg, { type: TType }>,
+		"id" | "clientId"
+	>;
+}[OutgoingMsg["type"]];
+
+export type ConnectionStatus =
+	| "disconnected"
+	| "connecting"
+	| "connected"
+	| "reconnecting";
+
+export interface BatteryInfo {
+	percentage: number;
+	charging: boolean;
+}
+
+type Listener = () => void;
+const PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT = "proxy:binary:http-response-data";
+
+interface ConnectionSnapshot {
+	serverUrl: string;
+	sessionToken: string;
+	hostInfo: HostInfo | null;
+	connectionStatus: ConnectionStatus;
+	batteryInfo: BatteryInfo | null;
+}
+
+type HandshakeError = Error & {
+	code?: number;
+	reason?: string;
+	userMessage?: string;
+};
+
+const RECV_TIMEOUT = 40_000;
+const PING_INTERVAL_MS = 25_000;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const BASE_RECONNECT_DELAY_MS = 1000;
+const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
+const HANDSHAKE_CLOSE_CODE = {
+	HOST_UNAVAILABLE: 4001,
+	INVALID_QUERY: 4002,
+	APPROVAL_DENIED: 4003,
+	SESSION_ERROR: 4004,
+	HOST_DISCONNECTED: 4005,
+} as const;
+
+class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
+	readonly msg: TMsg;
+
+	constructor(type: string, msg: TMsg) {
+		super(type);
+		this.msg = msg;
+	}
+}
+
+class ProxyBinaryHttpResponseDataEvent extends Event {
+	readonly data: ProxyBinaryHttpResponseData;
+
+	constructor(data: ProxyBinaryHttpResponseData) {
+		super(PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT);
+		this.data = data;
+	}
+}
+
+export async function getClientId(): Promise<string> {
+	const existing = await store.get<string>(CLIENT_ID_STORAGE_KEY);
+	if (existing) {
+		return existing;
+	}
+
+	const clientId = `c_${nanoid(16)}`;
+	await store.set(CLIENT_ID_STORAGE_KEY, clientId);
+	return clientId;
+}
+
+export class Connection extends EventTarget {
+	private ws: WebSocket | null = null;
+	private pendingResponses = new Map<string, (msg: unknown) => void>();
+	private encryptionKey: Uint8Array | null = null;
+	private clientId: string | null = null;
+	private readonly serverUrl: string;
+
+	constructor(wsServerUrl: string, encryptionKey?: Uint8Array | null) {
+		super();
+		this.serverUrl = wsServerUrl;
+		this.encryptionKey = encryptionKey ?? null;
+	}
+
+	private handleIncomingMessage(raw: string) {
+		let msgRaw = raw;
+
+		// Decrypt encrypted envelopes before Zod parsing
+		if (this.encryptionKey) {
+			try {
+				const envelope = JSON.parse(raw);
+				if (envelope.type === MsgType.ENCRYPTED) {
+					const inner = decryptMessage(envelope, this.encryptionKey);
+					if (!inner) return; // silent drop
+					msgRaw = JSON.stringify(inner);
+				}
+			} catch {
+				console.warn("[E2EE] Failed to pre-parse message, dropping");
+				return;
+			}
+		}
+
+		const parsed = parseMessage(msgRaw, ClientIncomingMsgSchema);
+		if (!parsed.data) {
+			console.error("Received invalid message:", {
+				error: parsed.error,
+				raw: msgRaw,
+			});
+			return;
+		}
+
+		const msg = parsed.data;
+
+		if ("respTo" in msg && msg.respTo) {
+			const pending = this.pendingResponses.get(msg.respTo);
+			if (pending) {
+				this.pendingResponses.delete(msg.respTo);
+				pending(msg);
+			}
+		}
+
+		this.dispatchEvent(new MessageEvent(msg.type, msg));
+	}
+
+	private handleIncomingBinaryMessage(frame: ArrayBuffer) {
+		if (!this.encryptionKey) {
+			console.warn(
+				"[E2EE] Received proxy binary frame without an encryption key",
+			);
+			return;
+		}
+
+		const msg = decryptProxyBinaryFrame(frame, this.encryptionKey);
+		if (!msg) return;
+
+		this.dispatchEvent(new ProxyBinaryHttpResponseDataEvent(msg));
+	}
+
+	private async handleIncomingWebSocketData(data: unknown) {
+		if (typeof data === "string") {
+			this.handleIncomingMessage(data);
+			return;
+		}
+
+		if (data instanceof ArrayBuffer) {
+			this.handleIncomingBinaryMessage(data);
+			return;
+		}
+
+		if (ArrayBuffer.isView(data)) {
+			const view = data as ArrayBufferView;
+			const bytes = new Uint8Array(view.byteLength);
+			bytes.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+			this.handleIncomingBinaryMessage(bytes.buffer);
+			return;
+		}
+
+		if (data instanceof Blob) {
+			this.handleIncomingBinaryMessage(await data.arrayBuffer());
+		}
+	}
+
+	async open(hostId: string): Promise<SessionJoinedMsg> {
+		const deviceInfo = await native.getDeviceInfo();
+		const clientId = await getClientId();
+		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
+		const platform = process.env.PLATFORM;
+
+		const wsUrl = new URL(this.serverUrl);
+		wsUrl.searchParams.set("hostId", hostId);
+		wsUrl.searchParams.set("clientId", clientId);
+		wsUrl.searchParams.set("appVersion", appVersion);
+		wsUrl.searchParams.set("platform", platform);
+		wsUrl.searchParams.set("deviceModel", deviceInfo.model);
+		wsUrl.searchParams.set("deviceIsEmulator", String(deviceInfo.isEmulator));
+		wsUrl.searchParams.set("deviceManufacturer", deviceInfo.manufacturer);
+
+		this.clientId = clientId;
+		this.ws = new WebSocket(wsUrl.toString());
+		const ws = this.ws;
+		ws.binaryType = "arraybuffer";
+
+		return new Promise((resolve, reject) => {
+			let settled = false;
+
+			const cleanupHandshakeListeners = () => {
+				ws.removeEventListener("error", onHandshakeError);
+				ws.removeEventListener("close", onHandshakeClose);
+				ws.removeEventListener("message", onHandshakeMessage);
+			};
+
+			const resolveOnce = (msg: SessionJoinedMsg) => {
+				if (settled) return;
+				settled = true;
+				cleanupHandshakeListeners();
+				resolve(msg);
+			};
+
+			const rejectOnce = (error: Error) => {
+				if (settled) return;
+				settled = true;
+				cleanupHandshakeListeners();
+				reject(error);
+			};
+
+			if (!ws) {
+				rejectOnce(new Error("WebSocket connection was not created"));
+				return;
+			}
+
+			const onHandshakeError = (event: Event) => {
+				console.error("[Connection] WebSocket error during handshake", event);
+			};
+
+			const onHandshakeClose = (event: CloseEvent) => {
+				const message = getHandshakeCloseMessage(event.code, event.reason);
+				console.error("[Connection] WebSocket closed during handshake", {
+					code: event.code,
+					reason: event.reason,
+					message,
+				});
+				rejectOnce(
+					createHandshakeError({
+						message,
+						code: event.code,
+						reason: event.reason,
+					}),
+				);
+			};
+
+			const onHandshakeMessage = (event: globalThis.MessageEvent) => {
+				let raw = String(event.data);
+
+				// Decrypt if the handshake response arrives encrypted
+				if (this.encryptionKey) {
+					try {
+						const envelope = JSON.parse(raw);
+						if (envelope.type === MsgType.ENCRYPTED) {
+							const inner = decryptMessage(envelope, this.encryptionKey);
+							if (!inner) {
+								rejectOnce(new Error("Failed to decrypt handshake response"));
+								return;
+							}
+							raw = JSON.stringify(inner);
+						}
+					} catch {
+						rejectOnce(new Error("Failed to decrypt handshake response"));
+						return;
+					}
+				}
+
+				const parsed = parseMessage(raw, ClientHandshakeRespMsgSchema);
+				if (!parsed.data) {
+					console.error("[Connection] Handshake parse failed", {
+						error: parsed.error,
+
+						raw,
+					});
+					rejectOnce(new Error(`Invalid handshake response: ${parsed.error}`));
+					return;
+				}
+
+				const msg = parsed.data;
+
+				switch (msg.type) {
+					case MsgType.SESSION_JOINED:
+						ws.addEventListener("message", (nextEvent) => {
+							void this.handleIncomingWebSocketData(nextEvent.data);
+						});
+						ws.addEventListener("close", () => {
+							this.dispatchEvent(new Event("disconnected"));
+						});
+						resolveOnce(msg);
+						return;
+
+					case MsgType.SESSION_ERROR:
+						console.error("[Connection] Handshake failed with session:error", {
+							error: msg.error,
+						});
+						rejectOnce(new Error(msg.error));
+						return;
+				}
+			};
+
+			ws.addEventListener("error", onHandshakeError, { once: true });
+			ws.addEventListener("close", onHandshakeClose, { once: true });
+			ws.addEventListener("message", onHandshakeMessage, { once: true });
+		});
+	}
+
+	send(msgObj: SendableMsg): string | null {
+		if (!this.ws) {
+			return null;
+		}
+
+		// Guard: if WebSocket is not open, trigger disconnect detection
+		if (this.ws.readyState !== WebSocket.OPEN) {
+			this.ws.close();
+			throw new Error("WebSocket is not open");
+		}
+
+		const id = `c_${nanoid(10)}`;
+		const fullMsg = { id, ...msgObj };
+
+		try {
+			if (this.encryptionKey && !isPlaintextMessage(msgObj.type)) {
+				// With E2EE the relay can't inject clientId, so we include it
+				const msgWithClient = this.clientId
+					? { ...fullMsg, clientId: this.clientId }
+					: fullMsg;
+				const envelope = encryptMessage(
+					msgWithClient as { id: string; type: string },
+					this.encryptionKey,
+				);
+				this.ws.send(JSON.stringify(envelope));
+			} else {
+				this.ws.send(JSON.stringify(fullMsg));
+			}
+		} catch (err) {
+			console.error("failed to send message", err);
+		}
+
+		return id;
+	}
+
+	sendRequest<TMsg = unknown>(msgObj: SendableMsg): Promise<TMsg> {
+		return new Promise((resolve) => {
+			const msgId = this.send(msgObj);
+			if (!msgId) {
+				resolve({
+					id: "send_failed",
+					type: MsgType.SESSION_ERROR,
+					error: "Unable to send request",
+				} as TMsg);
+				return;
+			}
+			const timeout = setTimeout(() => {
+				this.pendingResponses.delete(msgId);
+				console.error("Request timed out", msgObj);
+				resolve({
+					id: `timeout_${msgId}`,
+					type: MsgType.SESSION_ERROR,
+					respTo: msgId,
+					error: "Request timed out",
+				} as TMsg);
+			}, RECV_TIMEOUT);
+
+			this.pendingResponses.set(msgId, (msg) => {
+				clearTimeout(timeout);
+				resolve(msg as TMsg);
+			});
+		});
+	}
+
+	on<TMsg = unknown>(
+		eventName: string,
+		listener: (msg: TMsg | Event) => void,
+	): () => void {
+		const wrapped = (event: Event) => {
+			if (event instanceof MessageEvent) {
+				listener(event.msg as TMsg);
+				return;
+			}
+			listener(event);
+		};
+		this.addEventListener(eventName, wrapped as EventListener);
+		return () => this.removeEventListener(eventName, wrapped as EventListener);
+	}
+
+	onBinaryHttpResponseData(
+		handler: (msg: ProxyBinaryHttpResponseData) => void,
+	): () => void {
+		const wrapped = (event: Event) => {
+			if (event instanceof ProxyBinaryHttpResponseDataEvent) {
+				handler(event.data);
+			}
+		};
+		this.addEventListener(PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT, wrapped);
+		return () =>
+			this.removeEventListener(PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT, wrapped);
+	}
+
+	close() {
+		this.ws?.close();
+	}
+}
+
+class ConnectionManager {
+	private readonly listeners = new Set<Listener>();
+	private snapshot: ConnectionSnapshot = {
+		serverUrl: "",
+		sessionToken: "",
+		hostInfo: null,
+		connectionStatus: "disconnected",
+		batteryInfo: null,
+	};
+	private connection: Connection | null = null;
+	private pendingSocket: Connection | null = null;
+	private pingInterval: ReturnType<typeof setInterval> | null = null;
+	private activeConnectAttempt = 0;
+	private reconnectAttempt = 0;
+	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+	private encryptionKey: Uint8Array | null = null;
+	private onConnected: ((token: string) => void) | null = null;
+	private onDisconnected: (() => void) | null = null;
+	private onPreDisconnect: (() => void) | null = null;
+
+	subscribe(listener: Listener): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	getSnapshot(): ConnectionSnapshot {
+		return this.snapshot;
+	}
+
+	setOnConnectedCallback(fn: (token: string) => void) {
+		this.onConnected = fn;
+	}
+
+	setOnDisconnectedCallback(fn: () => void) {
+		this.onDisconnected = fn;
+	}
+
+	setOnPreDisconnectCallback(fn: () => void) {
+		this.onPreDisconnect = fn;
+	}
+
+	onMessage<TMsg = unknown>(
+		type: string,
+		handler: (msg: TMsg) => void,
+	): () => void {
+		if (!this.connection) return () => {};
+		return this.connection.on(type, (msg) => {
+			handler(msg as TMsg);
+		});
+	}
+
+	onBinaryHttpResponseData(
+		handler: (msg: ProxyBinaryHttpResponseData) => void,
+	): () => void {
+		if (!this.connection) return () => {};
+		return this.connection.onBinaryHttpResponseData(handler);
+	}
+
+	sendMessage(msg: SendableMsg): string | null {
+		if (!this.connection) {
+			return null;
+		}
+
+		return this.connection.send(msg) ?? null;
+	}
+
+	sendRequest<TMsg = unknown>(msg: SendableMsg): Promise<TMsg> {
+		if (!this.connection) {
+			return Promise.resolve({
+				id: "offline",
+				type: MsgType.SESSION_ERROR,
+				error: "Not connected",
+			} as TMsg);
+		}
+		return this.connection.sendRequest<TMsg>(msg);
+	}
+
+	connectToServer(
+		url: string,
+		hostId: string,
+		encryptionKey?: Uint8Array | null,
+		status: ConnectionStatus = "connecting",
+	): Promise<void> {
+		const attemptId = ++this.activeConnectAttempt;
+
+		this.closePendingSocket();
+		this.encryptionKey = encryptionKey ?? null;
+		this.setSnapshot({
+			serverUrl: url,
+			sessionToken: hostId,
+			connectionStatus: status,
+		});
+
+		return new Promise<void>((resolve, reject) => {
+			const wsUrl = `${url.endsWith("/") ? url : `${url}/`}app`;
+			const nextConnection = new Connection(toWsUrl(wsUrl), this.encryptionKey);
+			let handshakeCompleted = false;
+			this.pendingSocket = nextConnection;
+
+			nextConnection
+				.open(hostId)
+				.then((msg) => {
+					if (attemptId !== this.activeConnectAttempt) return;
+					handshakeCompleted = true;
+					this.pendingSocket = null;
+					this.connection = nextConnection;
+					this.setSnapshot({
+						hostInfo: {
+							id: hostId,
+							username: msg.data.username,
+							hostname: msg.data.hostname,
+							platform: msg.data.platform,
+							machineId: msg.data.machineId,
+							dir: msg.data.dir,
+						},
+						connectionStatus: "connected",
+						batteryInfo: null,
+					});
+					nextConnection.on<BatteryUpdateMsg>(MsgType.BATTERY_UPDATE, (msg) => {
+						if (msg instanceof Event) return;
+						this.setSnapshot({ batteryInfo: msg.data });
+					});
+					this.startPing();
+					this.onConnected?.(hostId);
+					resolve();
+				})
+				.catch((err) => {
+					if (attemptId !== this.activeConnectAttempt) return;
+					this.pendingSocket = null;
+					if (status !== "reconnecting") {
+						this.setSnapshot({
+							connectionStatus: "disconnected",
+						});
+					}
+					reject(err);
+				});
+
+			nextConnection.on("disconnected", () => {
+				if (attemptId !== this.activeConnectAttempt) return;
+				if (!handshakeCompleted) {
+					this.pendingSocket = null;
+					if (status !== "reconnecting") {
+						this.setSnapshot({
+							connectionStatus: "disconnected",
+						});
+					}
+					reject(
+						new Error("WebSocket closed before session handshake completed"),
+					);
+					return;
+				}
+				if (this.snapshot.connectionStatus === "connected") {
+					this.handleUnexpectedDisconnect(hostId);
+				}
+			});
+		});
+	}
+
+	disconnect() {
+		this.cancelReconnect();
+		this.encryptionKey = null;
+		this.stopPing();
+		this.closeConnection();
+		this.closePendingSocket();
+		this.setSnapshot({
+			serverUrl: "",
+			sessionToken: "",
+			hostInfo: null,
+			connectionStatus: "disconnected",
+			batteryInfo: null,
+		});
+		this.onDisconnected?.();
+	}
+
+	private setSnapshot(next: Partial<ConnectionSnapshot>) {
+		this.snapshot = { ...this.snapshot, ...next };
+		for (const fn of this.listeners) fn();
+	}
+
+	private startPing() {
+		this.stopPing();
+		this.pingInterval = setInterval(() => {
+			this.connection?.send({ type: MsgType.PING });
+		}, PING_INTERVAL_MS);
+	}
+
+	private stopPing() {
+		if (!this.pingInterval) return;
+		clearInterval(this.pingInterval);
+		this.pingInterval = null;
+	}
+
+	private cancelReconnect() {
+		if (this.reconnectTimeout) {
+			clearTimeout(this.reconnectTimeout);
+			this.reconnectTimeout = null;
+		}
+		this.reconnectAttempt = 0;
+	}
+
+	private async attemptReconnect(hostId: string) {
+		const key = this.encryptionKey;
+		const url = this.snapshot.serverUrl || (await getBaseServerUrl());
+
+		this.reconnectAttempt++;
+		if (this.reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
+			this.reconnectAttempt = 0;
+			this.stopPing();
+			this.closeConnection();
+			this.closePendingSocket();
+			this.setSnapshot({
+				connectionStatus: "disconnected",
+				hostInfo: null,
+				batteryInfo: null,
+			});
+			this.onDisconnected?.();
+			return;
+		}
+
+		const delay = BASE_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempt - 1);
+
+		this.reconnectTimeout = setTimeout(async () => {
+			this.reconnectTimeout = null;
+			try {
+				await this.connectToServer(url, hostId, key, "reconnecting");
+				this.reconnectAttempt = 0;
+			} catch {
+				this.attemptReconnect(hostId);
+			}
+		}, delay);
+	}
+
+	private async handleUnexpectedDisconnect(hostId: string) {
+		this.stopPing();
+		this.closeConnection();
+		this.closePendingSocket();
+		this.setSnapshot({
+			connectionStatus: "reconnecting",
+			batteryInfo: null,
+		});
+
+		if (this.onPreDisconnect) {
+			try {
+				await this.onPreDisconnect();
+			} catch (err) {
+				console.error("Error saving state before reconnect:", err);
+			}
+		}
+
+		this.attemptReconnect(hostId);
+	}
+
+	private closeConnection() {
+		if (!this.connection) return;
+		try {
+			this.connection.close();
+		} catch {}
+		this.connection = null;
+	}
+
+	private closePendingSocket() {
+		if (!this.pendingSocket) return;
+		try {
+			this.pendingSocket.close();
+		} catch {}
+		this.pendingSocket = null;
+	}
+}
+
+const connectionManager = new ConnectionManager();
+
+function createHandshakeError({
+	message,
+	code,
+	reason,
+}: {
+	message: string;
+	code?: number;
+	reason?: string;
+}): HandshakeError {
+	const error = new Error(message) as HandshakeError;
+	if (code !== undefined) error.code = code;
+	if (reason) error.reason = reason;
+	error.userMessage = message;
+	return error;
+}
+
+function getHandshakeCloseMessage(code: number, reason: string): string {
+	switch (code) {
+		case HANDSHAKE_CLOSE_CODE.HOST_UNAVAILABLE:
+			return "Your dev machine is unavailable right now. Make sure Shellular CLI is running, then try again.";
+		case HANDSHAKE_CLOSE_CODE.INVALID_QUERY:
+			return "This connection request is invalid. Please scan the QR code again and retry.";
+		case HANDSHAKE_CLOSE_CODE.APPROVAL_DENIED:
+			return "This client is not allowed to connect. Please approve it in your dev machine.";
+		case HANDSHAKE_CLOSE_CODE.SESSION_ERROR:
+			return "We couldn't attach this client to the session. Please try again.";
+		case HANDSHAKE_CLOSE_CODE.HOST_DISCONNECTED:
+			return "The host is offline. Please check your dev machine and try again.";
+		default:
+			break;
+	}
+
+	if (reason === "host_unavailable") {
+		return "Your dev machine is unavailable right now. Make sure Shellular CLI is running, then try again.";
+	}
+
+	if (reason === "invalid_query") {
+		return "This connection request is invalid. Please scan the QR code again and retry.";
+	}
+
+	if (reason === "approval_denied") {
+		return "This client is not allowed to connect. Please approve it in your dev machine.";
+	}
+
+	if (reason === "session_join_failed") {
+		return "We couldn't attach this client to the session. Please try again.";
+	}
+
+	return "WebSocket closed before session handshake completed";
+}
+
+function toWsUrl(httpUrl: string): string {
+	return httpUrl
+		.replace(/^https:\/\//, "wss://")
+		.replace(/^http:\/\//, "ws://");
+}
+
+export function subscribeState(listener: Listener): () => void {
+	return connectionManager.subscribe(listener);
+}
+
+export function getConnectionSnapshot() {
+	return connectionManager.getSnapshot();
+}
+
+export function getHostInfo() {
+	return getConnectionSnapshot().hostInfo;
+}
+
+export function setOnConnectedCallback(fn: (token: string) => void) {
+	connectionManager.setOnConnectedCallback(fn);
+}
+
+export function setOnDisconnectedCallback(fn: () => void) {
+	connectionManager.setOnDisconnectedCallback(fn);
+}
+
+export function setOnPreDisconnectCallback(fn: () => void) {
+	connectionManager.setOnPreDisconnectCallback(fn);
+}
+
+export function onMessage<TMsg = unknown>(
+	type: string,
+	handler: (msg: TMsg) => void,
+): () => void {
+	return connectionManager.onMessage(type, handler);
+}
+
+export function onBinaryHttpResponseData(
+	handler: (msg: ProxyBinaryHttpResponseData) => void,
+): () => void {
+	return connectionManager.onBinaryHttpResponseData(handler);
+}
+
+export function sendMessage(msg: SendableMsg): string | null {
+	return connectionManager.sendMessage(msg);
+}
+
+export function sendRequest<TMsg = unknown>(msg: SendableMsg): Promise<TMsg> {
+	return connectionManager.sendRequest<TMsg>(msg);
+}
+
+export function connectToServer(
+	url: string,
+	hostId: string,
+	encryptionKey?: Uint8Array | null,
+): Promise<void> {
+	return connectionManager.connectToServer(url, hostId, encryptionKey);
+}
+
+export function disconnect() {
+	connectionManager.disconnect();
+}

@@ -1,0 +1,61 @@
+// Page wrapper for a full-screen diff view (selectable text, no gutter).
+.diff-page {
+  > .page-content {
+    padding: 0;
+    user-select: text;
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+  }
+}
+
+.diff-view {
+  --diffs-light-bg: var(--primary);
+  --diffs-light: var(--primary-text);
+  --diffs-dark-bg: #0f1013;
+  --diffs-dark: var(--primary-text);
+  --diffs-bg-buffer-override: color-mix(in srgb, var(--secondary) 76%, transparent);
+  --diffs-bg-context-override: color-mix(in srgb, var(--secondary) 54%, transparent);
+  --diffs-bg-separator-override: color-mix(in srgb, var(--accent) 12%, var(--secondary));
+  --diffs-fg-number-override: var(--secondary-text);
+  --diffs-addition-color: var(--success);
+  --diffs-deletion-color: var(--danger);
+  --diffs-modified-color: var(--accent);
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--success) 24%, transparent);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--danger) 24%, transparent);
+  --diffs-header-font-family: inherit;
+  --diffs-gap-block: 6px;
+  --diffs-gap-inline: 8px;
+  display: block;
+  overflow: auto;
+  background: #0f1013;
+  user-select: text;
+  -webkit-user-select: text;
+
+  * {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+  }
+
+  [data-separator="line-info"] {
+    background: var(--diffs-bg-separator);
+    color: var(--secondary-text);
+  }
+
+  [data-separator-wrapper] {
+    min-height: calc(var(--diffs-line-height) + 8px);
+    align-items: center;
+  }
+
+  [data-expand-button] {
+    min-width: 34px;
+    min-height: 34px;
+    color: var(--secondary-text);
+    background: color-mix(in srgb, var(--secondary) 72%, transparent);
+    border-radius: 6px;
+  }
+
+  [data-unmodified-lines] {
+    font-family: var(--diffs-header-font-family, inherit);
+    font-size: 0.92em;
+  }
+}

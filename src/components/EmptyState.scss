@@ -1,0 +1,67 @@
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 14px;
+  color: var(--secondary-text);
+  padding: 0 24px;
+  height: 100%;
+
+  .empty-state-message {
+    font-size: 14px;
+    opacity: 0.5;
+    margin: 0;
+    text-align: center;
+    white-space: pre-line;
+  }
+
+  .empty-state-hint {
+    font-size: 12px;
+    opacity: 0.45;
+    margin: 0;
+    text-align: center;
+  }
+
+  @include icon {
+    font-size: 48px;
+  }
+
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 24px;
+    min-height: 48px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--button-text);
+    background: var(--button-background);
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+
+    &:hover {
+      background: var(--button-background-active);
+    }
+
+    &:active {
+      background: var(--button-background-active);
+      transform: scale(0.98);
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    @include icon {
+      font-size: 20px;
+    }
+  }
+}

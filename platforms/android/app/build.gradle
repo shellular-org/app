@@ -1,0 +1,74 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace = 'io.foxbiz.shellular'
+    compileSdk = 36
+
+    defaultConfig {
+    minSdk = 24
+    targetSdk = 35
+
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        externalNativeBuild {
+            // For ndk-build, instead use the ndkBuild block.
+            cmake {
+                // Passes optional arguments to CMake.
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+        }
+    }
+
+    signingConfigs {
+        release{
+            if(project.hasProperty("jks") && project.hasProperty("alias") && project.hasProperty("password") &&  project.hasProperty("storePassword")){
+                storeFile file(project.jks)
+                keyAlias project.alias
+                keyPassword project.password
+                storePassword project.storePassword
+            }
+        }
+    }
+
+    buildFeatures {
+        resValues = true
+    }
+
+    buildTypes {
+        debug {
+            debuggable = true
+            applicationIdSuffix ".dev"
+            def xml = new groovy.xml.XmlParser().parse(file('src/main/res/values/strings.xml'))
+            def appName = xml.string.find { it.@name == 'app_name' }?.text() ?: 'App'
+            resValue "string", "launcher_name", "${appName} Dev"
+        }
+        release {
+            minifyEnabled = true
+            signingConfig = signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+}
+
+dependencies {
+    implementation libs.appcompat
+    implementation libs.webkit
+    implementation libs.socket.io.client
+    implementation libs.barcode.scanning
+    implementation libs.common
+    implementation libs.camera.camera2
+    implementation libs.androidx.camera.lifecycle
+    implementation libs.androidx.camera.view
+    implementation libs.androidx.core.splashscreen
+    implementation libs.androidx.browser
+    testImplementation libs.junit
+    androidTestImplementation libs.ext.junit
+    androidTestImplementation libs.espresso.core
+}

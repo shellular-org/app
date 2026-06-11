@@ -1,0 +1,1 @@
+type LangKeys = "lang" | "langName";

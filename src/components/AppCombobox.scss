@@ -1,0 +1,122 @@
+.app-combobox {
+  position: relative;
+}
+
+.app-combobox__control {
+  min-height: 34px;
+  width: 100%;
+  gap: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--primary-text);
+  padding: 0 8px 0 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-combobox__input {
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.app-combobox__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: var(--secondary-text);
+  padding: 0;
+}
+
+.app-combobox__chevron {
+  font-size: 15px;
+  transition: transform 120ms ease;
+}
+
+.app-combobox:has(.app-combobox__input[data-open]) .app-combobox__chevron {
+  transform: rotate(180deg);
+}
+
+.app-combobox--compact {
+  .app-combobox__control {
+    width: 100%;
+    min-height: 34px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: 12px;
+    justify-content: flex-end;
+  }
+
+  .app-combobox__input {
+    flex: 1 1 auto;
+    width: 100%;
+    text-align: right;
+  }
+}
+
+.app-combobox-menu {
+  z-index: 10001;
+  width: min(max(var(--input-width), 220px), calc(100vw - 48px));
+  height: auto !important;
+  max-height: min(320px, calc(100dvh - 96px)) !important;
+  overflow-y: auto !important;
+  overflow-x: hidden;
+  padding: 6px;
+  border: 1px solid var(--popup-border-color);
+  border-radius: 12px;
+  background: var(--popup-background);
+  color: var(--primary-text);
+  box-shadow: 0 14px 46px var(--shadow-color);
+  backdrop-filter: var(--popup-backdrop-filter);
+  -webkit-backdrop-filter: var(--popup-backdrop-filter);
+  animation: slide-in-little 120ms ease both;
+
+  @include big-phone {
+    width: min(max(var(--input-width), 190px), calc(100vw - 72px));
+    max-height: min(280px, calc(100dvh - 140px)) !important;
+  }
+
+  .app-combobox-menu__item {
+    min-height: 36px;
+    gap: 10px;
+    border-radius: 8px;
+    color: var(--primary-text);
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+
+    &--active {
+      background: var(--popup-active-background);
+      color: var(--popup-active-text);
+    }
+
+    span:first-child {
+      min-width: 0;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    .icon-check {
+      flex-shrink: 0;
+      color: var(--popup-active-text);
+      font-size: 14px;
+    }
+  }
+
+  .app-combobox-menu__empty {
+    padding: 9px 10px;
+    color: var(--secondary-text);
+    font-size: 13px;
+  }
+}

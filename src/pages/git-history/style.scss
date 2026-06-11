@@ -1,0 +1,251 @@
+.git-history-page,
+.commit-detail-page {
+  // The list/rows manage their own horizontal padding, so drop the default
+  // page-content gutter (scoped to these pages to avoid leaking globally).
+  > .page-content {
+    padding: 0;
+  }
+
+  .commit-list {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+  }
+
+  .commit-date-group {
+    display: flex;
+    flex-direction: column;
+
+    &:not(:first-child) {
+      margin-top: 8px;
+    }
+  }
+
+  .commit-date-label {
+    margin: 0;
+    padding: 8px 16px 4px;
+    color: var(--secondary-text);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    opacity: 0.58;
+  }
+
+  .commit-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 16px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+
+    &:active {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .commit-item-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      color: var(--accent);
+
+      span[class^="icon-"] {
+        font-size: 18px;
+      }
+    }
+
+    .commit-item-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .commit-subject {
+      font-size: 13px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .icon-chevron-right {
+      flex-shrink: 0;
+      color: var(--secondary-text);
+      opacity: 0.5;
+    }
+  }
+
+  .commit-meta,
+  .commit-detail-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--secondary-text);
+    opacity: 0.7;
+    min-width: 0;
+
+    .commit-hash {
+      font-family: "JetBrainsMono Nerd Font", "Courier New", monospace;
+      color: var(--accent);
+      opacity: 0.9;
+    }
+
+    .commit-author {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .commit-time {
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+  }
+
+  .commit-load-more {
+    margin: 12px 16px 24px;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px solid var(--surface-soft);
+    background: var(--surface-soft);
+    color: var(--primary-text);
+    font-size: 13px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+  }
+
+  // ─── Commit detail ──────────────────────────────────────────────
+  .commit-detail-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--surface-soft);
+
+    .commit-detail-subject {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .commit-detail-meta .commit-time {
+      margin-left: 0;
+    }
+  }
+
+  .commit-file-list {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0;
+  }
+
+  .commit-file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+
+    &:active {
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    --file-git-color: var(--secondary-text);
+
+    &[data-git-status="modified"] {
+      --file-git-color: #d6c2a1;
+    }
+    &[data-git-status="added"] {
+      --file-git-color: #91c58a;
+    }
+    &[data-git-status="deleted"] {
+      --file-git-color: #c96b5c;
+    }
+    &[data-git-status="renamed"] {
+      --file-git-color: #a7c1d9;
+    }
+
+    .icon-chevron-right {
+      flex-shrink: 0;
+      color: var(--secondary-text);
+      opacity: 0.5;
+    }
+
+    .commit-file-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: color-mix(in srgb, var(--secondary-text) 8%, transparent);
+      color: var(--secondary-text);
+
+      span[class^="icon-"] {
+        font-size: 16px;
+      }
+    }
+
+    .commit-file-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .commit-file-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--file-git-color);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .commit-file-path {
+      font-size: 11px;
+      color: var(--secondary-text);
+      opacity: 0.5;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .commit-file-status {
+      flex-shrink: 0;
+      min-width: 18px;
+      font-family: "JetBrainsMono Nerd Font", "Courier New", monospace;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: right;
+      color: var(--file-git-color);
+    }
+  }
+}

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en" style="margin: 0; padding: 0; background-color: black; width: 100%; height: 100%; position: relative;">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover" />
+  <link rel="preload" href="/splash.svg" as="image" />
+  <link rel="manifest" href="" />
+
+  <title>Shellular</title>
+
+  <script>
+    if (localStorage.getItem('primaryColor')) {
+      var loaderStyle = document.createElement('style');
+      document.documentElement.style.backgroundColor = localStorage.getItem('primaryColor');
+      document.documentElement.style.color = localStorage.getItem('primaryTextColor');
+      loaderStyle.innerHTML =
+        'body:empty::before,body.loading::before{background-color: ' +
+        localStorage.getItem('primaryColor') +
+        ' !important;}body:empty::after,body.loading::after{color: ' +
+        localStorage.getItem('primaryTextColor') +
+        ' !important;}';
+      document.head.appendChild(loaderStyle);
+    }
+  </script>
+
+  <script src="/main.js"></script>
+  <style id="theme-data"></style>
+
+  <style>
+    html,
+    body {
+      font-family: Roboto, sans-serif;
+    }
+
+    body:not(.done):empty::before,
+    body.loading::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: 100vw;
+      background-color: #000000;
+      display: flex;
+      z-index: 998;
+      background-image: url('/splash.svg');
+      background-repeat: no-repeat;
+      background-position: center;
+      background-size: 180px;
+    }
+
+    body:not(.done):empty::after,
+    body.loading::after {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      content: attr(data-message);
+      font-size: 18px;
+      padding: 20px;
+      box-sizing: border-box;
+      z-index: 999;
+      color: #ffffff;
+      animation: loading 1s infinite;
+      padding-bottom: 40px;
+    }
+
+    @keyframes loading {
+      0% {
+        opacity: 1;
+      }
+
+      33% {
+        opacity: 0.9;
+      }
+
+      66% {
+        opacity: 0.8;
+      }
+
+      100% {
+        opacity: 1;
+      }
+    }
+
+    body.loading.done::before,
+    body.loading.done::after {
+      pointer-events: none;
+      transition: all 100ms ease-out;
+      opacity: 0;
+    }
+  </style>
+</head>
+
+<body
+  style="margin: inherit; padding: inherit; background-color: inherit; width: inherit; height: inherit; position: inherit;"
+  class="loading" data-message="Loading...">
+</body>
+
+</html>

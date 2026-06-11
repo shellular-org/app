@@ -1,0 +1,34 @@
+.tab-page-header {
+  display: flex;
+  align-items: center;
+  padding: calc(14px + var(--sat, 0px)) 16px 10px;
+  background: var(--secondary);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+
+  @include tablet {
+    @include android {
+      padding-top: var(--sat, 0px);
+      padding-right: var(--sab, 0px);
+    }
+  }
+
+  .tab-page-header-title {
+    flex: 1;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--primary-text);
+  }
+
+
+  .tab-page-header-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    @include icon {
+      font-size: 18px;
+      line-height: 1;
+    }
+  }
+}

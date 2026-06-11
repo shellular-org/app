@@ -1,0 +1,412 @@
+.sysmon-page {
+  --sysmon-chart-cpu: var(--info);
+  --sysmon-chart-cpu-fill: color-mix(in srgb, var(--info) 18%, transparent);
+  --sysmon-chart-memory: var(--accent);
+  --sysmon-chart-memory-fill: color-mix(in srgb, var(--accent) 16%, transparent);
+
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+
+  >.page-content {
+    gap: 16px;
+  }
+
+  .sysmon-host-card,
+  .sysmon-panel {
+    border: 1px solid var(--card-border);
+    box-shadow: var(--shadow);
+  }
+
+  .sysmon-host-card {
+    background: var(--popup-background);
+    border-radius: 18px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .sysmon-host-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .sysmon-host-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .sysmon-host-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--info) 12%, var(--surface-soft));
+    border: 1px solid color-mix(in srgb, var(--info) 24%, var(--card-border));
+    color: var(--info);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+
+    span[class^="icon-"] {
+      font-size: 22px;
+      line-height: 1;
+    }
+  }
+
+  .sysmon-host-copy,
+  .sysmon-panel-header,
+  .sysmon-storage-copy {
+    min-width: 0;
+  }
+
+  .sysmon-host-title,
+  .sysmon-panel-title,
+  .sysmon-storage-title {
+    margin: 0;
+    color: var(--primary-text);
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .sysmon-host-title {
+    font-size: 18px;
+    line-height: 1.2;
+  }
+
+  .sysmon-host-meta,
+  .sysmon-host-badge,
+  .sysmon-label,
+  .sysmon-host-metric-detail,
+  .sysmon-panel-subtitle,
+  .sysmon-panel-note,
+  .sysmon-storage-mount,
+  .sysmon-storage-meta,
+  .sysmon-empty-inline,
+  .sysmon-stale-note {
+    color: var(--secondary-text);
+  }
+
+  .sysmon-host-meta {
+    margin: 3px 0 0;
+    font-size: 12px;
+    line-height: 1.35;
+    opacity: 0.62;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sysmon-host-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .sysmon-host-badge {
+    min-height: 28px;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--surface-soft);
+    border: 1px solid var(--card-border);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.82;
+
+    span[class^="icon-"] {
+      font-size: 13px;
+      line-height: 1;
+      color: var(--info);
+    }
+  }
+
+  .sysmon-stale-note {
+    margin: -4px 2px 0;
+    font-size: 12px;
+    line-height: 1.4;
+    opacity: 0.8;
+  }
+
+  .sysmon-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .sysmon-host-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .sysmon-host-metric {
+    background: var(--surface-soft);
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .sysmon-host-metric-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .sysmon-host-metric-icon {
+    color: var(--info);
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .sysmon-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    opacity: 0.55;
+  }
+
+  .sysmon-host-metric-value {
+    color: var(--primary-text);
+    font-size: 18px;
+    font-weight: 800;
+    line-height: 1.05;
+  }
+
+  .sysmon-host-metric-detail {
+    font-size: 12px;
+    line-height: 1.3;
+    opacity: 0.72;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sysmon-panel {
+    background: var(--surface-soft);
+    border-radius: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .sysmon-panel-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sysmon-panel-title {
+    font-size: 13px;
+    line-height: 1.2;
+  }
+
+  .sysmon-panel-subtitle {
+    margin: 4px 0 0;
+    font-size: 12px;
+    line-height: 1.35;
+    opacity: 0.64;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .sysmon-panel-metric {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .sysmon-panel-value {
+    color: var(--primary-text);
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  .sysmon-panel-note {
+    font-size: 12px;
+    opacity: 0.7;
+    white-space: nowrap;
+  }
+
+  .sysmon-chart {
+    height: 128px;
+    min-height: 128px;
+    position: relative;
+  }
+
+  .sysmon-storage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .sysmon-storage-item {
+    background: var(--surface-strong);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    min-width: 0;
+  }
+
+  .sysmon-storage-top,
+  .sysmon-storage-meta {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .sysmon-storage-title {
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  .sysmon-storage-mount {
+    margin: 3px 0 0;
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    line-height: 1.35;
+    opacity: 0.65;
+    word-break: break-all;
+  }
+
+  .sysmon-storage-pct {
+    color: var(--primary-text);
+    font-size: 14px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .sysmon-storage-meta {
+    font-size: 12px;
+    line-height: 1.35;
+    opacity: 0.72;
+  }
+
+  .sysmon-meter-track {
+    width: 100%;
+    height: 7px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
+    overflow: hidden;
+  }
+
+  .sysmon-meter-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--info);
+    transition: width 0.22s ease;
+  }
+
+  .is-normal {
+    color: var(--info);
+  }
+
+  .is-warn {
+    color: var(--accent);
+  }
+
+  .is-danger {
+    color: var(--danger);
+  }
+
+  .sysmon-meter-fill.is-warn {
+    background: var(--accent);
+  }
+
+  .sysmon-meter-fill.is-danger {
+    background: var(--danger);
+  }
+
+  .sysmon-empty-inline {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    opacity: 0.75;
+  }
+
+  .sysmon-error-icon {
+    font-size: 24px;
+  }
+
+  .sysmon-refresh-btn {
+    background: transparent;
+    border: none;
+    color: var(--primary-text);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    opacity: 0.7;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s;
+
+    &:active {
+      opacity: 0.4;
+    }
+
+    &:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .sysmon-host-top {
+      flex-direction: column;
+    }
+
+    .sysmon-host-badges {
+      justify-content: flex-start;
+    }
+
+    .sysmon-chart-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sysmon-host-metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .sysmon-panel-value {
+      font-size: 26px;
+    }
+  }
+}

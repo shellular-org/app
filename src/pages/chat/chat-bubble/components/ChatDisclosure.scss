@@ -1,0 +1,9 @@
+.chat-disclosure-panel {
+  overflow: hidden;
+  transition: height 180ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: height;
+
+  .chat-disclosure-panel-inner {
+    overflow: hidden;
+  }
+}

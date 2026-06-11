@@ -1,0 +1,90 @@
+.tool-arguments-page {
+	overflow-x: auto;
+	width: 100%;
+
+	table {
+		border-collapse: collapse;
+		width: max(100%, min-content);
+		min-width: 100%;
+		font-size: 12px;
+
+		thead th {
+			padding: 8px 10px;
+			background: var(--surface-soft);
+			text-align: left;
+			font-weight: 600;
+			font-size: 11px;
+			color: var(--secondary-text);
+			border-bottom: 1px solid var(--border-color);
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+		}
+
+		tbody {
+			tr+tr {
+				border-top: 1px solid var(--border-color);
+			}
+		}
+
+		.arg-name {
+			padding: 8px 10px;
+			font-weight: 500;
+			color: var(--primary-text);
+			vertical-align: top;
+			width: 1%;
+			white-space: nowrap;
+		}
+
+		td:not(.arg-name) {
+			padding: 8px 10px;
+			vertical-align: top;
+		}
+
+		.json-block {
+			margin: 0;
+			padding: 8px 10px;
+			background: var(--surface-soft);
+			border-radius: 6px;
+			font-family: "Courier New", monospace;
+			font-size: 11px;
+			line-height: 1.5;
+			color: var(--primary-text);
+			white-space: pre;
+			overflow: auto;
+
+			&--highlighted {
+				border: 1px solid var(--accent);
+			}
+		}
+
+		.json-null {
+			color: var(--secondary-text);
+			opacity: 0.6;
+			font-style: italic;
+		}
+
+		.json-boolean {
+			color: var(--accent);
+			font-weight: 500;
+		}
+
+		.json-number {
+			color: var(--accent);
+		}
+
+		.json-string {
+			color: var(--primary-text);
+			white-space: pre;
+		}
+	}
+}
+
+.tool-arguments-empty {
+	margin: 0;
+	padding: 12px;
+	color: var(--secondary-text);
+	font-size: 12px;
+	font-family: "Courier New", monospace;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
