@@ -22,7 +22,7 @@
     "format": "biome check --write"
   },
   "author": "Shellular Team <team@shellular.dev> (https://shellular.dev)",
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@babel/plugin-transform-runtime": "^7.29.0",

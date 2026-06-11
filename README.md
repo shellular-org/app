@@ -66,4 +66,4 @@ React 19 / TypeScript / Webpack 5 / Tailwind CSS 4 / xterm.js 6 / CodeMirror 6 /
 
 ## License
 
-Apache-2.0
+AGPL-3.0-only
