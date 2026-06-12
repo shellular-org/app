@@ -6,6 +6,7 @@ import OfflineBanner from "components/OfflineBanner";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
+import { chatTabId } from "lib/chatTabId";
 import { getOnlineStatus } from "lib/utils";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
@@ -184,17 +185,20 @@ async function openSession(
 	session: SessionActivity,
 	agent?: ReturnType<typeof useShellular>["agents"][string],
 ) {
+	const agentName = agent?.name ?? session.agentId;
+	const tabId = chatTabId(session.agentId, session.sessionId);
 	const ChatConversationPage = await import("pages/chat");
 	pushPage(
-		`${session.agentId}-${session.sessionId}`,
+		tabId,
 		<ChatConversationPage.default
+			chatTabId={tabId}
 			sessionId={session.sessionId}
 			title={session.title || session.sessionId}
 			agentId={session.agentId}
 			workspacePath={session.workspacePath ?? ""}
-			assistantName={agent?.name ?? session.agentId}
+			assistantName={agentName}
 			agentAvailable={agent?.available ?? true}
-			unavailableMessage={`${agent?.name ?? session.agentId} is not available on this device.`}
+			unavailableMessage={`${agentName} is not available on this device.`}
 			providerName={agent?.title ?? session.agentId}
 			agentCapabilities={agent?.capabilities}
 		/>,

@@ -7,6 +7,7 @@ import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import Page from "components/Page";
 import { getAgentIcon } from "lib/agents";
+import { chatTabId } from "lib/chatTabId";
 import toast from "lib/toast";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -194,77 +195,61 @@ export default function ChatSessionsPage({
 		}
 	}, [agent, backend, loadingMore, nextCursor, workspace]);
 
-	const openNewChatForWorkspace = useCallback(
-		async (path: string) => {
+	const openChat = useCallback(
+		async (opts: {
+			sessionId: string;
+			title: string;
+			workspacePath: string;
+		}) => {
+			const tabId = chatTabId(backend, opts.sessionId);
 			const ChatConversationPage = await import("pages/chat");
 			pushPage(
-				`new-${backend}-${path}-${Date.now()}`,
+				tabId,
 				<ChatConversationPage.default
-					sessionId=""
-					title="New Chat"
+					chatTabId={tabId}
+					sessionId={opts.sessionId}
+					title={opts.title}
 					agentId={backend}
-					workspacePath={path}
+					workspacePath={opts.workspacePath}
 					assistantName={agent.name}
 					agentAvailable={agentAvailable}
 					unavailableMessage={`${agent.name} is not available on this device.`}
 					providerName={agent.title}
 					agentCapabilities={agent?.capabilities}
-					createOnFirstMessage
-				/>,
-			);
-		},
-		[agent?.capabilities, agentAvailable, agent.title, agent.name, backend],
-	);
-
-	const openSession = useCallback(
-		async (session: AiSession) => {
-			if (!session.id) return;
-
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				session.id,
-				<ChatConversationPage.default
-					sessionId={session.id}
-					title={session?.title ?? session.id}
-					agentId={backend}
-					workspacePath={session.workspacePath ?? workspace ?? ""}
-					assistantName={agent.name}
-					agentAvailable={agentAvailable}
-					unavailableMessage={`${agent.name} is not available on this device.`}
-					providerName={agent.title}
-					agentCapabilities={agent?.capabilities}
-				/>,
-			);
-		},
-		[
-			agent?.capabilities,
-			agentAvailable,
-			agent.name,
-			agent.title,
-			backend,
-			workspace,
-		],
-	);
-
-	const openBookmarkedSession = useCallback(
-		async (bookmark: (typeof bookmarked)[number]) => {
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				bookmark.sessionId,
-				<ChatConversationPage.default
-					sessionId={bookmark.sessionId}
-					title={bookmark.title}
-					agentId={backend}
-					workspacePath={bookmark.workspacePath}
-					assistantName={agent.name}
-					agentAvailable={agentAvailable}
-					unavailableMessage={`${agent.name} is not available on this device.`}
-					providerName={agent.title}
-					agentCapabilities={agent?.capabilities}
+					createOnFirstMessage={!opts.sessionId}
 				/>,
 			);
 		},
 		[agent?.capabilities, agentAvailable, agent.name, agent.title, backend],
+	);
+
+	const openNewChatForWorkspace = useCallback(
+		(path: string) =>
+			openChat({ sessionId: "", title: "New Chat", workspacePath: path }),
+		[openChat],
+	);
+
+	const openSession = useCallback(
+		(session: AiSession) => {
+			if (!session.id) return;
+			openChat({
+				sessionId: session.id,
+				title: session.title ?? session.id,
+				workspacePath: session.workspacePath ?? workspace ?? "",
+			});
+		},
+		[openChat, workspace],
+	);
+
+	const openBookmarkedSession = useCallback(
+		(bookmark: (typeof bookmarked)[number]) => {
+			openChat({
+				sessionId: bookmark.sessionId,
+				title: bookmark.title,
+				workspacePath: bookmark.workspacePath,
+			});
+		},
+		[openChat],
 	);
 
 	useEffect(() => {
@@ -515,26 +500,26 @@ export default function ChatSessionsPage({
 																	{getBookmarkedMeta(bookmark)}
 																</span>
 															</div>
-															<button
-																type="button"
-																className="agent-sessions-pinned-unbookmark haptic-trigger"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	togglePin({
-																		agentId: backend,
-																		sessionId: bookmark.sessionId,
-																		title: bookmark.title,
-																		workspacePath: bookmark.workspacePath,
-																		updatedAt: bookmark.updatedAt,
-																	});
-																}}
-																aria-label="Remove bookmark"
-															>
-																<span
-																	className="icon-bookmark-filled"
-																	aria-hidden="true"
-																/>
-															</button>
+														</button>
+														<button
+															type="button"
+															className="agent-sessions-pinned-unbookmark haptic-trigger"
+															onClick={(e) => {
+																e.stopPropagation();
+																togglePin({
+																	agentId: backend,
+																	sessionId: bookmark.sessionId,
+																	title: bookmark.title,
+																	workspacePath: bookmark.workspacePath,
+																	updatedAt: bookmark.updatedAt,
+																});
+															}}
+															aria-label="Remove bookmark"
+														>
+															<span
+																className="icon-bookmark-filled"
+																aria-hidden="true"
+															/>
 														</button>
 													</article>
 												))}

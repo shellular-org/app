@@ -3,6 +3,7 @@ import dialog from "bridge/dialog";
 import AppMenu from "components/AppMenu";
 import Loader from "components/Loader";
 import { getAgentIcon } from "lib/agents";
+import { chatTabId } from "lib/chatTabId";
 import { useCallback, useState } from "react";
 import { type ProjectInfo, useShellular } from "state";
 import type { AcpAgentInfo } from "state/acp";
@@ -41,18 +42,28 @@ export default function ProjectList({ projects, adding }: Props) {
 		setRemovingProjectPath(null);
 	};
 
-	const openProjectAgentChats = useCallback(
+	const openNewChat = useCallback(
 		async (project: ProjectInfo, agent: AcpAgentInfo) => {
+			if (project.path === "/") {
+				dialog.message(
+					"Choose a folder inside the filesystem root. The root directory itself cannot be opened as a project.",
+					"Invalid Project",
+				);
+				return;
+			}
+			const tabId = chatTabId(agent.id, "");
 			const ChatConversationPage = await import("pages/chat");
 			pushPage(
-				`project-${agent.id}-${project.path}-${Date.now()}`,
+				tabId,
 				<ChatConversationPage.default
+					chatTabId={tabId}
 					sessionId=""
 					title="New Chat"
 					agentId={agent.id}
 					workspacePath={project.path}
 					assistantName={agent.name}
 					providerName={agent.title || agent.name}
+					agentCapabilities={agent?.capabilities}
 					createOnFirstMessage
 				/>,
 			);
@@ -79,7 +90,6 @@ export default function ProjectList({ projects, adding }: Props) {
 								);
 								return;
 							}
-
 							const FileBrowserPage = await import("pages/files");
 							pushPage(
 								"project-explorer",
@@ -130,9 +140,15 @@ export default function ProjectList({ projects, adding }: Props) {
 						buttonClassName="project-item-menu-btn"
 						ariaLabel={`Menu for ${project.name}`}
 						items={[
+							...availableAgents.map((agent) => ({
+								icon: getAgentIcon(agent.id),
+								label: `New ${agent.title || agent.name} chat`,
+								onClick: () => openNewChat(project, agent),
+							})),
 							{
 								icon: "icon-terminal",
 								label: "Open in Terminal",
+								divider: true,
 								onClick: () => {
 									createTerminal({
 										cwd: project.path,
@@ -140,11 +156,6 @@ export default function ProjectList({ projects, adding }: Props) {
 									toToTab("terminals");
 								},
 							},
-							...availableAgents.map((agent) => ({
-								icon: getAgentIcon(agent.id),
-								label: `Open in ${agent.title || agent.name}`,
-								onClick: () => openProjectAgentChats(project, agent),
-							})),
 							{
 								icon: "icon-trash",
 								label: "Remove",
