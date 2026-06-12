@@ -4,6 +4,7 @@ import AppMenu from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
 import { getAgentIcon } from "lib/agents";
+import { chatTabId } from "lib/chatTabId";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback } from "react";
 import { useShellular } from "state";
@@ -28,10 +29,12 @@ export default function BookmarkSessionsPage() {
 		async (bookmark: BookmarkedSession) => {
 			const agent = agents[bookmark.agentId];
 			if (!agent?.available) return;
+			const tabId = chatTabId(bookmark.agentId, bookmark.sessionId);
 			const ChatConversationPage = await import("pages/chat");
 			pushPage(
-				bookmark.sessionId,
+				tabId,
 				<ChatConversationPage.default
+					chatTabId={tabId}
 					sessionId={bookmark.sessionId}
 					title={bookmark.title}
 					agentId={bookmark.agentId}

@@ -28,6 +28,7 @@ import {
 	loadBookmarkedSessions,
 	resetBookmarkedSessions,
 } from "./bookmarkSessions";
+import { loadChatTabs, resetChatTabs } from "./chatTabs";
 import {
 	type BatteryInfo,
 	connectToServer,
@@ -313,6 +314,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 					.catch(console.error)
 					.finally(() => setLoadingProjects(false));
 				loadBookmarkedSessions(hostInfo.id).catch(console.error);
+				loadChatTabs(hostInfo.id).catch(console.error);
 			}
 
 			if (pendingSavedHostRef.current) {
@@ -340,6 +342,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 			setProjects([]);
 			setAgents({});
 			resetBookmarkedSessions();
+			resetChatTabs();
 			loadedProjectsForRef.current = "";
 		});
 
