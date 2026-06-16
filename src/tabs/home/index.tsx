@@ -6,6 +6,7 @@ import OfflineBanner from "components/OfflineBanner";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
+import { chatTabId } from "lib/chatTabId";
 import { getOnlineStatus } from "lib/utils";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
@@ -20,6 +21,11 @@ import SavedHostItem from "./SavedHostItem";
 
 export default function HomeTab() {
 	const { savedHosts, connectionStatus, isSwitching, agents } = useShellular();
+	// Treat an in-flight reconnect as "still connected" for display purposes, so
+	// a dropped CLI doesn't visually reset the home view to the host picker while
+	// we're transparently retrying. The reconnect overlay communicates the state.
+	const isLive =
+		connectionStatus === "connected" || connectionStatus === "reconnecting";
 	const [showScanner, setShowScanner] = useState(false);
 	const [hostInfo, setHostInfo] = useState<HostInfo | null>(getHostInfo);
 	const [isOnline, setIsOnline] = useState<boolean>(getOnlineStatus);
@@ -32,7 +38,9 @@ export default function HomeTab() {
 	);
 
 	useEffect(() => {
-		if (connectionStatus !== "connected" && !isSwitching) {
+		// Keep the last host info on screen during a reconnect (isLive) so the
+		// view doesn't collapse; only clear it once we're truly disconnected.
+		if (!isLive && !isSwitching) {
 			setHostInfo(null);
 			return;
 		}
@@ -49,10 +57,10 @@ export default function HomeTab() {
 			return () => clearTimeout(timeout);
 		}
 
-		if (connectionStatus === "connected") {
+		if (isLive) {
 			setHostInfo(getHostInfo());
 		}
-	}, [connectionStatus, isSwitching]);
+	}, [connectionStatus, isLive, isSwitching]);
 
 	useEffect(() => {
 		const refresh = () => setActiveSessions(getActiveSessionActivities());
@@ -152,30 +160,28 @@ export default function HomeTab() {
 				)}
 			</AnimatePresence>
 
-			{savedHosts.length > 0 &&
-				!showScanner &&
-				connectionStatus !== "connected" && (
-					<div className="saved-machines-section">
-						<h2 className="saved-machines-title">Recent Hosts</h2>
-						<div className="saved-machines-list">
-							<AnimatePresence mode="popLayout">
-								{savedHosts.map((host) => (
-									<motion.div
-										key={host.hostId}
-										layout
-										initial={{ opacity: 0, y: -10 }}
-										animate={{ opacity: 1, y: 0 }}
-										exit={{ opacity: 0, y: -10 }}
-										className="saved-machines-list"
-										transition={{ type: "spring", stiffness: 300, damping: 30 }}
-									>
-										<SavedHostItem host={host} />
-									</motion.div>
-								))}
-							</AnimatePresence>
-						</div>
+			{savedHosts.length > 0 && !showScanner && !isLive && (
+				<div className="saved-machines-section">
+					<h2 className="saved-machines-title">Recent Hosts</h2>
+					<div className="saved-machines-list">
+						<AnimatePresence mode="popLayout">
+							{savedHosts.map((host) => (
+								<motion.div
+									key={host.hostId}
+									layout
+									initial={{ opacity: 0, y: -10 }}
+									animate={{ opacity: 1, y: 0 }}
+									exit={{ opacity: 0, y: -10 }}
+									className="saved-machines-list"
+									transition={{ type: "spring", stiffness: 300, damping: 30 }}
+								>
+									<SavedHostItem host={host} />
+								</motion.div>
+							))}
+						</AnimatePresence>
 					</div>
-				)}
+				</div>
+			)}
 		</div>
 	);
 }
@@ -184,17 +190,20 @@ async function openSession(
 	session: SessionActivity,
 	agent?: ReturnType<typeof useShellular>["agents"][string],
 ) {
+	const agentName = agent?.name ?? session.agentId;
+	const tabId = chatTabId(session.agentId, session.sessionId);
 	const ChatConversationPage = await import("pages/chat");
 	pushPage(
-		`${session.agentId}-${session.sessionId}`,
+		tabId,
 		<ChatConversationPage.default
+			chatTabId={tabId}
 			sessionId={session.sessionId}
 			title={session.title || session.sessionId}
 			agentId={session.agentId}
 			workspacePath={session.workspacePath ?? ""}
-			assistantName={agent?.name ?? session.agentId}
+			assistantName={agentName}
 			agentAvailable={agent?.available ?? true}
-			unavailableMessage={`${agent?.name ?? session.agentId} is not available on this device.`}
+			unavailableMessage={`${agentName} is not available on this device.`}
 			providerName={agent?.title ?? session.agentId}
 			agentCapabilities={agent?.capabilities}
 		/>,

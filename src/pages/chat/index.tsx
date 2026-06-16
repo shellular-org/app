@@ -13,6 +13,7 @@ import BottomSheet from "components/BottomSheet";
 import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import Page from "components/Page";
+import actionStack from "lib/actionStack";
 import { getAgentIcon } from "lib/agents";
 import { registerShellularDiffThemes } from "lib/diffsTheme";
 import keyboard from "lib/keyboard";
@@ -48,6 +49,7 @@ import {
 	acpSubscribeSessionEvents,
 	acpWriteAttachmentBase64,
 } from "state/acp";
+import { recordChatTab } from "state/chatTabs";
 import { listDir, searchProjectFiles } from "state/filesystem";
 import {
 	getSessionActivity,
@@ -75,6 +77,7 @@ import {
 	replaceComposerTrigger,
 	updateComposerAttachment,
 } from "./ChatComposer";
+import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
 import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
 import {
@@ -93,6 +96,15 @@ import {
 
 const PAGE_SIZE = 30;
 const STOP_REASON_METADATA = "stop-reason";
+// Placeholder title used for not-yet-named chats. Treated as "no real title" so
+// it never overwrites an actual session/activity title.
+const PLACEHOLDER_TITLE = "New Chat";
+
+function isRealTitle(value: unknown): value is string {
+	return (
+		typeof value === "string" && value.length > 0 && value !== PLACEHOLDER_TITLE
+	);
+}
 
 registerShellularDiffThemes();
 
@@ -108,6 +120,13 @@ export interface ChatConversationPageProps {
 	agentCapabilities?: Record<string, unknown>;
 	cacheMessages?: boolean;
 	createOnFirstMessage?: boolean;
+	/**
+	 * Stable local id for this chat in the per-folder chat cache (`chatTabs`).
+	 * The chat self-registers under this id and updates its sessionId/title as
+	 * they resolve, so the in-chat sidebar can list every chat in the folder.
+	 * When omitted, the sidebar/cache integration is disabled.
+	 */
+	chatTabId?: string;
 }
 
 export default function ChatConversationPage({
@@ -120,8 +139,10 @@ export default function ChatConversationPage({
 	unavailableMessage,
 	providerName,
 	createOnFirstMessage = false,
+	chatTabId,
 }: ChatConversationPageProps) {
 	const { connectionStatus, hostDir } = useShellular();
+	const [showSidebar, setShowSidebar] = useState(false);
 	const resolvedWorkspacePath = useMemo(
 		() => normalizeRemoteWorkspacePath(workspacePath, hostDir),
 		[hostDir, workspacePath],
@@ -133,9 +154,10 @@ export default function ChatConversationPage({
 	const [scrollAdjust, setScrollAdjust] = useState(0);
 	const [syncing, setSyncing] = useState(false);
 	const [activeSessionId, setActiveSessionId] = useState(sessionId);
-	const [displayTitle, setDisplayTitle] = useState(
-		() => getSessionActivity(agentId, sessionId)?.title ?? title,
-	);
+	const [displayTitle, setDisplayTitle] = useState(() => {
+		const activityTitle = getSessionActivity(agentId, sessionId)?.title;
+		return isRealTitle(activityTitle) ? activityTitle : title;
+	});
 	const [isStreaming, setIsStreaming] = useState(
 		getSessionStreaming(agentId, sessionId),
 	);
@@ -871,7 +893,15 @@ export default function ChatConversationPage({
 			}
 			setIsStreaming(getSessionStreaming(agentId, targetSessionId));
 			const activity = getSessionActivity(agentId, targetSessionId);
-			if (activity?.title) setDisplayTitle(activity.title);
+			// Ignore the "New Chat" placeholder the activity store seeds at session
+			// creation — it would otherwise stomp a real title (e.g. when an existing
+			// session is re-opened and its activity still carries the create-time
+			// placeholder). Fall back to the (real) `title` prop in that case.
+			if (isRealTitle(activity?.title)) {
+				setDisplayTitle(activity.title as string);
+			} else if (isRealTitle(title)) {
+				setDisplayTitle(title);
+			}
 			const pendingPermission = readPendingActivityPermission(
 				activity?.pendingPermission,
 			);
@@ -885,14 +915,54 @@ export default function ChatConversationPage({
 		};
 		refreshActivity();
 		return subscribeSessionActivities(refreshActivity);
-	}, [activeSessionId, agentId, handlePermissionRequest, sessionId]);
+	}, [activeSessionId, agentId, handlePermissionRequest, sessionId, title]);
 
+	// Reset the title only when the session identity changes (switching/creating
+	// a session), preferring any known activity title. This must NOT depend on
+	// the `title` prop: a host that feeds a live title back as `title` would
+	// otherwise re-run this and clobber the real activity title with the
+	// "New Chat" fallback. Live title updates are owned by the activity effect.
+	const lastTitleSessionRef = useRef<string | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: title is the fallback only, intentionally not a re-run trigger
 	useEffect(() => {
 		const targetSessionId = activeSessionId || sessionId;
-		setDisplayTitle(
-			getSessionActivity(agentId, targetSessionId)?.title ?? title,
-		);
-	}, [activeSessionId, agentId, sessionId, title]);
+		if (lastTitleSessionRef.current === targetSessionId) return;
+		lastTitleSessionRef.current = targetSessionId;
+		const activityTitle = getSessionActivity(agentId, targetSessionId)?.title;
+		setDisplayTitle(isRealTitle(activityTitle) ? activityTitle : title);
+	}, [activeSessionId, agentId, sessionId]);
+
+	// Register this chat in the per-folder cache so the in-chat sidebar can list
+	// every chat opened in the folder without hitting the CLI. Records on mount
+	// (as a draft for new chats) and keeps sessionId/title fresh as they resolve.
+	useEffect(() => {
+		if (!chatTabId) return;
+		recordChatTab(workspacePath, {
+			id: chatTabId,
+			agentId,
+			sessionId: activeSessionId || sessionId,
+			title: displayTitle,
+		});
+	}, [
+		chatTabId,
+		workspacePath,
+		agentId,
+		activeSessionId,
+		sessionId,
+		displayTitle,
+	]);
+
+	// Let the device/back gesture close the sidebar before popping the page.
+	useEffect(() => {
+		if (!showSidebar) return;
+		actionStack.push({
+			id: "chat-sidebar",
+			action: () => setShowSidebar(false),
+		});
+		return () => {
+			actionStack.remove("chat-sidebar");
+		};
+	}, [showSidebar]);
 
 	useEffect(() => {
 		upsertAcpMessageRef.current = (incomingMessage: AcpMessage) => {
@@ -1008,7 +1078,21 @@ export default function ChatConversationPage({
 					aria-hidden="true"
 				/>
 			}
-			rightSlot={syncing ? <Loader size={18} mascot={false} /> : undefined}
+			rightSlot={
+				<>
+					{syncing && <Loader size={18} mascot={false} />}
+					{chatTabId && (
+						<button
+							type="button"
+							className="chat-sidebar-toggle haptic-trigger"
+							onClick={() => setShowSidebar(true)}
+							aria-label="Open chats"
+						>
+							<span className="icon-menu" aria-hidden="true" />
+						</button>
+					)}
+				</>
+			}
 		>
 			{loading && allMessages.length === 0 && (
 				<EmptyState message="Loading messages…" mascot="loading" />
@@ -1178,6 +1262,14 @@ export default function ChatConversationPage({
 					<ContextWindowDetails usage={contextWindowUsage} />
 				)}
 			</BottomSheet>
+			{chatTabId && (
+				<ChatSidebar
+					open={showSidebar}
+					onClose={() => setShowSidebar(false)}
+					workspacePath={workspacePath}
+					activeTabId={chatTabId}
+				/>
+			)}
 		</Page>
 	);
 

@@ -60,8 +60,15 @@ type HandshakeError = Error & {
 
 const RECV_TIMEOUT = 40_000;
 const PING_INTERVAL_MS = 25_000;
-const MAX_RECONNECT_ATTEMPTS = 5;
+// If no inbound frame (pong or anything else) arrives within this window, the
+// socket is considered dead. The OS frequently kills the TCP connection while
+// the app is backgrounded/locked without ever delivering a `close` frame, so we
+// can't rely on `close` alone. ~2× the ping interval gives one missed pong of
+// slack before we tear down and reconnect.
+const LIVENESS_TIMEOUT_MS = 55_000;
+const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY_MS = 1000;
+const MAX_RECONNECT_DELAY_MS = 20_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
 const HANDSHAKE_CLOSE_CODE = {
 	HOST_UNAVAILABLE: 4001,
@@ -106,6 +113,9 @@ export class Connection extends EventTarget {
 	private encryptionKey: Uint8Array | null = null;
 	private clientId: string | null = null;
 	private readonly serverUrl: string;
+	// Timestamp of the last inbound frame of any kind. Any traffic from the host
+	// (pong, battery update, terminal output, …) proves the socket is alive.
+	private lastInboundAt = Date.now();
 
 	constructor(wsServerUrl: string, encryptionKey?: Uint8Array | null) {
 		super();
@@ -168,6 +178,8 @@ export class Connection extends EventTarget {
 	}
 
 	private async handleIncomingWebSocketData(data: unknown) {
+		this.lastInboundAt = Date.now();
+
 		if (typeof data === "string") {
 			this.handleIncomingMessage(data);
 			return;
@@ -411,6 +423,19 @@ export class Connection extends EventTarget {
 			this.removeEventListener(PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT, wrapped);
 	}
 
+	/**
+	 * True when no inbound frame has arrived for longer than the given window,
+	 * i.e. the socket is very likely dead even if no `close` has fired yet.
+	 */
+	isStale(timeoutMs: number): boolean {
+		return Date.now() - this.lastInboundAt > timeoutMs;
+	}
+
+	/** Reset the liveness clock, e.g. right after a successful handshake. */
+	markAlive() {
+		this.lastInboundAt = Date.now();
+	}
+
 	close() {
 		this.ws?.close();
 	}
@@ -432,6 +457,9 @@ class ConnectionManager {
 	private reconnectAttempt = 0;
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 	private encryptionKey: Uint8Array | null = null;
+	// The host we're currently meant to be connected to. Retained across
+	// reconnects so app-resume / network-online can re-establish the session.
+	private activeHostId: string | null = null;
 	private onConnected: ((token: string) => void) | null = null;
 	private onDisconnected: (() => void) | null = null;
 	private onPreDisconnect: (() => void) | null = null;
@@ -503,6 +531,7 @@ class ConnectionManager {
 
 		this.closePendingSocket();
 		this.encryptionKey = encryptionKey ?? null;
+		this.activeHostId = hostId;
 		this.setSnapshot({
 			serverUrl: url,
 			sessionToken: hostId,
@@ -522,6 +551,7 @@ class ConnectionManager {
 					handshakeCompleted = true;
 					this.pendingSocket = null;
 					this.connection = nextConnection;
+					nextConnection.markAlive();
 					this.setSnapshot({
 						hostInfo: {
 							id: hostId,
@@ -577,6 +607,7 @@ class ConnectionManager {
 	disconnect() {
 		this.cancelReconnect();
 		this.encryptionKey = null;
+		this.activeHostId = null;
 		this.stopPing();
 		this.closeConnection();
 		this.closePendingSocket();
@@ -590,6 +621,34 @@ class ConnectionManager {
 		this.onDisconnected?.();
 	}
 
+	/**
+	 * Force an immediate reconnect for the active host. Safe to call on app
+	 * resume or when the network comes back: it no-ops when there's no active
+	 * host or when the existing socket is still live, and otherwise cancels any
+	 * pending backoff and retries right away with a fresh attempt budget.
+	 */
+	reconnectNow() {
+		const hostId = this.activeHostId;
+		if (!hostId) return;
+
+		// Already connected with a live socket — nothing to do.
+		if (
+			this.snapshot.connectionStatus === "connected" &&
+			this.connection &&
+			!this.connection.isStale(LIVENESS_TIMEOUT_MS)
+		) {
+			return;
+		}
+
+		// Cancel any scheduled backoff and start a fresh attempt immediately.
+		this.cancelReconnect();
+		this.stopPing();
+		this.closeConnection();
+		this.closePendingSocket();
+		this.setSnapshot({ connectionStatus: "reconnecting", batteryInfo: null });
+		this.attemptReconnect(hostId, true);
+	}
+
 	private setSnapshot(next: Partial<ConnectionSnapshot>) {
 		this.snapshot = { ...this.snapshot, ...next };
 		for (const fn of this.listeners) fn();
@@ -598,7 +657,22 @@ class ConnectionManager {
 	private startPing() {
 		this.stopPing();
 		this.pingInterval = setInterval(() => {
-			this.connection?.send({ type: MsgType.PING });
+			const connection = this.connection;
+			if (!connection) return;
+
+			// If the host has gone silent for too long the socket is dead even
+			// though no `close` may have fired. Tear down and reconnect instead
+			// of pinging into the void.
+			if (
+				this.snapshot.connectionStatus === "connected" &&
+				connection.isStale(LIVENESS_TIMEOUT_MS) &&
+				this.activeHostId
+			) {
+				this.handleUnexpectedDisconnect(this.activeHostId);
+				return;
+			}
+
+			connection.send({ type: MsgType.PING });
 		}, PING_INTERVAL_MS);
 	}
 
@@ -616,7 +690,7 @@ class ConnectionManager {
 		this.reconnectAttempt = 0;
 	}
 
-	private async attemptReconnect(hostId: string) {
+	private async attemptReconnect(hostId: string, immediate = false) {
 		const key = this.encryptionKey;
 		const url = this.snapshot.serverUrl || (await getBaseServerUrl());
 
@@ -635,7 +709,13 @@ class ConnectionManager {
 			return;
 		}
 
-		const delay = BASE_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempt - 1);
+		const backoff = Math.min(
+			BASE_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempt - 1),
+			MAX_RECONNECT_DELAY_MS,
+		);
+		// Jitter (±20%) avoids many clients hammering a shared relay in lockstep.
+		// `immediate` fires the first attempt right away (e.g. on app resume).
+		const delay = immediate ? 0 : backoff * (0.8 + Math.random() * 0.4);
 
 		this.reconnectTimeout = setTimeout(async () => {
 			this.reconnectTimeout = null;
@@ -799,4 +879,13 @@ export function connectToServer(
 
 export function disconnect() {
 	connectionManager.disconnect();
+}
+
+/**
+ * Force an immediate reconnect for the currently-active host if the socket is
+ * not live. No-ops when disconnected (no active host) or already connected.
+ * Call this on app resume and when the network comes back online.
+ */
+export function reconnectNow() {
+	connectionManager.reconnectNow();
 }

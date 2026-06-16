@@ -2,42 +2,58 @@
 	position: fixed;
 	inset: 0;
 	z-index: 200;
-	background: color-mix(in srgb, var(--primary) 52%, transparent);
-	backdrop-filter: blur(8px);
-	-webkit-backdrop-filter: blur(8px);
-	height: fit-content;
-	padding: 10px;
-	top: var(--page-header-height, --sat);
 	display: flex;
 	align-items: center;
-	box-shadow: 0 4px 8px var(--shadow-color);
+	justify-content: center;
+	padding: calc(24px + var(--sat, 0px)) 24px calc(24px + var(--sab, 0px));
+	// Soft, light scrim — the app stays faintly visible underneath so a
+	// reconnect feels like a momentary pause rather than a hard wall.
+	background: color-mix(in srgb, var(--primary) 32%, transparent);
+	backdrop-filter: blur(10px) saturate(1.05);
+	-webkit-backdrop-filter: blur(10px) saturate(1.05);
+}
+
+.connection-status-card {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	max-width: min(420px, 100%);
+	padding: 16px 20px;
+	border: 1px solid var(--popup-border-color, var(--card-border));
+	border-radius: 18px;
+	background: var(--popup-background, var(--surface-soft));
+	box-shadow:
+		0 12px 32px var(--shadow-color),
+		0 2px 8px var(--shadow-color);
 
 	.mascot {
-		margin-right: 10px;
+		flex: 0 0 auto;
 	}
+}
 
-	.connection-status-message {
-		margin: 0;
-		font-size: 18px;
-		font-weight: 700;
-		line-height: 1.2;
-	}
+.connection-status-text {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+}
 
-	&.is-connecting .connection-status-message {
-		--connect-glow-color: var(--accent);
-		color: var(--accent);
-	}
+.connection-status-message {
+	margin: 0;
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.25;
+	color: var(--primary-text);
+}
 
-	&.is-disconnected .connection-status-message {
-		--connect-glow-color: var(--danger);
-		color: var(--danger);
-	}
+.is-connecting .connection-status-message {
+	color: var(--accent);
+}
 
-	.connection-status-hint {
-		margin: 0;
-		font-size: 14px;
-		font-weight: 500;
-		line-height: 1.4;
-		color: var(--secondary-text);
-	}
+.connection-status-hint {
+	margin: 0;
+	font-size: 13px;
+	font-weight: 500;
+	line-height: 1.4;
+	color: var(--secondary-text);
 }

@@ -28,11 +28,13 @@ import {
 	loadBookmarkedSessions,
 	resetBookmarkedSessions,
 } from "./bookmarkSessions";
+import { loadChatTabs, resetChatTabs } from "./chatTabs";
 import {
 	type BatteryInfo,
 	connectToServer,
 	disconnect as disconnectWs,
 	getConnectionSnapshot,
+	reconnectNow,
 	setOnConnectedCallback,
 	setOnDisconnectedCallback,
 	setOnPreDisconnectCallback,
@@ -67,21 +69,21 @@ import {
 	removeProject,
 } from "./projects";
 import {
-	attachToTerminal,
 	closeTerminal as closeTerminalFn,
 	createTerminal,
 	detachAllTerminals,
+	detachTerminalListeners,
 	fetchTerminalList,
 	getTerminalContainer,
 	getTerminalsSnapshot,
 	getXterm,
-	initTerminalListeners,
 	isTerminalBusy,
 	type ProcessInfo,
 	persistActiveTerminalId,
 	type RemoteTerminalInfo,
 	renameTerminal,
 	restoreTerminalProcessNames,
+	restoreTerminalSessions,
 	setActiveTerminalId,
 	subscribeTerminals,
 } from "./terminals";
@@ -273,23 +275,24 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 
 	// Set up callbacks for post-connect and disconnect (once, on mount)
 	useEffect(() => {
-		// Helper: restore terminals from the live CLI terminal list.
+		// Helper: restore terminals from the live CLI terminal list. Existing
+		// terminal tiles stay mounted and are re-synced in place, so reconnects
+		// don't blank the screen or flash a loader.
 		const restoreTerminals = async () => {
 			persistActiveTerminalId();
 			setTerminalsRestoring(true);
 			try {
 				const liveTerminals = await fetchTerminalList();
-
-				for (const terminal of liveTerminals) {
-					await attachToTerminal(terminal.terminalId, terminal.shell);
-				}
+				await restoreTerminalSessions(liveTerminals);
 			} finally {
 				setTerminalsRestoring(false);
 			}
 		};
 
-		// Save terminal state before attempting reconnection
-		setOnPreDisconnectCallback(detachAllTerminals);
+		// On a transient disconnect only detach the dead listeners — keep the
+		// terminal UI mounted/frozen so reconnecting feels seamless. Full
+		// teardown happens only on a final disconnect (onDisconnected).
+		setOnPreDisconnectCallback(detachTerminalListeners);
 
 		setOnConnectedCallback(async (_token: string) => {
 			const { hostInfo } = getConnectionSnapshot();
@@ -313,6 +316,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 					.catch(console.error)
 					.finally(() => setLoadingProjects(false));
 				loadBookmarkedSessions(hostInfo.id).catch(console.error);
+				loadChatTabs(hostInfo.id).catch(console.error);
 			}
 
 			if (pendingSavedHostRef.current) {
@@ -331,7 +335,6 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 			} else if (hostInfo) {
 				console.warn("[hosts] Skipping save because hostId is missing");
 			}
-			initTerminalListeners();
 			await restoreTerminals();
 		});
 
@@ -340,6 +343,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 			setProjects([]);
 			setAgents({});
 			resetBookmarkedSessions();
+			resetChatTabs();
 			loadedProjectsForRef.current = "";
 		});
 
@@ -347,34 +351,63 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		restoreTerminalsRef.current = restoreTerminals;
 	}, []);
 
+	// Keep the latest connected host / connect fn in refs so the lifecycle
+	// listeners below can subscribe once and never re-bind.
+	const lastConnectedHostRef = useRef<HostInfo | null>(null);
+	lastConnectedHostRef.current = lastConnectedHost;
+	const connectRef = useRef(connect);
+	connectRef.current = connect;
+
 	useEffect(() => {
 		const onPause = () => {
 			const snapshot = getConnectionSnapshot();
-			setLastConnectedHost(snapshot.hostInfo);
+			if (snapshot.hostInfo) {
+				setLastConnectedHost(snapshot.hostInfo);
+			}
 		};
-		const onResume = async () => {
-			if (!lastConnectedHost) {
+
+		// Triggered on app resume and when the network comes back. Phones
+		// aggressively kill sockets in the background, often without a close
+		// frame, so we proactively re-establish instead of waiting for the slow
+		// path.
+		const recover = async () => {
+			const host = lastConnectedHostRef.current;
+			if (!host) return;
+
+			const { connectionStatus } = getConnectionSnapshot();
+
+			// Live or merely stale socket → let the manager decide (it no-ops if
+			// the connection is healthy, otherwise reconnects immediately).
+			if (
+				connectionStatus === "connected" ||
+				connectionStatus === "reconnecting"
+			) {
+				reconnectNow();
 				return;
 			}
 
-			const device = await findHostById(lastConnectedHost.id);
-			if (device && connection.connectionStatus === "disconnected") {
-				connect(
-					formatConnectionString(device.hostId, device.encryptionKey),
-				).catch((err) => {
-					dialog.alert("Error", err.message);
-				});
+			// Fully disconnected (reconnect budget exhausted or never connected)
+			// → start a fresh session from the saved host.
+			const device = await findHostById(host.id);
+			if (device) {
+				connectRef
+					.current(formatConnectionString(device.hostId, device.encryptionKey))
+					.catch((err) => {
+						dialog.alert("Error", err.message);
+					});
 			}
 		};
 
 		document.addEventListener("pause", onPause);
-		document.addEventListener("resume", onResume);
+		document.addEventListener("resume", recover);
+		window.addEventListener("online", recover);
 
 		return () => {
 			document.removeEventListener("pause", onPause);
-			document.removeEventListener("resume", onResume);
+			document.removeEventListener("resume", recover);
+			window.removeEventListener("online", recover);
 		};
-	}, [connect, connection, lastConnectedHost]);
+	}, []);
 
 	const handleAddProject = useCallback(
 		async (path: string) => {

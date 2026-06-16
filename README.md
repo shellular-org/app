@@ -48,6 +48,23 @@ pnpm build ios
 pnpm build browser
 ```
 
+### iOS code signing
+
+The iOS build archives with `xcodebuild`, which needs a development team. The project already references a `Config.xcconfig`, but that file is **gitignored** — so each machine creates it once at `platforms/ios/Config.xcconfig` with your signing settings:
+
+```bash
+touch platforms/ios/Config.xcconfig
+```
+
+Then add your team ID and code signing style to that file:
+
+```
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_STYLE = Automatic
+```
+
+That's it — no Xcode setup needed; the project is already wired to read this file.
+
 ## Scripts
 
 | Command                 | Description                        |
