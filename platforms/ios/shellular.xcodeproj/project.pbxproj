@@ -12,6 +12,7 @@
 
 /* Begin PBXFileReference section */
 		12D2F2F32F843F1F000D37BC /* shellular.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = shellular.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D483BD582FE0E4D700B638E7 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -50,6 +51,7 @@
 		12D2F2EA2F843F1F000D37BC = {
 			isa = PBXGroup;
 			children = (
+				D483BD582FE0E4D700B638E7 /* Config.xcconfig */,
 				12D2F2F52F843F1F000D37BC /* shellular */,
 				12D2F2F42F843F1F000D37BC /* Products */,
 			);
@@ -149,6 +151,7 @@
 /* Begin XCBuildConfiguration section */
 		12D2F2FC2F843F20000D37BC /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D483BD582FE0E4D700B638E7 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -213,6 +216,7 @@
 		};
 		12D2F2FD2F843F20000D37BC /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = D483BD582FE0E4D700B638E7 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;

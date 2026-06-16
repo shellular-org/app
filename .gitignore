@@ -40,5 +40,7 @@ dev/terminals.config
 xcuserdata
 *.xcuserstate
 
+*.xcconfig
+
 # Agents
 .claude
