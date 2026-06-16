@@ -1080,6 +1080,82 @@ export async function attachToTerminal(
 	return true;
 }
 
+/**
+ * Re-sync an already-mounted terminal in place after a reconnect. Reuses the
+ * existing xterm instance and DOM (no dispose, no flash) and overwrites its
+ * buffer with the CLI's fresh snapshot, which is the source of truth. The input
+ * and resize disposers do not need rebinding: they route through the live
+ * `sendMessage`/`sendRequest`, which resolve the current connection at call
+ * time.
+ */
+async function resyncExistingTerminal(terminalId: string): Promise<boolean> {
+	const entry = terminalEntries.get(terminalId);
+	if (!entry) return false;
+
+	const response = await sendRequest<TerminalAttachResultMsg>({
+		type: MsgType.TERMINAL_ATTACH,
+		data: { terminalId, cols: 80, rows: 24 },
+	});
+
+	if (response.error) {
+		console.error("Failed to re-attach to terminal:", response.error);
+		return false;
+	}
+
+	const snapshot = response.data?.snapshot;
+	const { terminal } = entry;
+	if (snapshot) {
+		// Replace the frozen buffer with the authoritative CLI snapshot.
+		terminal.reset();
+		terminal.write(textifyEmoji(snapshot));
+		entry.needsInitialScroll = true;
+		try {
+			entry.container.fit?.();
+			terminal.scrollToBottom();
+		} catch {}
+	}
+
+	return true;
+}
+
+/**
+ * Restore terminals after a reconnect while preserving the on-screen UI.
+ * Terminals that still exist on the CLI and are already mounted are re-synced in
+ * place; brand-new ones are attached normally; ones that disappeared server-side
+ * are cleaned up individually. Listeners are re-bound to the new connection.
+ */
+export async function restoreTerminalSessions(
+	liveTerminals: RemoteTerminalInfo[],
+): Promise<void> {
+	initTerminalListeners();
+
+	const liveIds = new Set(liveTerminals.map((t) => t.terminalId));
+
+	// Drop terminals that no longer exist on the CLI.
+	for (const terminalId of [...terminalEntries.keys()]) {
+		if (!liveIds.has(terminalId)) {
+			cleanupTerminal(terminalId);
+			_activeTerminals = _activeTerminals.filter(
+				(t) => t.terminalId !== terminalId,
+			);
+		}
+	}
+
+	for (const terminal of liveTerminals) {
+		if (terminalEntries.has(terminal.terminalId)) {
+			await resyncExistingTerminal(terminal.terminalId);
+		} else {
+			await attachToTerminal(terminal.terminalId, terminal.shell);
+		}
+	}
+
+	if (_activeTerminalId && !liveIds.has(_activeTerminalId)) {
+		_activeTerminalId = _activeTerminals[0]?.terminalId ?? null;
+	}
+
+	emit();
+}
+
 export function isTerminalBusy(terminalId: string): boolean {
 	const terminal = terminalEntries.get(terminalId)?.terminal;
 	if (!terminal) return false;
@@ -1137,6 +1213,22 @@ function cleanupTerminal(relayId: string) {
 	const names = { ..._terminalNames };
 	delete names[relayId];
 	_terminalNames = names;
+}
+
+/**
+ * Detach the connection-bound message listeners without tearing down any
+ * terminal UI. Used on a transient disconnect so the existing xterm tiles stay
+ * mounted and frozen on screen while we reconnect — the user keeps seeing their
+ * last terminal state instead of a blank rebuild. The CLI snapshot is re-synced
+ * in place once the connection is restored (see {@link restoreTerminalSessions}).
+ */
+export function detachTerminalListeners(): void {
+	unlistenData?.();
+	unlistenClosed?.();
+	unlistenTitle?.();
+	unlistenData = null;
+	unlistenClosed = null;
+	unlistenTitle = null;
 }
 
 export function detachAllTerminals(close = false): void {

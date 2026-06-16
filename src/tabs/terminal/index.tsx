@@ -96,7 +96,15 @@ export default function TerminalTab() {
 		getNextActiveTerminal,
 	]);
 
-	if (connectionStatus !== "connected") {
+	// While reconnecting we keep any mounted terminals frozen on screen so the
+	// transition feels seamless — only fall back to the empty state when there
+	// is genuinely nothing to show or we've fully disconnected.
+	const hasTerminals = activeTerminals.length > 0;
+
+	if (
+		connectionStatus === "disconnected" ||
+		(!hasTerminals && !terminalsRestoring && connectionStatus !== "connected")
+	) {
 		return (
 			<div className="terminal-tab terminal-tab--empty">
 				<TabPageHeader title="Terminal" />
@@ -108,11 +116,11 @@ export default function TerminalTab() {
 		);
 	}
 
-	if (activeTerminals.length === 0) {
+	if (!hasTerminals) {
 		return (
 			<div className="terminal-tab terminal-tab--empty">
 				<TabPageHeader title="Terminal" />
-				{terminalsRestoring ? (
+				{terminalsRestoring || connectionStatus === "reconnecting" ? (
 					<EmptyState message="Restoring terminals…" mascot="loading" />
 				) : (
 					<EmptyState
