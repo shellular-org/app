@@ -145,11 +145,19 @@ export default function App() {
 
 	tabViewHidden = pageStack.some((p) => !closingIds.has(p.id));
 
+	// The reconnect overlay lives at the app root so it covers everything —
+	// tabs and pushed pages alike. A pushed page can opt out (e.g. flows that
+	// manage their own connection UI) via showConnectionBanner: false, which
+	// only applies while that page is the top-most one.
+	const showConnectionOverlay = topNonClosingPage
+		? topNonClosingPage.showConnectionBanner
+		: true;
+
 	return (
 		<ShellularProvider>
 			<TabView />
 			<AppDialogHost />
-			{pageStack.map(({ id, element, showConnectionBanner }) => {
+			{pageStack.map(({ id, element }) => {
 				const isClosing = closingIds.has(id);
 				const isVisible = id === topNonClosingPage?.id || isClosing;
 				return (
@@ -159,10 +167,10 @@ export default function App() {
 						style={{ display: isVisible ? undefined : "none" }}
 					>
 						{element}
-						{!isClosing && showConnectionBanner && <ConnectionStatus />}
 					</div>
 				);
 			})}
+			{showConnectionOverlay && <ConnectionStatus />}
 		</ShellularProvider>
 	);
 }
