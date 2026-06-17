@@ -49,6 +49,33 @@ ul{list-style:none}
 .ports-action-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:20px;border:1px solid var(--card-border);background:var(--surface-soft);color:var(--primary-text);font-size:13px;font-weight:500;cursor:pointer;text-decoration:none;-webkit-tap-highlight-color:transparent}
 .ports-action-btn:active{opacity:.65}
 
+/* ── Ports header + refresh ── */
+.ports-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.ports-header .section-title{margin-bottom:0}
+.ports-refresh{background:none;border:none;color:var(--primary-text);cursor:pointer;padding:6px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;opacity:.7;-webkit-tap-highlight-color:transparent;text-decoration:none}
+.ports-refresh:active{opacity:.4}
+
+/* ── Portless URL + badge ── */
+.ports-portless{display:flex;align-items:center;gap:5px;min-width:0;font-size:13px;font-weight:600;color:var(--accent);font-family:'Courier New',monospace}
+.ports-portless-url{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.ports-portless-icon{font-size:13px;flex-shrink:0;opacity:.8}
+.ports-meta{display:flex;align-items:center;gap:7px}
+.ports-portless-badge{flex-shrink:0;font-family:-apple-system,system-ui,sans-serif;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:5px;padding:1px 5px;line-height:1.4}
+
+/* ── Search ── */
+.ports-search{display:flex;align-items:center;gap:8px;padding:0 12px;height:38px;box-sizing:border-box;margin-bottom:12px;background:var(--surface-soft);border:1px solid var(--card-border);border-radius:10px}
+.ports-search-icon{font-size:15px;color:var(--text-muted);opacity:.6;flex-shrink:0}
+.ports-search-input{flex:1;min-width:0;padding:0;margin:0;background:none;border:none;outline:none;box-sizing:border-box;color:var(--primary-text);font-size:14px;line-height:1.2}
+.ports-search-input::placeholder{color:var(--text-muted);opacity:.6}
+.ports-search-clear{display:flex;align-items:center;justify-content:center;width:20px;height:20px;background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0;font-size:15px;line-height:1;opacity:.6;flex-shrink:0;-webkit-tap-highlight-color:transparent}
+.ports-search-clear:active{opacity:.3}
+
+/* ── Filter chips ── */
+.ports-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.ports-filter{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:20px;border:1px solid var(--card-border);background:var(--surface-soft);color:var(--text-muted);font-size:12px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.ports-filter:active{opacity:.65}
+.ports-filter--active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+
 /* ── History ── */
 .history-list{display:flex;flex-direction:column;border-radius:14px;overflow:hidden;border:1px solid var(--card-border);background:var(--surface-soft)}
 .history-item{display:flex;align-items:center;gap:10px;padding:12px 14px;-webkit-tap-highlight-color:transparent}

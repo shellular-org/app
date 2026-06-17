@@ -11,6 +11,8 @@ export interface PortEntry {
 	pid: number;
 	process: string;
 	address: string;
+	/** Present only when this port is mapped to a portless `<name>.localhost` URL. */
+	portlessUrl?: string;
 }
 
 export async function fetchPorts(): Promise<PortEntry[]> {
