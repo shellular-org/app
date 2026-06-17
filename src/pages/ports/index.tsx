@@ -50,9 +50,47 @@ function decodeProcessName(name: string): string {
 	);
 }
 
+// Special filter value that matches only ports with a portless URL, rather
+// than a process name.
+const PORTLESS_FILTER = "portless";
+
 interface PortGroup {
 	process: string;
 	entries: PortEntry[];
+}
+
+/**
+ * Build the list of filter chips available for the current ports: one per
+ * distinct (decoded, lowercased) process name, plus a special "portless" chip
+ * when any port has a portless URL. Sorted alphabetically, portless last.
+ */
+function availableFilters(ports: PortEntry[]): string[] {
+	const processes = new Set<string>();
+	let hasPortless = false;
+	for (const entry of ports) {
+		processes.add(decodeProcessName(entry.process).toLowerCase());
+		if (entry.portlessUrl) hasPortless = true;
+	}
+	const filters = Array.from(processes).sort((a, b) => a.localeCompare(b));
+	if (hasPortless) filters.push(PORTLESS_FILTER);
+	return filters;
+}
+
+function matchesFilter(entry: PortEntry, filter: string | null): boolean {
+	if (filter === null) return true;
+	if (filter === PORTLESS_FILTER) return !!entry.portlessUrl;
+	return decodeProcessName(entry.process).toLowerCase() === filter;
+}
+
+/** Match a port against a free-text query: port number, process, or portless URL. */
+function matchesQuery(entry: PortEntry, query: string): boolean {
+	const q = query.trim().toLowerCase();
+	if (!q) return true;
+	return (
+		String(entry.port).includes(q) ||
+		decodeProcessName(entry.process).toLowerCase().includes(q) ||
+		(entry.portlessUrl?.toLowerCase().includes(q) ?? false)
+	);
 }
 
 function groupByProcess(ports: PortEntry[]): PortGroup[] {
@@ -75,6 +113,9 @@ export default function PortsPage() {
 	const [error, setError] = useState("");
 	const [killing, setKilling] = useState<Set<number>>(new Set());
 	const [expandedPort, setExpandedPort] = useState<number | null>(null);
+	// null = "All". Otherwise a process name or the PORTLESS_FILTER sentinel.
+	const [activeFilter, setActiveFilter] = useState<string | null>(null);
+	const [query, setQuery] = useState("");
 
 	const load = useCallback(async (initial?: boolean) => {
 		if (initial) setLoading(true);
@@ -124,7 +165,8 @@ export default function PortsPage() {
 	}
 
 	async function handleOpenInBrowser(entry: PortEntry) {
-		const url = buildPortUrl(entry.port);
+		// Prefer the portless `<name>.localhost` URL when the user has one mapped.
+		const url = entry.portlessUrl ?? buildPortUrl(entry.port);
 		setExpandedPort(null);
 		await browser.open(url);
 	}
@@ -141,7 +183,18 @@ export default function PortsPage() {
 		</button>
 	);
 
-	const groups = groupByProcess(ports);
+	const filters = availableFilters(ports);
+	// If the active filter disappeared (e.g. that process closed), fall back to All.
+	useEffect(() => {
+		if (activeFilter !== null && !filters.includes(activeFilter)) {
+			setActiveFilter(null);
+		}
+	}, [activeFilter, filters]);
+
+	const visiblePorts = ports.filter(
+		(p) => matchesFilter(p, activeFilter) && matchesQuery(p, query),
+	);
+	const groups = groupByProcess(visiblePorts);
 
 	if (connectionStatus !== "connected") {
 		return (
@@ -153,6 +206,67 @@ export default function PortsPage() {
 
 	return (
 		<Page title="Ports" rightSlot={rightSlot} className="ports-page">
+			{!loading && !error && ports.length > 0 && (
+				<div className="ports-search">
+					<span className="icon-search ports-search-icon" aria-hidden="true" />
+					<input
+						type="text"
+						className="ports-search-input"
+						placeholder="Search port, process or portless…"
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+						aria-label="Search ports"
+					/>
+					{/* Always rendered (hidden when empty) so it reserves its space
+					    and the search bar height never shifts. */}
+					<button
+						type="button"
+						className="ports-search-clear"
+						onClick={() => setQuery("")}
+						aria-label="Clear search"
+						aria-hidden={!query}
+						tabIndex={query ? 0 : -1}
+						style={{ visibility: query ? "visible" : "hidden" }}
+					>
+						<span className="icon-x" aria-hidden="true" />
+					</button>
+				</div>
+			)}
+			{!loading && !error && filters.length > 1 && (
+				<div className="ports-filters" role="tablist" aria-label="Filter ports">
+					<button
+						type="button"
+						role="tab"
+						aria-selected={activeFilter === null}
+						className={`ports-filter${
+							activeFilter === null ? " ports-filter--active" : ""
+						}`}
+						onClick={() => setActiveFilter(null)}
+					>
+						All
+					</button>
+					{filters.map((filter) => {
+						const isPortless = filter === PORTLESS_FILTER;
+						return (
+							<button
+								key={filter}
+								type="button"
+								role="tab"
+								aria-selected={activeFilter === filter}
+								className={`ports-filter${
+									activeFilter === filter ? " ports-filter--active" : ""
+								}${isPortless ? " ports-filter--portless" : ""}`}
+								onClick={() => setActiveFilter(filter)}
+							>
+								{isPortless && (
+									<span className="icon-link" aria-hidden="true" />
+								)}
+								{filter}
+							</button>
+						);
+					})}
+				</div>
+			)}
 			{loading && (
 				<div className="ports-loading">
 					<Loader />
@@ -168,7 +282,14 @@ export default function PortsPage() {
 			{!loading &&
 				!error &&
 				(groups.length === 0 ? (
-					<EmptyState message="No open ports found" mascot="rolling" />
+					<EmptyState
+						message={
+							query.trim() || activeFilter !== null
+								? "No ports match"
+								: "No open ports found"
+						}
+						mascot="rolling"
+					/>
 				) : (
 					groups.map((group) => (
 						<div key={group.process} className="ports-card">
@@ -182,7 +303,9 @@ export default function PortsPage() {
 							<ul className="ports-list">
 								{group.entries.map((entry) => {
 									const isExpanded = expandedPort === entry.port;
-									const canOpenBrowser = isWebPort(entry.port, group.process);
+									// A portless mapping means this is definitely a web server.
+									const canOpenBrowser =
+										!!entry.portlessUrl || isWebPort(entry.port, group.process);
 									return (
 										<li key={entry.port} className="ports-row">
 											<button
@@ -202,8 +325,32 @@ export default function PortsPage() {
 													</span>
 												)}
 												<div className="ports-info">
-													<span className="ports-address">{entry.address}</span>
-													<span className="ports-pid">PID {entry.pid}</span>
+													{entry.portlessUrl ? (
+														<span className="ports-portless">
+															<span
+																className="icon-link ports-portless-icon"
+																aria-hidden="true"
+															/>
+															<span className="ports-portless-url">
+																{entry.portlessUrl.replace(/^https?:\/\//, "")}
+															</span>
+														</span>
+													) : (
+														<span className="ports-address">
+															{entry.address}
+														</span>
+													)}
+													<span className="ports-meta">
+														<span className="ports-pid">PID {entry.pid}</span>
+														{entry.portlessUrl && (
+															<span
+																className="ports-portless-badge"
+																title="Mapped by Vercel portless"
+															>
+																portless
+															</span>
+														)}
+													</span>
 												</div>
 												<span
 													className={`icon-chevron-down ports-expand-icon${
