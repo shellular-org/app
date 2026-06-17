@@ -21,7 +21,7 @@
     font-size: 13px;
     font-weight: 700;
     color: var(--primary-text);
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -126,7 +126,7 @@
 
   /* ── Port badge ─────────────────────────────────────────────── */
   .ports-port-badge {
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
     font-size: 13px;
     font-weight: 700;
     color: var(--info);
@@ -151,7 +151,7 @@
     font-size: 13px;
     font-weight: 500;
     color: var(--primary-text);
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -166,7 +166,7 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--info);
-    font-family: 'Courier New', monospace;
+    font-family: "Courier New", monospace;
   }
 
   .ports-portless-url {
@@ -199,6 +199,7 @@
 
   /* ── Search ─────────────────────────────────────────────────── */
   .ports-search {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -280,7 +281,11 @@
     font-weight: 600;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+    transition:
+      opacity 0.15s,
+      color 0.15s,
+      background 0.15s,
+      border-color 0.15s;
 
     &:active {
       opacity: 0.65;
