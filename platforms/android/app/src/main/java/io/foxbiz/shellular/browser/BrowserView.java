@@ -6,6 +6,7 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Environment;
@@ -180,7 +181,11 @@ public class BrowserView extends LinearLayout {
         webView = new WebView(context);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
-        webView.setBackgroundColor(theme.get("primary"));
+        // White backdrop so external pages without an explicit background render like a
+        // normal browser (readable dark text). Internal shellular:// pages set their own
+        // opaque dark background, so they keep the dark theme. The surrounding chrome
+        // (container, toolbar) stays themed below.
+        webView.setBackgroundColor(Color.WHITE);
         webView.setLayoutParams(new LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));

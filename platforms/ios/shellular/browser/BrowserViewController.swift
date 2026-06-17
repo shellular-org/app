@@ -303,8 +303,11 @@ final class BrowserViewController: UIViewController {
         webView.scrollView.bounces = false
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.isOpaque = false
-        webView.backgroundColor = primaryColor
-        webView.scrollView.backgroundColor = primaryColor
+        // White backdrop so external pages without an explicit background render like
+        // a normal browser (readable dark text). Internal shellular:// pages set their
+        // own opaque dark background, so they keep the dark theme.
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
         view.addSubview(webView)
 
         webViewTopConstraint = webView.topAnchor.constraint(equalTo: view.topAnchor, constant: 96)
