@@ -57,8 +57,8 @@ importers:
         specifier: ^1.1.20
         version: 1.1.20(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@shellular/protocol':
-        specifier: ^0.0.19
-        version: 0.0.19
+        specifier: ^0.0.20
+        version: 0.0.20
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -231,8 +231,8 @@ importers:
 
 packages:
 
-  '@agentclientprotocol/sdk@0.23.0':
-    resolution: {integrity: sha512-wIGDQMSXwhoSPNCJflSQvf4WeSU2Jq1bbPRAwwb49euo9qMcND5Pb80hD7hVfuAwz9ZvvDuzVrNTOZrvKPR9Eg==}
+  '@agentclientprotocol/sdk@0.26.0':
+    resolution: {integrity: sha512-ialrcI+RzKOYe+fw+TfpyTdRmEoqIkXLlwbTi6XgaXXfdhNcdod7TmE1VsTnG3yTlox8TMTSMQgWbLLbz3r86Q==}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
 
@@ -1370,8 +1370,8 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
 
-  '@shellular/protocol@0.0.19':
-    resolution: {integrity: sha512-uovAY/yk+qD/COu7j7eNUfmAwIxaqO+fxIXFfMDusULgBp43g+T2LPLr0Y2cUZRQGRgI+Tparz7ZyUv260Xumw==}
+  '@shellular/protocol@0.0.20':
+    resolution: {integrity: sha512-2hDf5ir+2/jWI+TiQWp/yahUwyxFl4VviQIewkibxnrL3/nWf8R1CYYLiCZrCd8hZXjbbKX6PAPnzVeU5cb2Iw==}
 
   '@shikijs/core@3.23.0':
     resolution: {integrity: sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA==}
@@ -3496,7 +3496,7 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/sdk@0.23.0(zod@4.3.6)':
+  '@agentclientprotocol/sdk@0.26.0(zod@4.3.6)':
     dependencies:
       zod: 4.3.6
 
@@ -5041,9 +5041,9 @@ snapshots:
     dependencies:
       react: 19.2.5
 
-  '@shellular/protocol@0.0.19':
+  '@shellular/protocol@0.0.20':
     dependencies:
-      '@agentclientprotocol/sdk': 0.23.0(zod@4.3.6)
+      '@agentclientprotocol/sdk': 0.26.0(zod@4.3.6)
       zod: 4.3.6
 
   '@shikijs/core@3.23.0':
