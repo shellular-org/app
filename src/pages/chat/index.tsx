@@ -45,7 +45,6 @@ import {
 	acpPrompt,
 	acpSetConfigOption,
 	acpSetMode,
-	acpSetModel,
 	acpSubscribeSessionEvents,
 	acpWriteAttachmentBase64,
 } from "state/acp";
@@ -1520,8 +1519,6 @@ export default function ChatConversationPage({
 			const setMethod = (option as { _setMethod?: unknown })._setMethod;
 			if (setMethod === "mode") {
 				await acpSetMode(agentId, targetSessionId, String(nextValue));
-			} else if (setMethod === "model") {
-				await acpSetModel(agentId, targetSessionId, String(nextValue));
 			} else {
 				const nextOptions = await acpSetConfigOption(
 					agentId,

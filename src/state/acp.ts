@@ -15,7 +15,6 @@ import {
 	type AiSessionDetachResultMsg,
 	type AiSessionListResultMsg,
 	type AiSessionLoadResultMsg,
-	type AiSessionModelSetResultMsg,
 	type AiSessionModeSetResultMsg,
 	type AiSessionRuntimeState,
 	MsgType,
@@ -529,18 +528,6 @@ export async function acpSetMode(
 	assertNoError(result);
 }
 
-export async function acpSetModel(
-	agentId: AiBackend,
-	sessionId: string,
-	modelId: string,
-): Promise<void> {
-	const result = await sendRequest<AiSessionModelSetResultMsg>({
-		type: MsgType.AI_SESSION_MODEL_SET,
-		data: { backend: agentId, sessionId, modelId },
-	});
-	assertNoError(result);
-}
-
 function isSessionEvent(
 	msg: AiEventMsg,
 	agentId: AiBackend,
@@ -616,8 +603,6 @@ function normalizeConfigOptions(
 	const fallback: AiSessionConfigOption[] = [];
 	const modesOption = modeStateToConfigOption(state?.modes);
 	if (modesOption) fallback.push(modesOption);
-	const modelsOption = modelStateToConfigOption(state?.models);
-	if (modelsOption) fallback.push(modelsOption);
 	return fallback;
 }
 
@@ -656,55 +641,5 @@ function modeStateToConfigOption(value: unknown): AiSessionConfigOption | null {
 		currentValue: state.currentModeId,
 		options,
 		_setMethod: "mode",
-	} as AiSessionConfigOption;
-}
-
-function modelStateToConfigOption(
-	value: unknown,
-): AiSessionConfigOption | null {
-	if (!value || typeof value !== "object") return null;
-	const state = value as {
-		currentModelId?: unknown;
-		availableModels?: Array<{
-			modelId?: unknown;
-			id?: unknown;
-			name?: unknown;
-			displayName?: unknown;
-			description?: unknown;
-		}>;
-	};
-	if (typeof state.currentModelId !== "string") return null;
-	if (!Array.isArray(state.availableModels)) return null;
-	const options = state.availableModels.flatMap((model) => {
-		const value =
-			typeof model.modelId === "string"
-				? model.modelId
-				: typeof model.id === "string"
-					? model.id
-					: null;
-		if (!value) return [];
-		return [
-			{
-				value,
-				name:
-					typeof model.name === "string"
-						? model.name
-						: typeof model.displayName === "string"
-							? model.displayName
-							: value,
-				description:
-					typeof model.description === "string" ? model.description : undefined,
-			},
-		];
-	});
-	if (!options.length) return null;
-	return {
-		id: "__model",
-		name: "Model",
-		category: "model",
-		type: "select",
-		currentValue: state.currentModelId,
-		options,
-		_setMethod: "model",
 	} as AiSessionConfigOption;
 }
