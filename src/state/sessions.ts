@@ -31,6 +31,32 @@ const LIVE_STATUSES = new Set<AiSessionRuntimeStatus>([
 	"waiting_for_permission",
 	"stopping",
 ]);
+// Generic placeholders various code paths inject when a real title is unknown.
+// These must never overwrite a real title we already have for a session.
+const PLACEHOLDER_TITLES = new Set(["New Chat", "Untitled Chat"]);
+
+function isRealTitle(value: unknown): value is string {
+	return (
+		typeof value === "string" &&
+		value.trim().length > 0 &&
+		!PLACEHOLDER_TITLES.has(value.trim())
+	);
+}
+
+/** Picks the first real (non-placeholder) title from the candidates. */
+function resolveTitle(
+	...candidates: (string | undefined)[]
+): string | undefined {
+	for (const candidate of candidates) {
+		if (isRealTitle(candidate)) return candidate;
+	}
+	// No real title anywhere: keep a placeholder only if one was provided, so the
+	// chat page's own fallback still works.
+	for (const candidate of candidates) {
+		if (typeof candidate === "string" && candidate.length > 0) return candidate;
+	}
+	return undefined;
+}
 
 const streamingListeners = new Set<StreamingListener>();
 const activityListeners = new Set<ActivityListener>();
@@ -70,9 +96,10 @@ export function getActiveSessionActivities(
 	return [...activities.values()]
 		.filter((activity) => {
 			if (agentId && activity.agentId !== agentId) return false;
-			return isLiveStatus(activity.status)
-				? true
-				: Boolean(activity.visibleUntil && now <= activity.visibleUntil);
+			if (isLiveStatus(activity.status)) return true;
+			// Persistent activities stay until explicitly dismissed.
+			if (activity.persistent) return true;
+			return Boolean(activity.visibleUntil && now <= activity.visibleUntil);
 		})
 		.sort((a, b) => b.updatedAt - a.updatedAt);
 }
@@ -87,14 +114,19 @@ export function mergeSessionActivity(
 		agentId: state.agentId,
 		sessionId: state.sessionId,
 		updatedAt: state.updatedAt,
-		title: state.title ?? existing?.title,
+		// Never let a placeholder/empty title overwrite a real one we already have.
+		title: resolveTitle(state.title, existing?.title),
 		workspacePath: state.workspacePath ?? existing?.workspacePath,
 		model: state.model ?? existing?.model,
 		message: state.message ?? existing?.message,
 		stopReason: state.stopReason ?? existing?.stopReason,
 		error: state.error ?? existing?.error,
 		pendingPermission: state.pendingPermission ?? existing?.pendingPermission,
-		...(isLiveStatus(state.status)
+		external: state.external ?? existing?.external,
+		persistent: state.persistent ?? existing?.persistent,
+		// Persistent (e.g. externally-observed) finished sessions stay until the
+		// user dismisses them, so they never get a visibility expiry.
+		...(isLiveStatus(state.status) || state.persistent
 			? { visibleUntil: undefined }
 			: { visibleUntil: Date.now() + RECENT_ACTIVITY_MS }),
 	});
@@ -123,7 +155,11 @@ export function seedSessionActivity(
 			runtimeState?.updatedAt ??
 			session.updatedAt ??
 			Date.now(),
-		title: runtimeState?.title ?? session.title ?? existing?.title,
+		// Prefer any REAL title (existing first, so opening a session whose load
+		// response only carries a placeholder like "Untitled Chat" doesn't stomp
+		// the real watcher-provided title). Fall back to a placeholder only if no
+		// real title exists anywhere.
+		title: resolveTitle(existing?.title, runtimeState?.title, session.title),
 		workspacePath:
 			session.workspacePath ??
 			runtimeState?.workspacePath ??
@@ -138,6 +174,24 @@ export function seedSessionActivity(
 			? Date.now() + RECENT_ACTIVITY_MS
 			: existing?.visibleUntil,
 	});
+}
+
+/**
+ * Removes an activity from the home view and tells the CLI to forget it, so a
+ * finished/observed session the user has acknowledged does not reappear.
+ */
+export function dismissSessionActivity(agentId: string, sessionId: string) {
+	const key = activityKey(agentId, sessionId);
+	const existing = activities.get(key);
+	if (existing) {
+		activities.delete(key);
+		emitStreaming(agentId, sessionId, false);
+		emitActivities();
+	}
+	void sendRequest({
+		type: MsgType.AI_ACTIVITY_DISMISS,
+		data: { backend: agentId, sessionId },
+	}).catch(() => {});
 }
 
 export function getStreamingSessions(agentId: string) {
@@ -213,13 +267,21 @@ export function setupSessionStateListeners() {
 
 	onMessageCleanup = onMessage<AiEventMsg>(MsgType.AI_EVENT, ({ data }) => {
 		if (!data) return;
+
+		const { backend, type } = data;
+		const sessionId = data.properties?.sessionId;
+
+		// An externally-observed session whose agent process exited: drop it.
+		if (type === "session.removed" && backend && sessionId) {
+			removeActivity(backend, sessionId);
+			return;
+		}
+
 		if (data.state) {
 			mergeSessionActivity(data.state);
 			return;
 		}
 
-		const { backend, type } = data;
-		const sessionId = data.properties?.sessionId;
 		if (!backend || !sessionId) return;
 
 		const fallback = fallbackActivityFromEvent(backend, sessionId, type, data);
@@ -235,6 +297,14 @@ async function hydrateActivitiesFromCli(requestId: number) {
 	if (requestId !== hydrationRequestId) return;
 	if (result.error || !result.data?.activities) return;
 	replaceActivities(result.data.activities);
+}
+
+function removeActivity(agentId: string, sessionId: string) {
+	const key = activityKey(agentId, sessionId);
+	if (!activities.has(key)) return;
+	activities.delete(key);
+	emitStreaming(agentId, sessionId, false);
+	emitActivities();
 }
 
 function setActivity(
@@ -291,7 +361,7 @@ function replaceActivities(nextActivities: AiSessionRuntimeState[]) {
 		if (!state.agentId || !state.sessionId) continue;
 		activities.set(activityKey(state.agentId, state.sessionId), {
 			...state,
-			...(isLiveStatus(state.status)
+			...(isLiveStatus(state.status) || state.persistent
 				? { visibleUntil: undefined }
 				: { visibleUntil: state.updatedAt + RECENT_ACTIVITY_MS }),
 		});
@@ -397,6 +467,7 @@ function pruneInactiveActivities() {
 	let changed = false;
 	for (const [key, activity] of activities) {
 		if (isLiveStatus(activity.status)) continue;
+		if (activity.persistent) continue;
 		if (activity.visibleUntil && now <= activity.visibleUntil) continue;
 		activities.delete(key);
 		emitStreaming(activity.agentId, activity.sessionId, false);

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useShellular } from "state";
 import { getHostInfo } from "state/connection";
 import {
+	dismissSessionActivity,
 	getActiveSessionActivities,
 	type SessionActivity,
 	subscribeSessionActivities,
@@ -104,8 +105,12 @@ export default function HomeTab() {
 					<ul className="home-active-sessions-list">
 						{visibleActiveSessions.map((session) => {
 							const agent = agents[session.agentId];
+							const dismissible = isDismissible(session);
 							return (
-								<li key={`${session.agentId}:${session.sessionId}`}>
+								<li
+									key={`${session.agentId}:${session.sessionId}`}
+									className="home-active-session-row"
+								>
 									<button
 										type="button"
 										className="home-active-session haptic-trigger"
@@ -117,7 +122,7 @@ export default function HomeTab() {
 										/>
 										<span className="home-active-session-text">
 											<span className="home-active-session-title">
-												{session.title || session.sessionId}
+												{sessionDisplayTitle(session)}
 											</span>
 											<span className="home-active-session-meta">
 												{[
@@ -135,6 +140,21 @@ export default function HomeTab() {
 											{statusLabel(session)}
 										</span>
 									</button>
+									{dismissible && (
+										<button
+											type="button"
+											className="home-active-session-dismiss haptic-trigger"
+											aria-label="Dismiss session"
+											onClick={() =>
+												dismissSessionActivity(
+													session.agentId,
+													session.sessionId,
+												)
+											}
+										>
+											<span className="icon-close" aria-hidden="true" />
+										</button>
+									)}
 								</li>
 							);
 						})}
@@ -198,7 +218,7 @@ async function openSession(
 		<ChatConversationPage.default
 			chatTabId={tabId}
 			sessionId={session.sessionId}
-			title={session.title || session.sessionId}
+			title={sessionDisplayTitle(session)}
 			agentId={session.agentId}
 			workspacePath={session.workspacePath ?? ""}
 			assistantName={agentName}
@@ -208,6 +228,28 @@ async function openSession(
 			agentCapabilities={agent?.capabilities}
 		/>,
 	);
+}
+
+function sessionDisplayTitle(session: SessionActivity): string {
+	if (session.title) return session.title;
+	// Fall back to the workspace folder name rather than the raw session id,
+	// which is an opaque UUID and not user-friendly.
+	const folder = basename(session.workspacePath);
+	return folder || session.sessionId;
+}
+
+function isDismissible(session: SessionActivity): boolean {
+	// Only allow dismissing sessions that aren't actively doing something or
+	// waiting on the user; live ones should stay until they resolve.
+	switch (session.status) {
+		case "starting":
+		case "running":
+		case "waiting_for_permission":
+		case "stopping":
+			return false;
+		default:
+			return true;
+	}
 }
 
 function statusLabel(session: SessionActivity) {
