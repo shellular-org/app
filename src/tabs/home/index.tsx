@@ -158,7 +158,7 @@ export default function HomeTab() {
 														{
 															key: "dismiss",
 															icon: "icon-eye-off",
-															label: "Hide from active",
+															label: "Dismiss",
 															onClick: () =>
 																dismissSessionActivity(
 																	session.agentId,
