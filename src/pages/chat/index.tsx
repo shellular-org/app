@@ -41,6 +41,7 @@ import {
 	acpCancel,
 	acpCreateSession,
 	acpDetachSession,
+	acpLoadOlderMessages,
 	acpPermissionReply,
 	acpPrompt,
 	acpSetConfigOption,
@@ -150,6 +151,7 @@ export default function ChatConversationPage({
 	const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
+	const [hasOlderHistory, setHasOlderHistory] = useState(false);
 	const [scrollAdjust, setScrollAdjust] = useState(0);
 	const [syncing, setSyncing] = useState(false);
 	const [activeSessionId, setActiveSessionId] = useState(sessionId);
@@ -215,6 +217,7 @@ export default function ChatConversationPage({
 	const streamingUserIdRef = useRef<string | null>(null);
 	const sentTurnStartRef = useRef(0);
 	const allMessagesLengthRef = useRef(0);
+	const oldestHistoryCursorRef = useRef<string | null>(null);
 	const upsertAcpMessageRef = useRef<(msg: AcpMessage) => void>(() => {});
 
 	connectionStatusRef.current = connectionStatus;
@@ -243,7 +246,9 @@ export default function ChatConversationPage({
 		allMessagesLengthRef.current = allMessages.length;
 	}, [allMessages.length]);
 
-	const hasMore = allMessages.length > visibleCount;
+	const hasBufferedMessages = allMessages.length > visibleCount;
+	const hasMore = hasBufferedMessages || hasOlderHistory;
+	const usesNativeHistory = agentId === "codex" || agentId === "opencode";
 	const promptSuggestions = useMemo(
 		() =>
 			composerTrigger?.trigger === "/"
@@ -314,15 +319,65 @@ export default function ChatConversationPage({
 		[scrollToBottomNow],
 	);
 
-	const triggerLoadMore = useCallback(() => {
+	const triggerLoadMore = useCallback(async () => {
 		if (!historyScrollReady || !hasMore || loadingMore || !scrollRef.current) {
 			return;
 		}
 		prevScrollHeightRef.current = scrollRef.current.scrollHeight;
 		setLoadingMore(true);
-		setVisibleCount((c) => c + PAGE_SIZE);
-		setScrollAdjust((n) => n + 1);
-	}, [hasMore, historyScrollReady, loadingMore]);
+		if (hasBufferedMessages) {
+			setVisibleCount((count) => count + PAGE_SIZE);
+			setScrollAdjust((value) => value + 1);
+			return;
+		}
+
+		const cursor = oldestHistoryCursorRef.current;
+		const targetSessionId = activeSessionId || sessionId;
+		if (!hasOlderHistory || !cursor || !targetSessionId) {
+			setHasOlderHistory(false);
+			setLoadingMore(false);
+			return;
+		}
+
+		try {
+			const older = await acpLoadOlderMessages(
+				agentId,
+				targetSessionId,
+				resolvedWorkspacePath || ".",
+				cursor,
+				PAGE_SIZE,
+			);
+			if (older.length === 0) {
+				setHasOlderHistory(false);
+				setLoadingMore(false);
+				return;
+			}
+			oldestHistoryCursorRef.current = older[0]?.id ?? null;
+			setHasOlderHistory(older.length >= PAGE_SIZE);
+			setVisibleCount((count) => count + older.length);
+			setAllMessages((current) => {
+				const currentIds = new Set(current.map((message) => message.id));
+				const uniqueOlder = older.filter(
+					(message) => !currentIds.has(message.id),
+				);
+				return uniqueOlder.length > 0 ? [...uniqueOlder, ...current] : current;
+			});
+			setScrollAdjust((value) => value + 1);
+		} catch (loadError) {
+			setError((loadError as Error).message);
+			setLoadingMore(false);
+		}
+	}, [
+		activeSessionId,
+		agentId,
+		hasBufferedMessages,
+		hasMore,
+		hasOlderHistory,
+		historyScrollReady,
+		loadingMore,
+		resolvedWorkspacePath,
+		sessionId,
+	]);
 
 	const handleSessionStatus = useCallback(
 		(properties: Record<string, unknown>) => {
@@ -378,6 +433,8 @@ export default function ChatConversationPage({
 			if (Array.isArray(messages)) {
 				setAllMessages(messages as AcpMessage[]);
 				setVisibleCount(PAGE_SIZE);
+				oldestHistoryCursorRef.current = messages[0]?.id ?? null;
+				setHasOlderHistory(usesNativeHistory && messages.length >= PAGE_SIZE);
 				stickToBottomRef.current = true;
 				requestAnimationFrame(() => scrollToBottomNow(true));
 			}
@@ -526,12 +583,16 @@ export default function ChatConversationPage({
 		stickToBottomRef.current = true;
 		setPendingPermissions([]);
 		setHistoryScrollReady(false);
+		setHasOlderHistory(false);
+		oldestHistoryCursorRef.current = null;
 	}, [sessionId]);
 
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 		if (createOnFirstMessage) {
 			setAllMessages([]);
+			setHasOlderHistory(false);
+			oldestHistoryCursorRef.current = null;
 			setVisibleCount(PAGE_SIZE);
 			stickToBottomRef.current = true;
 			setHistoryScrollReady(true);
@@ -640,6 +701,10 @@ export default function ChatConversationPage({
 				setConfigOptions(result.configOptions);
 				setAvailableCommands(result.availableCommands);
 				setAllMessages(result.messages);
+				oldestHistoryCursorRef.current = result.messages[0]?.id ?? null;
+				setHasOlderHistory(
+					usesNativeHistory && result.messages.length >= PAGE_SIZE,
+				);
 				attachedSessionIdRef.current = sessionId;
 				attachedRevisionRef.current = result.revision;
 				attachReadyRef.current = true;
@@ -661,7 +726,6 @@ export default function ChatConversationPage({
 					applyRevisionedSessionEvent(event);
 				}
 				setLoading(false);
-				setSyncing(false);
 			})
 			.catch((err) => {
 				if (!cancelled) {
@@ -691,6 +755,7 @@ export default function ChatConversationPage({
 		agentAvailable,
 		sessionId,
 		resolvedWorkspacePath,
+		usesNativeHistory,
 	]);
 
 	// Scroll to bottom after React commits new messages or streaming tokens
@@ -1369,6 +1434,10 @@ export default function ChatConversationPage({
 				setConfigOptions(result.configOptions);
 				setAvailableCommands(result.availableCommands);
 				setAllMessages(result.messages);
+				oldestHistoryCursorRef.current = result.messages[0]?.id ?? null;
+				setHasOlderHistory(
+					usesNativeHistory && result.messages.length >= PAGE_SIZE,
+				);
 				setSyncing(Boolean(result.syncing));
 				cleanupRef.current?.();
 				attachReadyRef.current = true;
