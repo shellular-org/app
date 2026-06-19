@@ -2,11 +2,13 @@ import "./style.scss";
 import { pushPage } from "App";
 import type { HostInfo } from "@shellular/protocol";
 import clsx from "clsx";
+import AppMenu from "components/AppMenu";
 import OfflineBanner from "components/OfflineBanner";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
+import { copyToClipboard } from "lib/clipboard";
 import { getOnlineStatus } from "lib/utils";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
@@ -75,6 +77,7 @@ export default function HomeTab() {
 				<div className="home-hero-brand">
 					<span className="icon-shellular" aria-hidden="true" />
 					<h1>Shellular</h1>
+					<span className="home-hero-beta-badge">Beta</span>
 				</div>
 				{isOnline && !hostInfo && compact && (
 					<motion.button
@@ -139,22 +142,34 @@ export default function HomeTab() {
 										>
 											{statusLabel(session)}
 										</span>
+										{dismissible && (
+											<div onClick={(e) => e.stopPropagation()}>
+												<AppMenu
+													ariaLabel="Session options"
+													buttonClassName="home-active-session-menu"
+													placement="bottom end"
+													items={[
+														{
+															key: "copy-id",
+															icon: "icon-copy",
+															label: "Copy Session ID",
+															onClick: () => copySessionId(session.sessionId),
+														},
+														{
+															key: "dismiss",
+															icon: "icon-eye-off",
+															label: "Hide from active",
+															onClick: () =>
+																dismissSessionActivity(
+																	session.agentId,
+																	session.sessionId,
+																),
+														},
+													]}
+												/>
+											</div>
+										)}
 									</button>
-									{dismissible && (
-										<button
-											type="button"
-											className="home-active-session-dismiss haptic-trigger"
-											aria-label="Dismiss session"
-											onClick={() =>
-												dismissSessionActivity(
-													session.agentId,
-													session.sessionId,
-												)
-											}
-										>
-											<span className="icon-close" aria-hidden="true" />
-										</button>
-									)}
 								</li>
 							);
 						})}
@@ -228,6 +243,13 @@ async function openSession(
 			agentCapabilities={agent?.capabilities}
 		/>,
 	);
+}
+
+function copySessionId(sessionId: string) {
+	copyToClipboard({
+		text: sessionId,
+		successMessage: "Session ID copied",
+	});
 }
 
 function sessionDisplayTitle(session: SessionActivity): string {
