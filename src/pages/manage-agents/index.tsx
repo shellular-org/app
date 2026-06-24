@@ -52,25 +52,39 @@ export default function ManageAgentsPage() {
 		loadManagedAgents();
 	}, [loadManagedAgents]);
 
-	const runTerminalCommand = useCallback(async (command: string) => {
-		if (commandRunningRef.current) return;
-		commandRunningRef.current = true;
-		try {
-			const terminalId = await createTerminal();
-			if (!terminalId) return;
-			closePage("manage-agents");
-			toToTab("terminals");
-			await waitForXterm(terminalId, 5000);
-			await new Promise((resolve) => setTimeout(resolve, 300));
-			sendMessage({
-				type: MsgType.TERMINAL_DATA,
-				data: { terminalId, data: `${command}\r` },
-			});
-			toast("Command started. Refresh agents after it finishes.", 3500);
-		} finally {
-			commandRunningRef.current = false;
-		}
-	}, []);
+	const runTerminalCommand = useCallback(
+		async (command: string, agentName: string) => {
+			if (commandRunningRef.current) return;
+
+			const hostInfo = getHostInfo();
+			let message = "Run this command?";
+			if (agentName && hostInfo?.hostname) {
+				const platformName = getPlatformDisplayName(hostInfo.platform);
+				message = `Install ${agentName} on host ${hostInfo.hostname} (${platformName})?`;
+			}
+
+			const ok = await dialog.confirm(message, "Confirm");
+			if (!ok) return;
+
+			commandRunningRef.current = true;
+			try {
+				const terminalId = await createTerminal();
+				if (!terminalId) return;
+				closePage("manage-agents");
+				toToTab("terminals");
+				await waitForXterm(terminalId, 5000);
+				await new Promise((resolve) => setTimeout(resolve, 300));
+				sendMessage({
+					type: MsgType.TERMINAL_DATA,
+					data: { terminalId, data: `${command}\r` },
+				});
+				toast("Command started. Refresh agents after it finishes.", 3500);
+			} finally {
+				commandRunningRef.current = false;
+			}
+		},
+		[],
+	);
 
 	const refreshAll = useCallback(async () => {
 		await loadManagedAgents();
@@ -261,7 +275,7 @@ function AgentGroup({
 	title: string;
 	agents: ManagedAcpAgentInfo[];
 	busy: Record<string, BusyAction | undefined>;
-	onRunCommand: (command: string) => Promise<void>;
+	onRunCommand: (command: string, agentName: string) => Promise<void>;
 	onToggle: (agent: ManagedAcpAgentInfo) => Promise<void>;
 	onEditCustom: (agent: ManagedAcpAgentInfo) => void;
 	onRemoveCustom: (agent: ManagedAcpAgentInfo) => Promise<void>;
@@ -297,7 +311,7 @@ function AgentManageRow({
 }: {
 	agent: ManagedAcpAgentInfo;
 	busy?: BusyAction;
-	onRunCommand: (command: string) => Promise<void>;
+	onRunCommand: (command: string, agentName: string) => Promise<void>;
 	onToggle: (agent: ManagedAcpAgentInfo) => Promise<void>;
 	onEditCustom: (agent: ManagedAcpAgentInfo) => void;
 	onRemoveCustom: (agent: ManagedAcpAgentInfo) => Promise<void>;
@@ -306,7 +320,7 @@ function AgentManageRow({
 		agent,
 		getHostInfo()?.platform,
 		(command) => {
-			onRunCommand(command);
+			onRunCommand(command, agent.title || agent.name);
 		},
 	);
 	const primaryCommand = primaryActionCommand(agent, installOptions);
@@ -335,7 +349,9 @@ function AgentManageRow({
 					<button
 						type="button"
 						className="manage-agent-primary haptic-trigger"
-						onClick={() => onRunCommand(primaryCommand.command)}
+						onClick={() =>
+							onRunCommand(primaryCommand.command, agent.title || agent.name)
+						}
 					>
 						{primaryCommand.label}
 					</button>
@@ -578,6 +594,19 @@ function formatEnv(env: Record<string, string> | undefined) {
 	return Object.entries(env)
 		.map(([key, value]) => `${key}=${value}`)
 		.join("\n");
+}
+
+function getPlatformDisplayName(platform?: string): string {
+	switch (platform) {
+		case "darwin":
+			return "Mac";
+		case "linux":
+			return "Linux";
+		case "win32":
+			return "Windows";
+		default:
+			return platform || "Unknown";
+	}
 }
 
 async function waitForXterm(

@@ -80,6 +80,18 @@
           color: var(--accent);
         }
       }
+
+      .home-hero-beta-badge {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: var(--info);
+        background: color-mix(in srgb, var(--info) 15%, transparent);
+        padding: 3px 6px;
+        border-radius: 4px;
+        text-transform: uppercase;
+        flex-shrink: 0;
+      }
     }
 
     h1 {
@@ -151,8 +163,14 @@
       list-style: none;
     }
 
+    .home-active-session-row {
+      display: flex;
+    }
+
     .home-active-session {
       width: 100%;
+      flex: 1;
+      min-width: 0;
       display: flex;
       align-items: center;
       gap: 12px;
@@ -171,6 +189,17 @@
 
       &:active {
         background: color-mix(in srgb, var(--info) 8%, transparent);
+      }
+
+      .home-active-session-menu {
+        flex-shrink: 0;
+        margin-left: auto;
+        opacity: 0.5;
+        transition: opacity 0.15s;
+
+        &:hover {
+          opacity: 1;
+        }
       }
     }
 
