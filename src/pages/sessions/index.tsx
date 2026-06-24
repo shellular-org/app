@@ -8,7 +8,7 @@ import Loader from "components/Loader";
 import Page from "components/Page";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
-import toast from "lib/toast";
+import { copyToClipboard } from "lib/clipboard";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShellular } from "state";
@@ -136,22 +136,22 @@ export default function ChatSessionsPage({
 	const showSessionsHeader =
 		filteredBookmarks.length > 0 && showBookmarkedCards;
 
-	const copySessionId = useCallback(async (id: string | undefined) => {
+	const copySessionId = useCallback((id: string | undefined) => {
 		if (!id) return;
-		await copyToClipboard(id);
-		if (!process.env.IS_ANDROID) {
-			toast("Session ID copied");
-		}
+		copyToClipboard({
+			text: id,
+			successMessage: "Session ID copied",
+		});
 	}, []);
 
 	const copyResumeCommand = useCallback(
-		async (session: AiSession) => {
+		(session: AiSession) => {
 			if (!session.id) return;
 			const cmd = getResumeCommand(backend, session.id, session.workspacePath);
-			await copyToClipboard(cmd);
-			if (!process.env.IS_ANDROID) {
-				toast("Resume command copied");
-			}
+			copyToClipboard({
+				text: cmd,
+				successMessage: "Resume command copied",
+			});
 		},
 		[backend],
 	);
@@ -676,24 +676,6 @@ export default function ChatSessionsPage({
 			)}
 		</Page>
 	);
-}
-
-async function copyToClipboard(text: string) {
-	try {
-		await navigator.clipboard.writeText(text);
-	} catch {
-		const textarea = document.createElement("textarea");
-		textarea.value = text;
-		textarea.style.cssText =
-			"position:fixed;top:-9999px;left:-9999px;opacity:0;";
-		document.body.appendChild(textarea);
-		textarea.select();
-		try {
-			document.execCommand("copy");
-		} finally {
-			document.body.removeChild(textarea);
-		}
-	}
 }
 
 function appendUniqueSessions(current: AiSession[], next: AiSession[]) {
