@@ -569,7 +569,9 @@ export default function ChatConversationPage({
 					return {
 						sessionId: nextSessionId,
 						configOptions: attached.configOptions,
-						availableCommands: attached.availableCommands,
+						availableCommands: attached.availableCommands.length
+							? attached.availableCommands
+							: result.availableCommands,
 						messages: attached.messages,
 						revision: attached.revision,
 						syncing: attached.syncing,
@@ -1356,7 +1358,9 @@ export default function ChatConversationPage({
 						return {
 							sessionId: nextSessionId,
 							configOptions: attached.configOptions,
-							availableCommands: attached.availableCommands,
+							availableCommands: attached.availableCommands.length
+								? attached.availableCommands
+								: result.availableCommands,
 							messages: attached.messages,
 							revision: attached.revision,
 							syncing: attached.syncing,
