@@ -149,6 +149,7 @@ final class BrowserService: BaseService {
         
         let safari = SFSafariViewController(url: safariURL)
         safari.modalPresentationStyle = .fullScreen
+        let previousIntentHandler = AppDelegate.shared?.intentHandler
 
         // Listen for auth callback via deep link
         AppDelegate.shared?.intentHandler = { [weak safari, weak self] deepURL in
@@ -183,8 +184,11 @@ final class BrowserService: BaseService {
                         callback.success(deepURL.absoluteString)
                     }
                 }
-                AppDelegate.shared?.intentHandler = nil
+                AppDelegate.shared?.intentHandler = previousIntentHandler
+                return
             }
+
+            previousIntentHandler?(deepURL)
         }
 
         vc.present(safari, animated: true)

@@ -7,9 +7,11 @@ import OfflineBanner from "components/OfflineBanner";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
+import { useAuth } from "lib/auth";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
 import { getOnlineStatus } from "lib/utils";
+import AccountPage from "pages/account";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
 import { getHostInfo } from "state/connection";
@@ -24,6 +26,7 @@ import SavedHostItem from "./SavedHostItem";
 
 export default function HomeTab() {
 	const { savedHosts, connectionStatus, isSwitching, agents } = useShellular();
+	const { user } = useAuth();
 	// Treat an in-flight reconnect as "still connected" for display purposes, so
 	// a dropped CLI doesn't visually reset the home view to the host picker while
 	// we're transparently retrying. The reconnect overlay communicates the state.
@@ -101,6 +104,35 @@ export default function HomeTab() {
 			<div className={clsx("px-4 py-12", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
+			{user && (
+				<section className="home-account-section">
+					<h2 className="home-section-title">Account</h2>
+					<button
+						type="button"
+						className="home-account-card haptic-trigger"
+						onClick={openAccountPage}
+					>
+						<span className="home-account-avatar" aria-hidden="true">
+							{user.avatarUrl ? (
+								<img src={user.avatarUrl} alt="" />
+							) : (
+								<span className="icon-user" />
+							)}
+						</span>
+						<span className="home-account-text">
+							<span className="home-account-name">
+								{user.name || user.email}
+							</span>
+							<span className="home-account-email">{user.email}</span>
+							<span className="home-account-status">Signed in</span>
+						</span>
+						<span
+							className="icon-chevron-right home-account-chevron"
+							aria-hidden="true"
+						/>
+					</button>
+				</section>
+			)}
 			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
 				<div className="home-active-sessions">
@@ -219,6 +251,10 @@ export default function HomeTab() {
 			)}
 		</div>
 	);
+}
+
+function openAccountPage() {
+	pushPage("account", <AccountPage />, { showConnectionBanner: false });
 }
 
 async function openSession(

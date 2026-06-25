@@ -4,7 +4,9 @@ import AppDialogHost from "components/AppDialog";
 import ConnectionStatus from "components/ConnectionStatus";
 import EmptyState from "components/EmptyState";
 import actionStack from "lib/actionStack";
+import { AuthProvider, useAuth } from "lib/auth";
 import * as store from "lib/store";
+import LoginPage from "pages/login";
 import OnboardingPage from "pages/onboarding";
 import {
 	type ComponentType,
@@ -86,6 +88,28 @@ let tabViewHidden = false;
 let handleTabChange: (tab: TabId) => void;
 
 export default function App() {
+	return (
+		<AuthProvider>
+			<AuthGate />
+		</AuthProvider>
+	);
+}
+
+function AuthGate() {
+	const { status } = useAuth();
+
+	if (status === "loading") {
+		return <EmptyState mascot="loading" message="loading..." />;
+	}
+
+	if (status === "unauthenticated") {
+		return <LoginPage />;
+	}
+
+	return <AuthenticatedApp />;
+}
+
+function AuthenticatedApp() {
 	const [pageStack, setPageStack] = useState<PageStackEntry[]>([]);
 	const [closingIds, setClosingIds] = useState<Set<string>>(new Set());
 	const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);

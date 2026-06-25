@@ -141,18 +141,111 @@
     }
   }
 
+  .home-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: var(--secondary-text);
+    opacity: 0.45;
+    margin: 0 0 10px 4px;
+  }
+
+  .home-account-section {
+    padding: 2px 18px 18px;
+  }
+
+  .home-account-card {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    background: var(--popup-background);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background 0.15s,
+      border-color 0.15s;
+
+    &:active {
+      background: color-mix(in srgb, var(--info) 8%, transparent);
+    }
+  }
+
+  .home-account-avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    background: var(--surface-strong);
+    color: var(--accent);
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .icon-user {
+      font-size: 20px;
+    }
+  }
+
+  .home-account-text {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .home-account-name,
+  .home-account-email,
+  .home-account-status {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .home-account-name {
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--primary-text);
+  }
+
+  .home-account-email,
+  .home-account-status {
+    font-size: 11px;
+    color: var(--secondary-text);
+  }
+
+  .home-account-email {
+    opacity: 0.58;
+  }
+
+  .home-account-status {
+    color: var(--success);
+    font-weight: 700;
+  }
+
+  .home-account-chevron {
+    flex-shrink: 0;
+    font-size: 16px;
+    color: var(--secondary-text);
+    opacity: 0.4;
+  }
+
   .home-active-sessions {
     padding: 2px 18px 18px;
-
-    .home-section-title {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.9px;
-      color: var(--secondary-text);
-      opacity: 0.45;
-      margin: 0 0 10px 4px;
-    }
 
     .home-active-sessions-list {
       display: flex;

@@ -11,6 +11,7 @@ import {
 	type SessionJoinedMsg,
 } from "@shellular/protocol";
 import native from "bridge/native";
+import { getAccessTokenForAuth } from "lib/auth";
 import {
 	decryptMessage,
 	decryptProxyBinaryFrame,
@@ -204,12 +205,17 @@ export class Connection extends EventTarget {
 	}
 
 	async open(hostId: string): Promise<SessionJoinedMsg> {
+		const authToken = await getAccessTokenForAuth();
+		if (!authToken) {
+			throw new Error("Sign in again to connect to this host.");
+		}
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
 		const platform = process.env.PLATFORM;
 
 		const wsUrl = new URL(this.serverUrl);
+		wsUrl.searchParams.set("authToken", authToken);
 		wsUrl.searchParams.set("hostId", hostId);
 		wsUrl.searchParams.set("clientId", clientId);
 		wsUrl.searchParams.set("appVersion", appVersion);

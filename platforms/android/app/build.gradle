@@ -67,6 +67,7 @@ dependencies {
     implementation libs.androidx.camera.lifecycle
     implementation libs.androidx.camera.view
     implementation libs.androidx.core.splashscreen
+    implementation libs.androidx.security.crypto
     implementation libs.androidx.browser
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit

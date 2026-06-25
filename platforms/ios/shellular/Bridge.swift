@@ -15,6 +15,7 @@ final class Bridge: NSObject, WKScriptMessageHandler {
             "Dialog":          DialogService(bridge: self),
             "Encryption":      EncryptionService(bridge: self),
             "Notification":    NotificationService(bridge: self),
+            "SecureStore":     SecureStoreService(bridge: self),
             "Scanner":         ScannerService(bridge: self),
             "Browser":         BrowserService(bridge: self),
             "EmbeddedProxy":   EmbeddedProxyService(bridge: self),

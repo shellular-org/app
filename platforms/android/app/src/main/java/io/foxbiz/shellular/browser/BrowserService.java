@@ -103,15 +103,15 @@ public class BrowserService extends Service {
     /**
      * Open browser in auth mode — waits for callback scheme redirect.
      * args[0] = url (String)
-     * args[1] = theme (JSONObject)
-     * args[2] = callbackScheme (String, optional, e.g. "npm")
+     * args[1] = callbackScheme (String, optional, e.g. "shellular")
+     * args[2] = useSafari (Boolean, ignored on Android)
      */
     @SuppressWarnings("unused")
     public void openForAuth(JSONArray args, Callback callback) {
         try {
             String url = args.getString(0);
-            JSONObject themeJson = args.optJSONObject(1);
-            String callbackScheme = args.optString(2, null);
+            String callbackScheme = args.optString(1, null);
+            JSONObject themeJson = null;
             BrowserTheme theme = new BrowserTheme(themeJson);
 
             pendingAuthCallback = callback;

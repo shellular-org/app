@@ -1,0 +1,252 @@
+.account-page {
+  .page-content {
+    padding: 14px 16px calc(24px + var(--sab, 0px));
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+}
+
+.account-page-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  background: var(--popup-background);
+  box-shadow: var(--shadow);
+}
+
+.account-page-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--surface-strong);
+  color: var(--accent);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .icon-user {
+    font-size: 24px;
+  }
+}
+
+.account-page-profile-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  h2,
+  p {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  h2 {
+    font-size: 18px;
+    font-weight: 750;
+    color: var(--primary-text);
+  }
+
+  p {
+    font-size: 13px;
+    color: var(--secondary-text);
+    opacity: 0.7;
+  }
+}
+
+.account-page-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.account-page-section-title {
+  margin: 0 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--secondary-text);
+  opacity: 0.45;
+}
+
+.account-page-card {
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--popup-background);
+  box-shadow: var(--shadow);
+}
+
+.account-page-row {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--primary-text);
+  text-align: left;
+
+  >[class^="icon-"],
+  >[class*=" icon-"] {
+    width: 24px;
+    flex-shrink: 0;
+    font-size: 20px;
+    color: var(--accent);
+    text-align: center;
+  }
+
+  +.account-page-row {
+    border-top: 1px solid var(--line-soft);
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.account-page-row--disabled {
+  opacity: 0.58;
+}
+
+.account-provider-row {
+  min-width: 0;
+}
+
+.account-page-row-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.account-page-row-label,
+.account-page-row-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-page-row-label {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--primary-text);
+}
+
+.account-page-row-value {
+  font-size: 12px;
+  color: var(--secondary-text);
+  opacity: 0.68;
+}
+
+.account-page-chevron {
+  color: var(--secondary-text);
+  opacity: 0.42;
+}
+
+.account-page-badge,
+.account-page-provider-action {
+  min-height: 30px;
+  max-width: 96px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--card-border);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.account-page-badge {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.account-page-badge--muted {
+  background: var(--surface-soft);
+  color: var(--secondary-text);
+}
+
+.account-page-provider-action {
+  background: var(--surface-soft);
+  color: var(--accent);
+  -webkit-tap-highlight-color: transparent;
+
+  &:disabled {
+    opacity: 0.58;
+  }
+}
+
+.account-page-provider-action--danger {
+  color: var(--danger);
+}
+
+.account-page-error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--primary-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.account-page-logout {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  color: var(--primary-text);
+  font-size: 14px;
+  font-weight: 750;
+  -webkit-tap-highlight-color: transparent;
+
+  .icon-log-out {
+    font-size: 18px;
+    color: var(--danger);
+  }
+}
+
+.account-page-empty {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--secondary-text);
+
+  .icon-user {
+    font-size: 30px;
+    color: var(--accent);
+  }
+
+  p {
+    margin: 0;
+    font-size: 14px;
+  }
+}
