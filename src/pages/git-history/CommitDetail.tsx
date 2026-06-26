@@ -6,6 +6,7 @@ import { formatRelativeTime } from "lib/utils";
 import { useCallback, useEffect, useState } from "react";
 import { type GitCommit, type GitCommitFile, useShellular } from "state";
 import CommitFileDiffPage from "./CommitFileDiff";
+import "./style.scss";
 
 const STATUS_LABEL: Record<GitCommitFile["status"], string> = {
 	modified: "M",

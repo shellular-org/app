@@ -42,9 +42,14 @@ import {
 } from "./connection";
 import type {
 	FileEntry,
+	GitBranch,
 	GitCommitFileDiff,
 	GitFileStatus,
 	GitLogPage,
+	GitOperation,
+	GitWorkingTreeFile,
+	GitWorkingTreeFileDiff,
+	GitWorkingTreeStatus,
 	ProjectFileSearchEntry,
 	ProjectFileSearchResult,
 } from "./filesystem";
@@ -56,6 +61,7 @@ import {
 	readFile,
 	readFileBytes,
 	readGitFile,
+	runGitOperation,
 	searchProjectFiles,
 	writeFile,
 	writeFileBinary,
@@ -148,6 +154,23 @@ interface ShellularContextValue {
 		hash: string,
 		file: string,
 	) => Promise<GitCommitFileDiff>;
+	runGitOperation: (
+		path: string,
+		operation: GitOperation,
+		options?: {
+			files?: string[];
+			file?: string;
+			message?: string;
+			branch?: string;
+			force?: boolean;
+		},
+	) => Promise<{
+		ok: boolean;
+		output?: string;
+		status?: GitWorkingTreeStatus;
+		branches?: GitBranch[];
+		diff?: GitWorkingTreeFileDiff;
+	}>;
 	writeFile: (path: string, content: string) => Promise<void>;
 	writeFileBinary: (path: string, base64Content: string) => Promise<void>;
 
@@ -470,6 +493,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		getGitLog,
 		getCommitFiles,
 		getCommitFileDiff,
+		runGitOperation,
 		writeFile,
 		writeFileBinary,
 		projects,
@@ -498,11 +522,16 @@ export function useShellular(): ShellularContextValue {
 export type {
 	BatteryInfo,
 	FileEntry,
+	GitBranch,
 	GitCommit,
 	GitCommitFile,
 	GitCommitFileDiff,
 	GitFileStatus,
 	GitLogPage,
+	GitOperation,
+	GitWorkingTreeFile,
+	GitWorkingTreeFileDiff,
+	GitWorkingTreeStatus,
 	ProcessInfo,
 	ProjectFileSearchEntry,
 	ProjectFileSearchResult,
