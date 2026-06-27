@@ -809,13 +809,7 @@ extension BrowserViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         guard let url = navigationAction.request.url else { return .cancel }
 
-        // Check auth callback interception
-        if let scheme = config.callbackScheme, url.scheme == scheme {
-            onAuthResult?(url.absoluteString)
-            close()
-            return .cancel
-        }
-        if url.scheme == "shellular" && url.host == "auth-callback" {
+        if isAuthCallback(url) {
             onAuthResult?(url.absoluteString)
             close()
             return .cancel
@@ -852,6 +846,13 @@ extension BrowserViewController: WKNavigationDelegate {
         }
 
         return .allow
+    }
+
+    private func isAuthCallback(_ url: URL) -> Bool {
+        guard url.host == "auth-callback" else { return false }
+        return url.scheme == "shellular"
+            || url.scheme == "foxbiz"
+            || (config.callbackScheme != nil && url.scheme == config.callbackScheme)
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

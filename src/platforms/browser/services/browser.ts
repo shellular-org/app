@@ -38,7 +38,7 @@ export default {
 			}
 			try {
 				const href = authPopup.location.href;
-				if (href.startsWith(`${callbackScheme}://`)) {
+				if (isAuthCallbackUrl(href, callbackScheme)) {
 					finish(href);
 				}
 			} catch {
@@ -48,7 +48,11 @@ export default {
 
 		const onMessage = (event: MessageEvent) => {
 			const data = event.data as { type?: string; url?: string };
-			if (data?.type === "shellular-auth-callback" && data.url) {
+			if (
+				data?.type === "shellular-auth-callback" &&
+				data.url &&
+				isAuthCallbackUrl(data.url, callbackScheme)
+			) {
 				finish(data.url);
 			}
 		};
@@ -72,6 +76,20 @@ export default {
 		}
 	},
 };
+
+function isAuthCallbackUrl(url: string, callbackScheme: string): boolean {
+	try {
+		const parsed = new URL(url);
+		if (parsed.hostname !== "auth-callback") return false;
+		return (
+			parsed.protocol === `${callbackScheme}:` ||
+			parsed.protocol === "shellular:" ||
+			parsed.protocol === "foxbiz:"
+		);
+	} catch {
+		return false;
+	}
+}
 
 function params(url: string): Record<string, string> {
 	try {

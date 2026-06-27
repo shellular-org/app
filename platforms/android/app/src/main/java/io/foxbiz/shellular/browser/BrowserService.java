@@ -22,6 +22,7 @@ public class BrowserService extends Service {
     public static String savedWebViewUrl;
 
     private Callback pendingAuthCallback;
+    private String pendingAuthCallbackScheme;
     private BrowserDialog activeDialog;
 
     public BrowserService(Context context, WebView webView) {
@@ -111,57 +112,67 @@ public class BrowserService extends Service {
         try {
             String url = args.getString(0);
             String callbackScheme = args.optString(1, null);
-            JSONObject themeJson = null;
-            BrowserTheme theme = new BrowserTheme(themeJson);
 
             pendingAuthCallback = callback;
+            pendingAuthCallbackScheme = callbackScheme;
 
             new Handler(Looper.getMainLooper()).post(() -> {
                 try {
-                    dismissActiveDialog();
-                    activeDialog = new BrowserDialog((Activity) context, theme, true, callbackScheme);
-                    activeDialog.setAuthCallback(authUrl -> {
-                        if (pendingAuthCallback == null) return;
-                        Callback cb = pendingAuthCallback;
-                        pendingAuthCallback = null;
-                        // Dismiss triggers the dismiss listener which cleans up the dialog
-                        activeDialog.dismiss();
-                        try {
-                            JSONObject result = new JSONObject();
-                            result.put("url", authUrl);
-                            if (authUrl != null) {
-                                Uri uri = Uri.parse(authUrl);
-                                JSONObject params = new JSONObject();
-                                for (String key : uri.getQueryParameterNames()) {
-                                    params.put(key, uri.getQueryParameter(key));
-                                }
-                                result.put("params", params);
-                            }
-                            cb.success(result);
-                        } catch (Exception e) {
-                            cb.error(e.toString());
-                        }
-                    });
-                    // Override dismiss listener to handle auth cancellation
-                    activeDialog.setOnDismissListener(d -> {
-                        if (pendingAuthCallback != null) {
-                            pendingAuthCallback.error("Auth cancelled");
-                            pendingAuthCallback = null;
-                        }
-                        activeDialog = null;
-                    });
-                    activeDialog.setUrl(url);
-                    activeDialog.showAnimated(null);
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    intent.addCategory(Intent.CATEGORY_BROWSABLE);
+                    context.startActivity(intent);
                 } catch (Exception e) {
                     if (pendingAuthCallback != null) {
                         pendingAuthCallback.error(e.toString());
                         pendingAuthCallback = null;
+                        pendingAuthCallbackScheme = null;
                     }
                 }
             });
         } catch (Exception e) {
             callback.error(e.toString());
         }
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+        if (pendingAuthCallback == null || intent == null || intent.getData() == null) {
+            return;
+        }
+
+        Uri uri = intent.getData();
+        if (!isAuthCallbackUri(uri)) {
+            return;
+        }
+
+        Callback cb = pendingAuthCallback;
+        pendingAuthCallback = null;
+        pendingAuthCallbackScheme = null;
+        try {
+            cb.success(authResult(uri));
+        } catch (Exception e) {
+            cb.error(e.toString());
+        }
+    }
+
+    private boolean isAuthCallbackUri(Uri uri) {
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (!"auth-callback".equals(host)) return false;
+        return "shellular".equals(scheme)
+                || "foxbiz".equals(scheme)
+                || (pendingAuthCallbackScheme != null && pendingAuthCallbackScheme.equals(scheme));
+    }
+
+    private JSONObject authResult(Uri uri) throws Exception {
+        JSONObject result = new JSONObject();
+        result.put("url", uri.toString());
+        JSONObject params = new JSONObject();
+        for (String key : uri.getQueryParameterNames()) {
+            params.put(key, uri.getQueryParameter(key));
+        }
+        result.put("params", params);
+        return result;
     }
 
     @Override
@@ -192,5 +203,6 @@ public class BrowserService extends Service {
     public void destroy() {
         dismissActiveDialog();
         pendingAuthCallback = null;
+        pendingAuthCallbackScheme = null;
     }
 }

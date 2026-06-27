@@ -745,13 +745,7 @@ public class BrowserView extends LinearLayout {
     private class BrowserWebViewClient extends WebViewClient {
         @Override
         public boolean shouldOverrideUrlLoading(WebView view, String loadUrl) {
-            // Intercept auth callback scheme
-            if (callbackScheme != null && loadUrl.startsWith(callbackScheme + "://")) {
-                if (authCallback != null) authCallback.onAuthResult(loadUrl);
-                return true;
-            }
-            // Intercept shellular:// auth callbacks
-            if (loadUrl.startsWith("shellular://auth-callback")) {
+            if (isAuthCallbackUrl(loadUrl)) {
                 if (authCallback != null) authCallback.onAuthResult(loadUrl);
                 return true;
             }
@@ -776,6 +770,16 @@ public class BrowserView extends LinearLayout {
                 return true;
             }
             return false;
+        }
+
+        private boolean isAuthCallbackUrl(String loadUrl) {
+            Uri uri = Uri.parse(loadUrl);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (!"auth-callback".equals(host)) return false;
+            return "shellular".equals(scheme)
+                    || "foxbiz".equals(scheme)
+                    || (callbackScheme != null && callbackScheme.equals(scheme));
         }
 
         @Override
