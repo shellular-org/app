@@ -1,0 +1,27 @@
+# Terminals Configuration
+# Copy this file to terminals.config and customize for your setup.
+
+# SSH remote port (forwarded to the server)
+SSH_REMOTE_PORT=5001
+
+# SSH username (leave empty to omit)
+SSH_USER=ajit
+
+# SSH hostname
+SSH_HOST=developer.shellular.dev
+
+# Local server port the dev server runs on
+LOCAL_SERVER_PORT=3000
+
+# Path to the server directory (relative to the app repo root)
+SERVER_DIR=../server
+
+# Path to the packages directory (relative to the app repo root)
+PACKAGES_DIR=../packages
+
+# Display number for multi-monitor setups (1 = primary, 2 = secondary, etc.)
+# Leave empty to auto-detect and span the primary display.
+DISPLAY=
+
+# Window width percentage for the server side (default 50)
+SERVER_WIDTH_PCT=50
