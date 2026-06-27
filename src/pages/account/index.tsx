@@ -1,7 +1,9 @@
 import "./style.scss";
+import { pushPage } from "App";
 import clsx from "clsx";
 import Page from "components/Page";
 import { type AuthProviderId, useAuth } from "lib/auth";
+import AccountHistoryPage from "pages/account-history";
 
 const PROVIDERS: AuthProviderId[] = ["google", "github", "apple"];
 
@@ -133,19 +135,21 @@ export default function AccountPage() {
 					</section>
 
 					<section className="account-page-section">
-						<h3 className="account-page-section-title">Subscription</h3>
+						<h3 className="account-page-section-title">History</h3>
 						<div className="account-page-card">
 							<button
 								type="button"
-								className="account-page-row account-page-row--disabled"
-								disabled
+								className="account-page-row haptic-trigger"
+								onClick={openHistoryPage}
 							>
-								<span className="icon-lock" aria-hidden="true" />
+								<span className="icon-clock" aria-hidden="true" />
 								<span className="account-page-row-text">
 									<span className="account-page-row-label">
-										Manage subscription
+										Hosts and devices
 									</span>
-									<span className="account-page-row-value">Future plan</span>
+									<span className="account-page-row-value">
+										View connection history
+									</span>
 								</span>
 								<span
 									className="icon-chevron-right account-page-chevron"
@@ -172,4 +176,10 @@ export default function AccountPage() {
 			)}
 		</Page>
 	);
+}
+
+function openHistoryPage() {
+	pushPage("account-history", <AccountHistoryPage />, {
+		showConnectionBanner: false,
+	});
 }

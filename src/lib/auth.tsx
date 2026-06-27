@@ -364,6 +364,20 @@ export async function getAccessTokenForAuth(): Promise<string | null> {
 	return accessToken && accessTokenExpiresAt > Date.now() ? accessToken : null;
 }
 
+export async function authenticatedRequest<T = unknown>(
+	path: string,
+	init: RequestInit = {},
+): Promise<T> {
+	const token = await getAccessTokenForAuth();
+	if (!token) {
+		throw new Error("Your session expired. Please sign in again.");
+	}
+
+	const headers = new Headers(init.headers);
+	headers.set("Authorization", `Bearer ${token}`);
+	return authRequest<T>(path, { ...init, headers });
+}
+
 async function refreshWithoutReact(): Promise<boolean> {
 	try {
 		const data = await authRequest<TokenResponse>("/auth/refresh", {

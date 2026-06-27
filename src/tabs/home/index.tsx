@@ -106,7 +106,6 @@ export default function HomeTab() {
 			</div>
 			{user && (
 				<section className="home-account-section">
-					<h2 className="home-section-title">Account</h2>
 					<button
 						type="button"
 						className="home-account-card haptic-trigger"

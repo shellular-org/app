@@ -3,6 +3,7 @@ import {
 	ClientHandshakeRespMsgSchema,
 	type ClientIncomingMsg,
 	ClientIncomingMsgSchema,
+	type ClientInfo,
 	type ClientToHostMsg,
 	type ClientToServerMsg,
 	type HostInfo,
@@ -57,6 +58,10 @@ type HandshakeError = Error & {
 	code?: number;
 	reason?: string;
 	userMessage?: string;
+};
+
+type WebSocketTokenResponse = {
+	wsToken: string;
 };
 
 const RECV_TIMEOUT = 40_000;
@@ -205,24 +210,31 @@ export class Connection extends EventTarget {
 	}
 
 	async open(hostId: string): Promise<SessionJoinedMsg> {
-		const authToken = await getAccessTokenForAuth();
-		if (!authToken) {
+		const accessToken = await getAccessTokenForAuth();
+		if (!accessToken) {
 			throw new Error("Sign in again to connect to this host.");
 		}
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
-		const platform = process.env.PLATFORM;
+		const clientInfo: ClientInfo = {
+			hostId,
+			clientId,
+			appVersion,
+			platform: process.env.PLATFORM,
+			deviceModel: deviceInfo.model,
+			deviceIsEmulator: deviceInfo.isEmulator,
+			deviceManufacturer: deviceInfo.manufacturer,
+		};
+		const wsToken = await requestWebSocketToken(
+			this.serverUrl,
+			accessToken,
+			clientInfo,
+		);
 
 		const wsUrl = new URL(this.serverUrl);
-		wsUrl.searchParams.set("authToken", authToken);
-		wsUrl.searchParams.set("hostId", hostId);
-		wsUrl.searchParams.set("clientId", clientId);
-		wsUrl.searchParams.set("appVersion", appVersion);
-		wsUrl.searchParams.set("platform", platform);
-		wsUrl.searchParams.set("deviceModel", deviceInfo.model);
-		wsUrl.searchParams.set("deviceIsEmulator", String(deviceInfo.isEmulator));
-		wsUrl.searchParams.set("deviceManufacturer", deviceInfo.manufacturer);
+		wsUrl.search = "";
+		wsUrl.searchParams.set("wsToken", wsToken);
 
 		this.clientId = clientId;
 		this.ws = new WebSocket(wsUrl.toString());
@@ -828,6 +840,43 @@ function toWsUrl(httpUrl: string): string {
 	return httpUrl
 		.replace(/^https:\/\//, "wss://")
 		.replace(/^http:\/\//, "ws://");
+}
+
+function toHttpUrl(wsUrl: string): string {
+	return wsUrl.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
+}
+
+async function requestWebSocketToken(
+	wsUrl: string,
+	accessToken: string,
+	clientInfo: ClientInfo,
+): Promise<string> {
+	const url = new URL(toHttpUrl(wsUrl));
+	url.pathname = "/auth/ws-token";
+	url.search = "";
+
+	const response = await fetch(url.toString(), {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify(clientInfo),
+	});
+	const json = (await response.json().catch(() => ({}))) as {
+		success?: boolean;
+		data?: WebSocketTokenResponse;
+		error?: string;
+		message?: string;
+	};
+
+	if (!response.ok || json.success === false || !json.data?.wsToken) {
+		throw new Error(
+			json.error || json.message || "Failed to authorize WebSocket connection.",
+		);
+	}
+
+	return json.data.wsToken;
 }
 
 export function subscribeState(listener: Listener): () => void {
