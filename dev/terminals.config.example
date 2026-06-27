@@ -5,7 +5,7 @@
 SSH_REMOTE_PORT=5001
 
 # SSH username (leave empty to omit)
-SSH_USER=ajit
+SSH_USER=
 
 # SSH hostname
 SSH_HOST=developer.shellular.dev
