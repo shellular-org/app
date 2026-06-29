@@ -1,9 +1,11 @@
+import AuthenticationServices
 import UIKit
 import WebKit
 
-final class BrowserService: BaseService {
+final class BrowserService: BaseService, ASWebAuthenticationPresentationContextProviding {
 
     static weak var activeBrowser: BrowserViewController?
+    private var authSession: ASWebAuthenticationSession?
 
     // MARK: - Helper to dispatch events to JavaScript
 
@@ -123,44 +125,62 @@ final class BrowserService: BaseService {
         let callbackScheme = args[safe: 1] as? String
 
         DispatchQueue.main.async { [weak self] in
-            self?.openWithExternalBrowser(url: url, callbackScheme: callbackScheme, callback: callback)
+            self?.openWithAuthenticationSession(url: url, callbackScheme: callbackScheme, callback: callback)
         }
     }
 
-    private func openWithExternalBrowser(url: String, callbackScheme: String?, callback: Callback) {
+    private func openWithAuthenticationSession(url: String, callbackScheme: String?, callback: Callback) {
         guard let authURL = URL(string: url) else {
             callback.error("Invalid URL")
             return
         }
 
         dispatchEvent("browserwillopen")
-        let previousIntentHandler = AppDelegate.shared?.intentHandler
 
-        AppDelegate.shared?.intentHandler = { [weak self] deepURL in
-            let scheme = deepURL.scheme ?? ""
-            let host = deepURL.host ?? ""
+        authSession?.cancel()
+        let session = ASWebAuthenticationSession(
+            url: authURL,
+            callbackURLScheme: callbackScheme ?? "shellular"
+        ) { [weak self] callbackURL, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.authSession = nil
+                self.dispatchEvent("browserdidclose")
 
-            let isAuthCallback = host == "auth-callback"
-                && (scheme == "shellular"
-                    || scheme == "foxbiz"
-                    || (callbackScheme != nil && scheme == callbackScheme))
+                if let callbackURL {
+                    guard self.isAuthCallbackURL(callbackURL, callbackScheme: callbackScheme) else {
+                        callback.error("Authentication returned an invalid callback URL")
+                        return
+                    }
+                    self.completeAuthCallback(callback: callback, deepURL: callbackURL)
+                    return
+                }
 
-            if isAuthCallback {
-                AppDelegate.shared?.intentHandler = previousIntentHandler
-                self?.dispatchEvent("browserdidclose")
-                self?.completeAuthCallback(callback: callback, deepURL: deepURL)
-                return
+                if let authError = error as? ASWebAuthenticationSessionError,
+                   authError.code == .canceledLogin {
+                    callback.error("Authentication was cancelled.")
+                } else {
+                    callback.error(error?.localizedDescription ?? "Authentication failed.")
+                }
             }
-
-            previousIntentHandler?(deepURL)
         }
 
-        UIApplication.shared.open(authURL) { success in
-            if !success {
-                AppDelegate.shared?.intentHandler = previousIntentHandler
-                callback.error("Unable to open authentication URL")
-            }
+        session.presentationContextProvider = self
+        authSession = session
+        if !session.start() {
+            authSession = nil
+            dispatchEvent("browserdidclose")
+            callback.error("Unable to start authentication session")
         }
+    }
+
+    private func isAuthCallbackURL(_ url: URL, callbackScheme: String?) -> Bool {
+        let scheme = url.scheme ?? ""
+        let host = url.host ?? ""
+        return host == "auth-callback"
+            && (scheme == "shellular"
+                || scheme == "foxbiz"
+                || (callbackScheme != nil && scheme == callbackScheme))
     }
 
     private func completeAuthCallback(callback: Callback, deepURL: URL) {
@@ -183,43 +203,14 @@ final class BrowserService: BaseService {
         }
     }
 
-    private func openWithBrowserVC(url: String, callbackScheme: String?, from vc: UIViewController, callback: Callback) {
-        // Notify JavaScript that browser is about to open
-        dispatchEvent("browserwillopen")
-        
-        let theme: [String: String] = [:]
-        let browser = BrowserViewController()
-        browser.config = BrowserViewController.Config(
-            url: url,
-            theme: theme,
-            mode: "auth",
-            callbackScheme: callbackScheme,
-            htmlContent: nil
-        )
-        browser.mainWebView = bridge?.webView
-
-        browser.onAuthResult = { resultURL in
-            var params: [String: String] = [:]
-            if let components = URLComponents(string: resultURL),
-               let items = components.queryItems {
-                for item in items {
-                    params[item.name] = item.value ?? ""
-                }
-            }
-
-            if let json = try? JSONSerialization.data(withJSONObject: [
-                "url": resultURL,
-                "params": params
-            ]),
-               let jsonStr = String(data: json, encoding: .utf8) {
-                callback.success(jsonStr)
-            } else {
-                callback.success(resultURL)
-            }
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        if let window = bridge?.viewController?.view.window {
+            return window
         }
 
-        vc.addChild(browser)
-        browser.didMove(toParent: vc)
-        browser.present(animated: true)
+        return UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
     }
 }

@@ -1,4 +1,5 @@
 import browser from "bridge/browser";
+import native from "bridge/native";
 import secureStore from "bridge/secureStore";
 import { getBaseServerUrl } from "lib/settings";
 import {
@@ -63,6 +64,7 @@ let accessToken: string | null = null;
 let accessTokenExpiresAt = 0;
 let refreshTokenValue: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
+let authCallbackSchemeInFlight: Promise<string> | null = null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [status, setStatus] = useState<AuthStatus>("loading");
@@ -114,8 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				await applyTokenResponse(data);
 				return true;
 			} catch (err) {
+				logAuthError("refresh session", err);
 				await clearAuth();
-				setError(errorMessage(err));
+				setError("Your session expired. Please sign in again.");
 				return false;
 			} finally {
 				refreshInFlight = null;
@@ -145,7 +148,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				);
 				if (!cancelled) setProviders(providerData.providers);
 			} catch (err) {
-				if (!cancelled) setError(errorMessage(err));
+				logAuthError("load auth providers", err);
+				if (!cancelled) {
+					setError("Sign-in is unavailable right now. Please try again later.");
+				}
 			}
 
 			refreshTokenValue = await secureStore.get(REFRESH_TOKEN_KEY);
@@ -182,11 +188,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			try {
 				const start = await authRequest<{ authorizationUrl: string }>(
 					`/auth/oauth/${provider}/start`,
-					{ method: "POST" },
+					{
+						method: "POST",
+						body: JSON.stringify({
+							callbackUrl: await getAuthCallbackUrl(),
+						}),
+					},
 				);
+				const callbackScheme = await getAuthCallbackScheme();
 				const result = await browser.openForAuth(
 					start.authorizationUrl,
-					"shellular",
+					callbackScheme,
 				);
 				const params = result.params ?? callbackParams(result.url);
 				if (params.error) {
@@ -201,7 +213,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				});
 				await applyTokenResponse(data);
 			} catch (err) {
-				setError(errorMessage(err));
+				const message = errorMessage(err);
+				if (!isAuthCancellation(message)) {
+					logAuthError(`sign in with ${provider}`, err);
+					setError("We couldn't sign you in. Please try again.");
+				}
 			} finally {
 				setSigningInProvider(null);
 			}
@@ -229,11 +245,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 					{
 						method: "POST",
 						headers: { Authorization: `Bearer ${token}` },
+						body: JSON.stringify({
+							callbackUrl: await getAuthCallbackUrl(),
+						}),
 					},
 				);
+				const callbackScheme = await getAuthCallbackScheme();
 				const result = await browser.openForAuth(
 					start.authorizationUrl,
-					"shellular",
+					callbackScheme,
 				);
 				const params = result.params ?? callbackParams(result.url);
 				if (params.error) {
@@ -256,7 +276,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				);
 				setUser(data.user);
 			} catch (err) {
-				setAccountError(errorMessage(err));
+				const message = errorMessage(err);
+				if (!isAuthCancellation(message)) {
+					logAuthError(`link ${provider} account`, err);
+					setAccountError("We couldn't link this account. Please try again.");
+				}
 			} finally {
 				setAccountAction(null);
 			}
@@ -279,7 +303,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				);
 				setUser(data.user);
 			} catch (err) {
-				setAccountError(errorMessage(err));
+				logAuthError(`unlink ${provider} account`, err);
+				setAccountError("We couldn't unlink this account. Please try again.");
 			} finally {
 				setAccountAction(null);
 			}
@@ -443,4 +468,33 @@ function errorMessage(error: unknown): string {
 		return error.message.replace(/^Browser\/openForAuth:\s*/, "");
 	}
 	return String(error);
+}
+
+function isAuthCancellation(message: string): boolean {
+	return message.includes("Authentication was cancelled.");
+}
+
+function logAuthError(action: string, error: unknown): void {
+	console.warn(`[auth] Failed to ${action}`, error);
+}
+
+async function getAuthCallbackScheme(): Promise<string> {
+	if (process.env.PLATFORM !== "android") {
+		return "shellular";
+	}
+
+	authCallbackSchemeInFlight ??= native
+		.getAppInfo()
+		.then((appInfo) =>
+			appInfo.packageName.endsWith(".dev") ? "shellular-dev" : "shellular",
+		)
+		.catch((error) => {
+			console.warn("[auth] Failed to detect Android package name", error);
+			return "shellular";
+		});
+	return authCallbackSchemeInFlight;
+}
+
+async function getAuthCallbackUrl(): Promise<string> {
+	return `${await getAuthCallbackScheme()}://auth-callback`;
 }

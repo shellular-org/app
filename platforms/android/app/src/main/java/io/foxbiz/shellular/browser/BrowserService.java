@@ -9,6 +9,9 @@ import android.os.Looper;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 
+import androidx.browser.customtabs.CustomTabColorSchemeParams;
+import androidx.browser.customtabs.CustomTabsIntent;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -16,13 +19,16 @@ import io.foxbiz.shellular.Callback;
 import io.foxbiz.shellular.Service;
 
 public class BrowserService extends Service {
+    private static final long AUTH_CANCEL_DELAY_MS = 250;
 
     /// Dialog saved when browser is minimized — restored on next open().
     public static BrowserDialog minimizedDialog;
     public static String savedWebViewUrl;
 
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Callback pendingAuthCallback;
     private String pendingAuthCallbackScheme;
+    private boolean authCustomTabOpen;
     private BrowserDialog activeDialog;
 
     public BrowserService(Context context, WebView webView) {
@@ -115,23 +121,39 @@ public class BrowserService extends Service {
 
             pendingAuthCallback = callback;
             pendingAuthCallbackScheme = callbackScheme;
+            authCustomTabOpen = false;
 
-            new Handler(Looper.getMainLooper()).post(() -> {
+            mainHandler.post(() -> {
                 try {
-                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                    intent.addCategory(Intent.CATEGORY_BROWSABLE);
-                    context.startActivity(intent);
+                    openAuthCustomTab(url);
                 } catch (Exception e) {
                     if (pendingAuthCallback != null) {
                         pendingAuthCallback.error(e.toString());
                         pendingAuthCallback = null;
                         pendingAuthCallbackScheme = null;
+                        authCustomTabOpen = false;
                     }
                 }
             });
         } catch (Exception e) {
             callback.error(e.toString());
         }
+    }
+
+    private void openAuthCustomTab(String url) {
+        BrowserTheme theme = new BrowserTheme(null);
+        CustomTabColorSchemeParams params = new CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(theme.get("primary"))
+                .setNavigationBarColor(theme.get("primary"))
+                .build();
+
+        CustomTabsIntent customTabsIntent = new CustomTabsIntent.Builder()
+                .setDefaultColorSchemeParams(params)
+                .setShowTitle(true)
+                .build();
+        customTabsIntent.intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        authCustomTabOpen = true;
+        customTabsIntent.launchUrl((Activity) context, Uri.parse(url));
     }
 
     @Override
@@ -148,6 +170,7 @@ public class BrowserService extends Service {
         Callback cb = pendingAuthCallback;
         pendingAuthCallback = null;
         pendingAuthCallbackScheme = null;
+        authCustomTabOpen = false;
         try {
             cb.success(authResult(uri));
         } catch (Exception e) {
@@ -173,6 +196,25 @@ public class BrowserService extends Service {
         }
         result.put("params", params);
         return result;
+    }
+
+    @Override
+    public void onResume() {
+        if (pendingAuthCallback == null || !authCustomTabOpen) {
+            return;
+        }
+
+        mainHandler.postDelayed(() -> {
+            if (pendingAuthCallback == null || !authCustomTabOpen) {
+                return;
+            }
+
+            Callback cb = pendingAuthCallback;
+            pendingAuthCallback = null;
+            pendingAuthCallbackScheme = null;
+            authCustomTabOpen = false;
+            cb.error("Authentication was cancelled.");
+        }, AUTH_CANCEL_DELAY_MS);
     }
 
     @Override
@@ -204,5 +246,6 @@ public class BrowserService extends Service {
         dismissActiveDialog();
         pendingAuthCallback = null;
         pendingAuthCallbackScheme = null;
+        authCustomTabOpen = false;
     }
 }
