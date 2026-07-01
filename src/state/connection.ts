@@ -44,10 +44,21 @@ export interface BatteryInfo {
 type Listener = () => void;
 const PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT = "proxy:binary:http-response-data";
 
+/**
+ * Host identity plus the dynamic CLI update status. `updateAvailable` /
+ * `latestCliVersion` aren't part of `HostInfo` (they change over a session, so
+ * the protocol carries them on SESSION_JOINED rather than host identity); we
+ * fold them into the snapshot here for the UI to read.
+ */
+export type ConnectedHostInfo = HostInfo & {
+	updateAvailable?: boolean;
+	latestCliVersion?: string;
+};
+
 interface ConnectionSnapshot {
 	serverUrl: string;
 	sessionToken: string;
-	hostInfo: HostInfo | null;
+	hostInfo: ConnectedHostInfo | null;
 	connectionStatus: ConnectionStatus;
 	batteryInfo: BatteryInfo | null;
 }
@@ -560,6 +571,10 @@ class ConnectionManager {
 							platform: msg.data.platform,
 							machineId: msg.data.machineId,
 							dir: msg.data.dir,
+							cliVersion: msg.data.cliVersion,
+							updateAvailable: msg.data.updateAvailable,
+							latestCliVersion: msg.data.latestCliVersion,
+							canSelfUpdate: msg.data.canSelfUpdate,
 						},
 						connectionStatus: "connected",
 						batteryInfo: null,
