@@ -6,6 +6,7 @@ import Mascot, { type MascotState } from "./Mascot";
 
 interface Props {
 	message: string;
+	description?: ReactNode;
 	action?: ReactNode;
 	children?: ReactNode;
 	mascot?: MascotState | false;
@@ -13,6 +14,7 @@ interface Props {
 
 export default function EmptyState({
 	message,
+	description,
 	action,
 	children,
 	mascot,
@@ -30,6 +32,7 @@ export default function EmptyState({
 							<Mascot state={mascot ?? "idle"} size={80} label={message} />
 						))}
 					<p className="empty-state-message">{message}</p>
+					{description && <p className="empty-state-hint">{description}</p>}
 					{action}
 				</>
 			)}

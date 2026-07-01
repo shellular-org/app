@@ -563,7 +563,8 @@ export default function FileBrowserPage({
 								closePage();
 							}}
 						>
-							<span className="icon-check"></span> Select
+							<span className="icon-check" aria-hidden="true" />
+							Select
 						</button>
 					)}
 					<button
@@ -572,7 +573,8 @@ export default function FileBrowserPage({
 						onClick={closePage}
 						aria-label="Close"
 					>
-						<span className="icon-x" aria-hidden="true" /> Close
+						<span className="icon-x" aria-hidden="true" />
+						Close
 					</button>
 				</div>
 			</Page>
