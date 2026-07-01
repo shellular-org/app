@@ -53,6 +53,7 @@ import { listDir, searchProjectFiles } from "state/filesystem";
 import {
 	getSessionActivity,
 	getSessionStreaming,
+	isSettledSessionStatus,
 	setSessionStreaming,
 	subscribeSessionActivities,
 } from "state/sessions";
@@ -342,6 +343,25 @@ export default function ChatConversationPage({
 
 	const handlePermissionRequest = useCallback(
 		(permission: AcpPermissionRequest) => {
+			// A permission with no actionable options is a resolution/withdrawal
+			// signal, not a request — the CLI re-emits the permission with an empty
+			// options list once it has been answered elsewhere or cancelled. Rendering
+			// it would produce a dead, button-less card the user can't dismiss, so
+			// treat it as a removal of any existing card for this id instead.
+			const hasActionableOptions =
+				Array.isArray(permission.options) &&
+				permission.options.some(
+					(option) =>
+						option != null &&
+						typeof option === "object" &&
+						typeof (option as { optionId?: unknown }).optionId === "string",
+				);
+			if (!hasActionableOptions) {
+				setPendingPermissions((prev) =>
+					prev.filter((item) => item.id !== permission.id),
+				);
+				return;
+			}
 			setPendingPermissions((prev) => {
 				const existing = prev.findIndex((item) => item.id === permission.id);
 				if (existing >= 0) {
@@ -901,12 +921,19 @@ export default function ChatConversationPage({
 			} else if (isRealTitle(title)) {
 				setDisplayTitle(title);
 			}
-			const pendingPermission = readPendingActivityPermission(
-				activity?.pendingPermission,
-			);
+			const pendingPermission =
+				activity?.status === "waiting_for_permission"
+					? readPendingActivityPermission(activity.pendingPermission)
+					: null;
 			if (pendingPermission) {
 				handlePermissionRequest(pendingPermission);
-			} else if (activity && activity.status !== "waiting_for_permission") {
+			} else if (activity && isSettledSessionStatus(activity.status)) {
+				// Only drop the card once the turn has genuinely settled (stopped,
+				// finished, errored, cancelled…). We must NOT clear on "running":
+				// while a permission is still open the status flips to "running" as
+				// tokens/messages stream in for the same turn, which used to wipe the
+				// card out from under the user before they could answer. Answering is
+				// handled explicitly by handlePermissionReply.
 				setPendingPermissions((prev) =>
 					prev.filter((item) => item.sessionId !== targetSessionId),
 				);
@@ -1096,9 +1123,13 @@ export default function ChatConversationPage({
 			{loading && allMessages.length === 0 && (
 				<EmptyState message="Loading messages…" mascot="loading" />
 			)}
-			{!loading && !syncing && allMessages.length === 0 && !isStreaming && (
-				<EmptyState message="No messages yet" mascot="greeting" />
-			)}
+			{!loading &&
+				!syncing &&
+				allMessages.length === 0 &&
+				!isStreaming &&
+				pendingPermissions.length === 0 && (
+					<EmptyState message="No messages yet" mascot="greeting" />
+				)}
 			<div ref={historyContentRef} className="chat-history-content">
 				{syncing && allMessages.length === 0 && <ChatHistorySkeleton />}
 				{hasMore && historyScrollReady && (
@@ -1132,13 +1163,18 @@ export default function ChatConversationPage({
 						streaming
 					/>
 				)}
-				{pendingPermissions.map((permission) => (
-					<PermissionRequestCard
-						key={permission.id}
-						permission={permission}
-						onReply={handlePermissionReply}
-					/>
-				))}
+				{/* Hold permission cards back until the conversation has hydrated.
+				    A stored `pendingPermission` from the activity store can be
+				    known before messages finish loading on reopen; rendering the
+				    card then shows a context-less prompt over an empty history. */}
+				{!loading &&
+					pendingPermissions.map((permission) => (
+						<PermissionRequestCard
+							key={permission.id}
+							permission={permission}
+							onReply={handlePermissionReply}
+						/>
+					))}
 				{error && (
 					<div className="chat-error">
 						<span className="icon-alert-triangle" aria-hidden="true" />
@@ -1427,6 +1463,7 @@ export default function ChatConversationPage({
 		permission: AcpPermissionRequest,
 		optionId: string,
 	) {
+		// Optimistically remove the card so the tap feels instant.
 		setPendingPermissions((prev) =>
 			prev.filter((item) => item.id !== permission.id),
 		);
@@ -1438,6 +1475,15 @@ export default function ChatConversationPage({
 				optionId,
 			);
 		} catch (err) {
+			// The reply never reached the agent, so it is still blocked waiting on
+			// this exact permission. Put the card back so the user can retry rather
+			// than being stranded with a wedged, un-answerable turn.
+			setPendingPermissions((prev) =>
+				prev.some((item) => item.id === permission.id)
+					? prev
+					: [...prev, permission],
+			);
+			setPermissionScrollTick((tick) => tick + 1);
 			setError((err as Error).message);
 		}
 	}
