@@ -169,12 +169,20 @@ function transformWithModifiers(
 	data: string,
 	modifiers: ModifierState,
 ): string {
-	if (!modifiers.ctrl && !modifiers.alt) {
+	if (!modifiers.ctrl && !modifiers.alt && !modifiers.shift) {
 		return data; // No modifiers, return as-is
 	}
 
+	// Leave escape sequences and multi-character terminal data alone.
+	// Toolbar navigation keys synthesize their own modifier-aware CSI sequences.
+	if (data.length !== 1) {
+		return data;
+	}
+
+	const next = modifiers.shift ? applyShiftToCharacter(data) : data;
+
 	// Get first character code
-	const code = data.charCodeAt(0);
+	const code = next.charCodeAt(0);
 
 	// Apply modifiers to alphabetic characters
 	if (code >= 97 && code <= 122) {
@@ -189,7 +197,7 @@ function transformWithModifiers(
 		}
 		if (modifiers.alt) {
 			// Alt+key: ESC + key
-			return `\x1b${data}`;
+			return `\x1b${next}`;
 		}
 	} else if (code >= 65 && code <= 90) {
 		// uppercase A-Z
@@ -200,14 +208,46 @@ function transformWithModifiers(
 			return String.fromCharCode(code - 64);
 		}
 		if (modifiers.alt) {
-			return `\x1b${data}`;
+			return `\x1b${next}`;
 		}
 	} else if (modifiers.alt) {
 		// For non-alphabetic keys with Alt, just prepend ESC
-		return `\x1b${data}`;
+		return `\x1b${next}`;
 	}
 
-	return data;
+	return next;
+}
+
+function applyShiftToCharacter(data: string): string {
+	if (data >= "a" && data <= "z") {
+		return data.toUpperCase();
+	}
+
+	const shiftedSymbols: Record<string, string> = {
+		"1": "!",
+		"2": "@",
+		"3": "#",
+		"4": "$",
+		"5": "%",
+		"6": "^",
+		"7": "&",
+		"8": "*",
+		"9": "(",
+		"0": ")",
+		"`": "~",
+		"-": "_",
+		"=": "+",
+		"[": "{",
+		"]": "}",
+		"\\": "|",
+		";": ":",
+		"'": '"',
+		",": "<",
+		".": ">",
+		"/": "?",
+	};
+
+	return shiftedSymbols[data] ?? data;
 }
 
 // terminalId → { container HTMLElement, xterm Terminal instance }

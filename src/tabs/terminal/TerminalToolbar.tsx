@@ -27,6 +27,11 @@ const SEQUENCES: Record<string, string> = {
 	ArrowLeft: "\x1b[D",
 };
 
+const TERMINAL_TOOLBAR_ROWS = [
+	["esc", "undo", "redo", "interrupt", "home", "up", "end", "pageup"],
+	["tab", "ctrl", "alt", "shift", "left", "down", "right", "pagedown"],
+];
+
 export default function TerminalToolbar({
 	activeTerminalId,
 	showPaste = false,
@@ -36,6 +41,7 @@ export default function TerminalToolbar({
 	const { getXterm } = useShellular();
 	const [ctrl, setCtrl] = useState(false);
 	const [alt, setAlt] = useState(false);
+	const [shift, setShift] = useState(false);
 	const pasteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
 	useEffect(() => {
@@ -44,6 +50,7 @@ export default function TerminalToolbar({
 			const m = getModifierState(activeTerminalId);
 			setCtrl(m.ctrl);
 			setAlt(m.alt);
+			setShift(m.shift);
 		};
 		sync();
 		return subscribeTerminals(sync);
@@ -55,7 +62,7 @@ export default function TerminalToolbar({
 		const xterm = getXterm(activeTerminalId);
 		if (!xterm) return;
 
-		const { key, ctrlKey, metaKey, shiftKey } = e;
+		const { key, ctrlKey, altKey, metaKey, shiftKey } = e;
 
 		if (key === "Control") {
 			const m = getModifierState(activeTerminalId);
@@ -67,16 +74,62 @@ export default function TerminalToolbar({
 			setModifierState(activeTerminalId, { alt: !m.alt });
 			return;
 		}
+		if (key === "Shift") {
+			const m = getModifierState(activeTerminalId);
+			setModifierState(activeTerminalId, { shift: !m.shift });
+			return;
+		}
+
+		// Toolbar keys (Tab/arrows/etc.) don't carry the toggled ctrl/alt/shift
+		// state on their own synthetic event, so fold in the toggled modifiers
+		// here. Read from the store (getModifierState) rather than the React
+		// `ctrl`/`alt`/`shift` state: those are a display mirror updated via a
+		// subscription + re-render, so on fast taps (e.g. Shift then Tab) the
+		// closure can still see the pre-toggle value and send a plain Tab
+		// instead of back-tab. The store is always current.
+		const m = getModifierState(activeTerminalId);
+		const effectiveCtrl = ctrlKey || m.ctrl;
+		const effectiveAlt = altKey || m.alt;
+		const effectiveShift = shiftKey || m.shift;
+
+		// The toolbar already folded the toggled modifiers into the sequence
+		// below. Clear them *before* xterm.input() so the onData interceptor
+		// (state/terminals.ts) — which fires synchronously during input() and
+		// re-applies + resets modifiers from the store — doesn't double-apply
+		// them to our already-encoded sequence.
+		const clearModifiers = () => {
+			if (m.ctrl || m.alt || m.shift) {
+				setModifierState(activeTerminalId, {
+					ctrl: false,
+					alt: false,
+					shift: false,
+				});
+			}
+		};
 
 		// Undo: Ctrl+Z or Cmd+Z → readline Ctrl+_ (\x1f). No standard redo.
-		if ((ctrlKey || metaKey) && key === "z" && !shiftKey) {
+		if ((effectiveCtrl || metaKey) && key === "z" && !effectiveShift) {
+			clearModifiers();
 			xterm.input("\x1f");
 			xterm.focus();
 			return;
 		}
 
-		const seq = SEQUENCES[key];
+		// Interrupt: Ctrl+C → SIGINT (\x03).
+		if (effectiveCtrl && key === "c") {
+			clearModifiers();
+			xterm.input("\x03");
+			xterm.focus();
+			return;
+		}
+
+		const seq = getTerminalSequence(key, {
+			ctrl: effectiveCtrl,
+			altKey: effectiveAlt,
+			shiftKey: effectiveShift,
+		});
 		if (seq) {
+			clearModifiers();
 			xterm.input(seq);
 			xterm.focus();
 		}
@@ -119,8 +172,9 @@ export default function TerminalToolbar({
 	return (
 		<KeyboardToolbar
 			handleKey={handleKey}
-			modifiers={{ ctrl, alt, meta: false }}
+			modifiers={{ ctrl, alt, shift, meta: false }}
 			onHideKeyboard={handleHideKeyboard}
+			rows={TERMINAL_TOOLBAR_ROWS}
 			swipeLeftPanel={
 				<textarea
 					ref={pasteTextareaRef}
@@ -138,4 +192,58 @@ export default function TerminalToolbar({
 			onSwipeLeftClose={onPasteClose}
 		/>
 	);
+}
+
+function getTerminalSequence(
+	key: string,
+	modifiers: { ctrl: boolean; altKey: boolean; shiftKey: boolean },
+): string | undefined {
+	if (
+		key === "Tab" &&
+		(modifiers.shiftKey || modifiers.ctrl || modifiers.altKey)
+	) {
+		if (modifiers.shiftKey && !modifiers.ctrl && !modifiers.altKey) {
+			return "\x1b[Z";
+		}
+	}
+
+	if (
+		key === "ArrowUp" ||
+		key === "ArrowDown" ||
+		key === "ArrowRight" ||
+		key === "ArrowLeft" ||
+		key === "Home" ||
+		key === "End" ||
+		key === "PageUp" ||
+		key === "PageDown"
+	) {
+		const modifierCode =
+			1 +
+			(modifiers.shiftKey ? 1 : 0) +
+			(modifiers.altKey ? 2 : 0) +
+			(modifiers.ctrl ? 4 : 0);
+
+		if (modifierCode > 1) {
+			switch (key) {
+				case "ArrowUp":
+					return `\x1b[1;${modifierCode}A`;
+				case "ArrowDown":
+					return `\x1b[1;${modifierCode}B`;
+				case "ArrowRight":
+					return `\x1b[1;${modifierCode}C`;
+				case "ArrowLeft":
+					return `\x1b[1;${modifierCode}D`;
+				case "Home":
+					return `\x1b[1;${modifierCode}H`;
+				case "End":
+					return `\x1b[1;${modifierCode}F`;
+				case "PageUp":
+					return `\x1b[5;${modifierCode}~`;
+				case "PageDown":
+					return `\x1b[6;${modifierCode}~`;
+			}
+		}
+	}
+
+	return SEQUENCES[key];
 }
