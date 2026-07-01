@@ -1,13 +1,15 @@
+import { pushPage } from "App";
 import browser from "bridge/browser";
+import native from "bridge/native";
 import Page from "components/Page";
 import { AnimatePresence, motion } from "framer-motion";
+import ReachOutPage from "pages/reach-out";
 import { useState } from "react";
 import acodeIcon from "res/acode.png";
 import betterKeepIcon from "res/better_keep.png";
 import chess69Icon from "res/chess69.png";
 import licenses from "./licenses";
 import "./style.scss";
-import native from "bridge/native";
 
 export default function AboutPage() {
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -31,73 +33,28 @@ export default function AboutPage() {
 				<p className="about-hero-version">
 					Version {process.env.VERSION} ({process.env.VERSION_CODE})
 				</p>
+				<p className="about-hero-credit">
+					Built by the team behind Acode, the mobile code editor with 4M
+					downloads on Play Store.
+				</p>
 			</div>
 
-			<section>
-				<p className="about-section-title">Links</p>
+			<section className="about-reach-out">
 				<div className="about-card">
 					<button
 						type="button"
 						className="about-link-item"
-						onClick={() => native.openInBrowser("https://discord.gg/Fu2SD3nNF")}
-					>
-						<span className="icon-discord about-link-icon" aria-hidden="true" />
-						<span className="about-link-label">Join Discord</span>
-						<span
-							className="icon-chevron-right about-link-chevron"
-							aria-hidden="true"
-						/>
-					</button>
-					<button
-						type="button"
-						className="about-link-item"
-						onClick={() => native.openInBrowser("https://shellular.dev")}
-					>
-						<span className="icon-globe about-link-icon" aria-hidden="true" />
-						<span className="about-link-label">Website</span>
-						<span
-							className="icon-chevron-right about-link-chevron"
-							aria-hidden="true"
-						/>
-					</button>
-					<button
-						type="button"
-						className="about-link-item"
 						onClick={() =>
-							native.openInBrowser("https://github.com/Shellular-Org")
-						}
-					>
-						<span className="icon-github about-link-icon" aria-hidden="true" />
-						<span className="about-link-label">GitHub</span>
-						<span
-							className="icon-chevron-right about-link-chevron"
-							aria-hidden="true"
-						/>
-					</button>
-					<button
-						type="button"
-						className="about-link-item"
-						onClick={() => native.openInBrowser("https://x.com/shellular_dev")}
-					>
-						<span className="icon-twitter about-link-icon" aria-hidden="true" />
-						<span className="about-link-label">X</span>
-						<span
-							className="icon-chevron-right about-link-chevron"
-							aria-hidden="true"
-						/>
-					</button>
-					<button
-						type="button"
-						className="about-link-item"
-						onClick={() =>
-							native.openInBrowser("https://www.linkedin.com/company/shellular")
+							pushPage("reach-out", <ReachOutPage />, {
+								showConnectionBanner: false,
+							})
 						}
 					>
 						<span
-							className="icon-linkedin about-link-icon"
+							className="icon-message-circle about-link-icon"
 							aria-hidden="true"
 						/>
-						<span className="about-link-label">LinkedIn</span>
+						<span className="about-link-label">Want to reach out?</span>
 						<span
 							className="icon-chevron-right about-link-chevron"
 							aria-hidden="true"

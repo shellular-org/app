@@ -67,6 +67,21 @@
   margin: 0;
 }
 
+.about-hero-credit {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--secondary-text);
+  opacity: 0.75;
+  text-align: center;
+  text-wrap: balance;
+  max-width: 300px;
+  margin: 6px 0 0;
+}
+
+.about-reach-out {
+  margin-top: 20px;
+}
+
 .about-section-title {
   font-size: 12px;
   font-weight: 600;

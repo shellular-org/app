@@ -111,6 +111,7 @@ export default function EditorToolbar({ editorView }: Props) {
 				ctrl: ctrlKey,
 				alt: altKey,
 				meta: metaKey,
+				shift: false,
 			}}
 			onHideKeyboard={() => {
 				editorView.contentDOM.blur();

@@ -125,6 +125,7 @@ export default function TerminalTab() {
 				) : (
 					<EmptyState
 						message="No active terminals"
+						description="Open a terminal to run a live shell on the connected device, right from your phone."
 						mascot="idle"
 						action={
 							<button type="button" onClick={handleCreate}>

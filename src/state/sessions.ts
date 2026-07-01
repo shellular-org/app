@@ -485,6 +485,16 @@ function isLiveStatus(status: AiSessionRuntimeStatus) {
 	return LIVE_STATUSES.has(status);
 }
 
+/**
+ * A session status is "settled" once it is no longer live — i.e. the turn has
+ * genuinely finished/stopped/errored/cancelled and is not merely `running` or
+ * `waiting_for_permission`. Consumers use this to know a pending permission has
+ * been resolved rather than still being mid-turn.
+ */
+export function isSettledSessionStatus(status: AiSessionRuntimeStatus) {
+	return !LIVE_STATUSES.has(status);
+}
+
 function activityKey(agentId: string, sessionId: string) {
 	return `${agentId}:${sessionId}`;
 }
