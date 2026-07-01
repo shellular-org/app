@@ -145,62 +145,62 @@ export default function HomeTab() {
 									key={`${session.agentId}:${session.sessionId}`}
 									className="home-active-session-row"
 								>
-									<button
-										type="button"
-										className="home-active-session haptic-trigger"
-										onClick={() => openSession(session, agent)}
-									>
-										<span
-											className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
-											aria-hidden="true"
-										/>
-										<span className="home-active-session-text">
-											<span className="home-active-session-title">
-												{sessionDisplayTitle(session)}
-											</span>
-											<span className="home-active-session-meta">
-												{[
-													agent?.title ?? session.agentId,
-													basename(session.workspacePath),
-												]
-													.filter(Boolean)
-													.join(" · ")}
-											</span>
-										</span>
-										<span
-											className="home-active-session-status"
-											data-status={session.status}
+									<div className="home-active-session">
+										<button
+											type="button"
+											className="home-active-session-main haptic-trigger"
+											onClick={() => openSession(session, agent)}
 										>
-											{statusLabel(session)}
-										</span>
+											<span
+												className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
+												aria-hidden="true"
+											/>
+											<span className="home-active-session-text">
+												<span className="home-active-session-title">
+													{sessionDisplayTitle(session)}
+												</span>
+												<span className="home-active-session-meta">
+													{[
+														agent?.title ?? session.agentId,
+														basename(session.workspacePath),
+													]
+														.filter(Boolean)
+														.join(" · ")}
+												</span>
+											</span>
+											<span
+												className="home-active-session-status"
+												data-status={session.status}
+											>
+												{statusLabel(session)}
+											</span>
+										</button>
 										{dismissible && (
-											<div onClick={(e) => e.stopPropagation()}>
-												<AppMenu
-													ariaLabel="Session options"
-													buttonClassName="home-active-session-menu"
-													placement="bottom end"
-													items={[
-														{
-															key: "copy-id",
-															icon: "icon-copy",
-															label: "Copy Session ID",
-															onClick: () => copySessionId(session.sessionId),
-														},
-														{
-															key: "dismiss",
-															icon: "icon-eye-off",
-															label: "Dismiss",
-															onClick: () =>
-																dismissSessionActivity(
-																	session.agentId,
-																	session.sessionId,
-																),
-														},
-													]}
-												/>
-											</div>
+											<AppMenu
+												ariaLabel="Session options"
+												buttonClassName="home-active-session-menu"
+												placement="bottom end"
+												items={[
+													{
+														key: "copy-id",
+														icon: "icon-copy",
+														label: "Copy Session ID",
+														onClick: () => copySessionId(session.sessionId),
+													},
+													{
+														key: "dismiss",
+														icon: "icon-eye-off",
+														label: "Dismiss",
+														onClick: () =>
+															dismissSessionActivity(
+																session.agentId,
+																session.sessionId,
+															),
+													},
+												]}
+											/>
 										)}
-									</button>
+									</div>
 								</li>
 							);
 						})}

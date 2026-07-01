@@ -29,10 +29,62 @@ import windowResize from "./lib/windowResize";
 import externalLinks from "./listeners/externalLinks";
 import intent from "./listeners/intent";
 
-if (document.readyState === "complete") {
+const AUTH_CALLBACK_MESSAGE_TYPE = "shellular-auth-callback";
+const AUTH_CHANNEL_NAME = "shellular-auth";
+const AUTH_STORAGE_KEY = "shellular:auth-callback";
+
+if (isBrowserAuthCallback()) {
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", completeBrowserAuthCallback);
+	} else {
+		completeBrowserAuthCallback();
+	}
+} else if (document.readyState === "complete") {
 	load().catch(console.error);
 } else {
 	window.addEventListener("load", load);
+}
+
+function isBrowserAuthCallback(): boolean {
+	if (process.env.PLATFORM !== "browser") return false;
+	try {
+		const url = new URL(window.location.href);
+		return url.searchParams.get("shellularAuthCallback") === "1";
+	} catch {
+		return false;
+	}
+}
+
+function completeBrowserAuthCallback() {
+	if (!document.body) return;
+	document.body.classList.remove("loading");
+	document.body.classList.add("done");
+	document.body.textContent = "Completing sign-in...";
+
+	const payload = {
+		type: AUTH_CALLBACK_MESSAGE_TYPE,
+		url: window.location.href,
+	};
+
+	if (window.opener && !window.opener.closed) {
+		window.opener.postMessage(payload, window.location.origin);
+	}
+
+	try {
+		const channel = new BroadcastChannel(AUTH_CHANNEL_NAME);
+		channel.postMessage(payload);
+		channel.close();
+	} catch {}
+
+	try {
+		localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
+		window.setTimeout(() => localStorage.removeItem(AUTH_STORAGE_KEY), 1000);
+	} catch {}
+
+	window.setTimeout(() => {
+		window.close();
+		document.body.textContent = "Sign-in complete. You can close this window.";
+	}, 100);
 }
 
 async function load() {

@@ -66,6 +66,10 @@ let refreshTokenValue: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 let authCallbackSchemeInFlight: Promise<string> | null = null;
 
+function isBrowserCookieAuth(): boolean {
+	return process.env.PLATFORM === "browser";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
 	const [status, setStatus] = useState<AuthStatus>("loading");
 	const [user, setUser] = useState<AuthUser | null>(null);
@@ -101,6 +105,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const refresh = useCallback(async () => {
 		if (refreshInFlight) return refreshInFlight;
 		refreshInFlight = (async () => {
+			if (isBrowserCookieAuth()) {
+				try {
+					const data = await authRequest<BrowserSessionResponse>(
+						"/auth/refresh",
+						{
+							method: "POST",
+						},
+					);
+					accessToken = null;
+					accessTokenExpiresAt = data.accessTokenExpiresAt;
+					refreshTokenValue = null;
+					setUser(data.user);
+					setStatus("authenticated");
+					setError(null);
+					setAccountError(null);
+					return true;
+				} catch (err) {
+					logAuthError("refresh browser session", err);
+					await clearAuth();
+					return false;
+				} finally {
+					refreshInFlight = null;
+				}
+			}
+
 			const token =
 				refreshTokenValue ?? (await secureStore.get(REFRESH_TOKEN_KEY));
 			if (!token) {
@@ -154,6 +183,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				}
 			}
 
+			if (isBrowserCookieAuth()) {
+				const ok = await refresh();
+				if (!cancelled && !ok) setStatus("unauthenticated");
+				return;
+			}
+
 			refreshTokenValue = await secureStore.get(REFRESH_TOKEN_KEY);
 			if (!refreshTokenValue) {
 				if (!cancelled) setStatus("unauthenticated");
@@ -195,14 +230,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 						}),
 					},
 				);
-				const callbackScheme = await getAuthCallbackScheme();
+				const callbackTarget = await getAuthCallbackTarget();
 				const result = await browser.openForAuth(
 					start.authorizationUrl,
-					callbackScheme,
+					callbackTarget,
 				);
 				const params = result.params ?? callbackParams(result.url);
 				if (params.error) {
 					throw new Error(decodeURIComponent(params.error));
+				}
+				if (isBrowserCookieAuth()) {
+					const ok = await refresh();
+					if (!ok) {
+						throw new Error("Sign-in did not complete.");
+					}
+					return;
 				}
 				if (!params.code) {
 					throw new Error("Sign-in did not return an authorization code.");
@@ -214,6 +256,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				await applyTokenResponse(data);
 			} catch (err) {
 				const message = errorMessage(err);
+				if (
+					isBrowserCookieAuth() &&
+					isAuthCancellation(message) &&
+					(await refresh())
+				) {
+					return;
+				}
 				if (!isAuthCancellation(message)) {
 					logAuthError(`sign in with ${provider}`, err);
 					setError("We couldn't sign you in. Please try again.");
@@ -222,10 +271,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				setSigningInProvider(null);
 			}
 		},
-		[applyTokenResponse],
+		[applyTokenResponse, refresh],
 	);
 
 	const refreshMe = useCallback(async () => {
+		if (isBrowserCookieAuth()) {
+			const data = await authRequest<{ user: AuthUser }>("/auth/me");
+			setUser(data.user);
+			setAccountError(null);
+			return;
+		}
+
 		const token = await ensureAccessToken();
 		const data = await authRequest<{ user: AuthUser }>("/auth/me", {
 			headers: { Authorization: `Bearer ${token}` },
@@ -239,25 +295,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			setAccountAction({ type: "link", provider });
 			setAccountError(null);
 			try {
-				const token = await ensureAccessToken();
+				const token = isBrowserCookieAuth() ? null : await ensureAccessToken();
 				const start = await authRequest<{ authorizationUrl: string }>(
 					`/auth/oauth/${provider}/link/start`,
 					{
 						method: "POST",
-						headers: { Authorization: `Bearer ${token}` },
+						headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 						body: JSON.stringify({
 							callbackUrl: await getAuthCallbackUrl(),
 						}),
 					},
 				);
-				const callbackScheme = await getAuthCallbackScheme();
+				const callbackTarget = await getAuthCallbackTarget();
 				const result = await browser.openForAuth(
 					start.authorizationUrl,
-					callbackScheme,
+					callbackTarget,
 				);
 				const params = result.params ?? callbackParams(result.url);
 				if (params.error) {
 					throw new Error(decodeURIComponent(params.error));
+				}
+				if (isBrowserCookieAuth()) {
+					await refreshMe();
+					return;
 				}
 				if (!params.linkCode) {
 					throw new Error(
@@ -277,6 +337,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				setUser(data.user);
 			} catch (err) {
 				const message = errorMessage(err);
+				if (isBrowserCookieAuth() && isAuthCancellation(message)) {
+					await refreshMe().catch(() => {});
+					return;
+				}
 				if (!isAuthCancellation(message)) {
 					logAuthError(`link ${provider} account`, err);
 					setAccountError("We couldn't link this account. Please try again.");
@@ -285,7 +349,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				setAccountAction(null);
 			}
 		},
-		[ensureAccessToken],
+		[ensureAccessToken, refreshMe],
 	);
 
 	const unlinkAccount = useCallback(
@@ -293,12 +357,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			setAccountAction({ type: "unlink", provider });
 			setAccountError(null);
 			try {
-				const token = await ensureAccessToken();
+				const token = isBrowserCookieAuth() ? null : await ensureAccessToken();
 				const data = await authRequest<{ user: AuthUser }>(
 					`/auth/oauth/accounts/${provider}`,
 					{
 						method: "DELETE",
-						headers: { Authorization: `Bearer ${token}` },
+						headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 					},
 				);
 				setUser(data.user);
@@ -316,6 +380,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		const token =
 			refreshTokenValue ?? (await secureStore.get(REFRESH_TOKEN_KEY));
 		try {
+			if (isBrowserCookieAuth()) {
+				await authRequest("/auth/logout", { method: "POST" });
+				return;
+			}
+
 			if (accessToken || token) {
 				await authRequest("/auth/logout", {
 					method: "POST",
@@ -375,6 +444,9 @@ export function useAuth(): AuthContextValue {
 }
 
 export async function getAccessTokenForAuth(): Promise<string | null> {
+	if (isBrowserCookieAuth()) {
+		return null;
+	}
 	if (accessToken && accessTokenExpiresAt - Date.now() > REFRESH_SKEW_MS) {
 		return accessToken;
 	}
@@ -393,6 +465,10 @@ export async function authenticatedRequest<T = unknown>(
 	path: string,
 	init: RequestInit = {},
 ): Promise<T> {
+	if (isBrowserCookieAuth()) {
+		return authRequest<T>(path, init);
+	}
+
 	const token = await getAccessTokenForAuth();
 	if (!token) {
 		throw new Error("Your session expired. Please sign in again.");
@@ -405,6 +481,16 @@ export async function authenticatedRequest<T = unknown>(
 
 async function refreshWithoutReact(): Promise<boolean> {
 	try {
+		if (isBrowserCookieAuth()) {
+			const data = await authRequest<BrowserSessionResponse>("/auth/refresh", {
+				method: "POST",
+			});
+			accessToken = null;
+			accessTokenExpiresAt = data.accessTokenExpiresAt;
+			refreshTokenValue = null;
+			return Boolean(data.user);
+		}
+
 		const data = await authRequest<TokenResponse>("/auth/refresh", {
 			method: "POST",
 			body: JSON.stringify({ refreshToken: refreshTokenValue }),
@@ -433,6 +519,12 @@ type TokenResponse = {
 	user: AuthUser;
 };
 
+type BrowserSessionResponse = {
+	accessTokenExpiresAt: number;
+	refreshTokenExpiresAt: number;
+	user: AuthUser;
+};
+
 async function authRequest<T = unknown>(
 	path: string,
 	init: RequestInit = {},
@@ -442,7 +534,11 @@ async function authRequest<T = unknown>(
 	if (init.body && !headers.has("Content-Type")) {
 		headers.set("Content-Type", "application/json");
 	}
-	const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
+	const res = await fetch(`${baseUrl}${path}`, {
+		...init,
+		credentials: init.credentials ?? "include",
+		headers,
+	});
 	const json = (await res.json().catch(() => ({}))) as {
 		success?: boolean;
 		data?: T;
@@ -496,5 +592,17 @@ async function getAuthCallbackScheme(): Promise<string> {
 }
 
 async function getAuthCallbackUrl(): Promise<string> {
+	if (process.env.PLATFORM === "browser") {
+		const url = new URL(window.location.origin);
+		url.searchParams.set("shellularAuthCallback", "1");
+		return url.toString();
+	}
 	return `${await getAuthCallbackScheme()}://auth-callback`;
+}
+
+async function getAuthCallbackTarget(): Promise<string> {
+	if (process.env.PLATFORM === "browser") {
+		return getAuthCallbackUrl();
+	}
+	return getAuthCallbackScheme();
 }
