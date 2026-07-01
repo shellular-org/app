@@ -57,8 +57,8 @@ importers:
         specifier: ^1.1.20
         version: 1.1.20(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@shellular/protocol':
-        specifier: ^0.0.21
-        version: 0.0.21
+        specifier: ^0.0.22
+        version: 0.0.22
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -1370,8 +1370,8 @@ packages:
     peerDependencies:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
 
-  '@shellular/protocol@0.0.21':
-    resolution: {integrity: sha512-qmOBd4QbQo6U4GQ4DhH+ksVRbOPk7bTmjfA5epKp8vvNUW8Mj7Apln6vUgfvQE7gC1Igdl/Rh2vHpKJdTzfDow==}
+  '@shellular/protocol@0.0.22':
+    resolution: {integrity: sha512-pAm0EhF+q/0wbABDUU8rn0fPnOWZ3Hhyx9SOzjfx8sww7UZTlNzoztdIRTlQ2+mDUOxB4RwZ/6k7gjxY6tTGnA==}
 
   '@shikijs/core@3.23.0':
     resolution: {integrity: sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA==}
@@ -5041,7 +5041,7 @@ snapshots:
     dependencies:
       react: 19.2.5
 
-  '@shellular/protocol@0.0.21':
+  '@shellular/protocol@0.0.22':
     dependencies:
       '@agentclientprotocol/sdk': 0.26.0(zod@4.3.6)
       zod: 4.3.6

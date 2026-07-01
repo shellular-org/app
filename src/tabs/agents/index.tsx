@@ -17,9 +17,9 @@ export default function AgentsTab() {
 	if (connectionStatus !== "connected") {
 		return (
 			<div className="agents-page empty">
-				<TabPageHeader title="Chats" />
+				<TabPageHeader title="Agents" />
 				<EmptyState
-					message="Connect to a device to browse chats"
+					message="Connect to a device to use agents"
 					mascot="sleep"
 				/>
 			</div>
@@ -78,8 +78,15 @@ export default function AgentsTab() {
 			)}
 			{!loadingAgents && Object.keys(agents).length === 0 && (
 				<EmptyState
-					message="No agents found on this device"
+					message="No agents yet"
+					description="Set up an agent like Claude Code or Codex and start shipping from your phone."
 					mascot="thinking"
+					action={
+						<button type="button" onClick={openManageAgents}>
+							<span className="icon-sliders" aria-hidden="true" />
+							Manage agents
+						</button>
+					}
 				/>
 			)}
 

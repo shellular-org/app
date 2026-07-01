@@ -97,6 +97,16 @@ li+li .history-item{border-top:1px solid var(--line-soft)}
 .error-icon{font-size:32px}
 .error p{font-size:13px;opacity:.8}
 
+/* ── New tab hero ── */
+.newtab-hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:14px;padding:24px 0 8px}
+.newtab-logo{font-size:44px;color:var(--accent);line-height:1}
+.newtab-title{font-size:22px;font-weight:700;color:var(--primary-text);letter-spacing:-.01em}
+.newtab-search{display:flex;align-items:center;gap:10px;width:100%;padding:0 16px;height:48px;box-sizing:border-box;background:var(--surface-soft);border:1px solid var(--card-border);border-radius:24px}
+.newtab-search:focus-within{border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.newtab-search-icon{font-size:17px;color:var(--text-muted);opacity:.6;flex-shrink:0}
+.newtab-search-input{flex:1;min-width:0;padding:0;margin:0;background:none;border:none;outline:none;box-sizing:border-box;color:var(--primary-text);font-size:15px;line-height:1.2}
+.newtab-search-input::placeholder{color:var(--text-muted);opacity:.6}
+
 /* ── Nav link ── */
 .nav-link{display:inline-flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--card-border);font-size:13px;font-weight:600;color:var(--accent);-webkit-tap-highlight-color:transparent;text-decoration:none}
 .nav-link:active{opacity:.75}

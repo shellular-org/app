@@ -363,14 +363,24 @@
 
   .files-page-done-button {
     flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     padding: 10px 16px;
     font-size: 13px;
     font-weight: 600;
+    line-height: 1;
     border: none;
     border-radius: 8px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.12s, transform 0.12s, opacity 0.12s;
+
+    [class^="icon-"] {
+      font-size: 15px;
+      line-height: 1;
+    }
 
     @include tablet {
       color: var(--button-text);
@@ -390,15 +400,25 @@
 
   .files-close-button {
     flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     padding: 10px 16px;
     font-size: 13px;
     font-weight: 500;
+    line-height: 1;
     color: var(--danger);
     border: none;
     border-radius: 8px;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.12s, opacity 0.12s;
+
+    [class^="icon-"] {
+      font-size: 15px;
+      line-height: 1;
+    }
 
     &:hover {
       background: rgba(255, 255, 255, 0.1);

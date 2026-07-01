@@ -330,6 +330,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 					hostname: hostInfo.hostname,
 					platform: hostInfo.platform,
 					lastConnected: Date.now(),
+					cliVersion: hostInfo.cliVersion ?? savedHost?.cliVersion,
 				});
 				setSavedHosts(await getSavedHosts());
 			} else if (hostInfo) {

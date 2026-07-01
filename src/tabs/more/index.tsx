@@ -3,6 +3,7 @@ import { pushPage } from "App";
 import TabPageHeader from "components/TabPageHeader";
 import AboutPage from "pages/about";
 import PortsPage from "pages/ports";
+import ReachOutPage from "pages/reach-out";
 import SettingsPage from "pages/settings";
 
 interface AppTile {
@@ -31,6 +32,17 @@ export default function MoreTab() {
 			icon: "icon-settings",
 			onTap: () => {
 				pushPage("settings", <SettingsPage />, { showConnectionBanner: false });
+			},
+		},
+		{
+			id: "reach-out",
+			label: "Reach Out",
+			description: "Contact us, report an issue, or say hi",
+			icon: "icon-message-circle",
+			onTap: () => {
+				pushPage("reach-out", <ReachOutPage />, {
+					showConnectionBanner: false,
+				});
 			},
 		},
 		{

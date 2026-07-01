@@ -78,6 +78,7 @@ export default function ProjectsTab() {
 			{!loadingProjects && !projects.length && !adding && (
 				<EmptyState
 					message="No projects yet"
+					description="Browse your device's file system to open a folder or git repo as a project."
 					mascot="greeting"
 					action={
 						<>
@@ -88,7 +89,7 @@ export default function ProjectsTab() {
 								onClick={handleOpenPicker}
 							>
 								<span className="icon-folder-plus" aria-hidden="true" />
-								Open Project
+								Browse files
 							</button>
 							{/* hidden target for the hero animation */}
 							<button
