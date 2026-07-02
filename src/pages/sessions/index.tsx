@@ -313,7 +313,7 @@ export default function ChatSessionsPage({
 	if (connectionStatus !== "connected") {
 		return (
 			<Page title={pageTitle} className="agent-sessions-page">
-				<EmptyState message="Not connected to a device" mascot="sleep" />
+				<EmptyState message="Not connected to host" mascot="sleep" />
 			</Page>
 		);
 	}
