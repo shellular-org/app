@@ -99,32 +99,9 @@ export default function HomeTab() {
 				)}
 			</div>
 
-			<div className={clsx("px-4 py-12", { hidden: isOnline })}>
+			<div className={clsx("px-4", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
-			{process.env.DEV_MODE && (
-				<div className="home-dev-file-test">
-					<label className="home-dev-file-test-button">
-						<span className="icon-folder" aria-hidden="true" />
-						<span>Test file input</span>
-						<input
-							type="file"
-							// multiple
-							accept="application/pdf"
-							onChange={(event) => {
-								const files = Array.from(event.currentTarget.files ?? []);
-								setTestFileName(
-									files.map((file) => file.name).join(", ") ||
-										"No file selected",
-								);
-							}}
-						/>
-					</label>
-					<span className="home-dev-file-test-value">
-						{testFileName || "No file selected"}
-					</span>
-				</div>
-			)}
 			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
 				<div className="home-active-sessions">

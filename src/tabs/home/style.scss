@@ -124,7 +124,10 @@
     cursor: pointer;
     flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      color 0.15s;
 
     &:hover:not(:disabled) {
       background: var(--surface-soft);
@@ -139,48 +142,6 @@
     .icon-qr_code_scanner {
       font-size: 15px;
     }
-  }
-
-  .home-dev-file-test {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0 18px 14px;
-    padding: 10px 12px;
-    border: 1px dashed color-mix(in srgb, var(--warning) 45%, var(--card-border));
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--warning) 8%, transparent);
-    color: var(--secondary-text);
-  }
-
-  .home-dev-file-test-button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-    min-height: 32px;
-    padding: 0 10px;
-    border-radius: 6px;
-    background: var(--surface-soft);
-    color: var(--primary-text);
-    font-size: 12px;
-    font-weight: 700;
-    overflow: hidden;
-
-    input {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-    }
-  }
-
-  .home-dev-file-test-value {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
   }
 
   .home-active-sessions {
