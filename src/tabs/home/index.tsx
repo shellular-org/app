@@ -32,7 +32,6 @@ export default function HomeTab() {
 	const [showScanner, setShowScanner] = useState(false);
 	const [hostInfo, setHostInfo] = useState<HostInfo | null>(getHostInfo);
 	const [isOnline, setIsOnline] = useState<boolean>(getOnlineStatus);
-	const [testFileName, setTestFileName] = useState("");
 	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(
 		getActiveSessionActivities(),
 	);
