@@ -16,7 +16,6 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.webkit.ValueCallback;
-import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.window.OnBackInvokedDispatcher;
 
@@ -190,19 +189,7 @@ public class MainActivity extends AppCompatActivity {
         ValueCallback<Uri[]> filePathCallback = chromeClient.filePathCallback;
 
         if (requestCode == ChromeClient.FILE_SELECT_CODE && filePathCallback != null) {
-            if (resultCode == RESULT_OK) {
-                Uri resultUri = chromeClient.getCapturedUri();
-                if(resultUri != null && data == null) {
-                    filePathCallback.onReceiveValue(new Uri[]{resultUri});
-                    return;
-                }
-
-                filePathCallback.onReceiveValue(
-                        WebChromeClient.FileChooserParams.parseResult(resultCode, data)
-                );
-            } else {
-                filePathCallback.onReceiveValue(null);
-            }
+            filePathCallback.onReceiveValue(chromeClient.parseFileChooserResult(resultCode, data));
             chromeClient.filePathCallback = null;
         }
 
