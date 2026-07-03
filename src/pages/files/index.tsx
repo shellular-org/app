@@ -388,10 +388,10 @@ export default function FileBrowserPage({
 
 	const openGitHistory = useCallback(async () => {
 		const projectPath = initialPath ?? ".";
-		const GitHistoryPage = await import("pages/git-history");
+		const GitClientPage = await import("pages/git-client");
 		pushPage(
-			`git-history-${projectPath}`,
-			<GitHistoryPage.default projectPath={projectPath} projectName={title} />,
+			`git-client-${projectPath}`,
+			<GitClientPage.default projectPath={projectPath} projectName={title} />,
 		);
 	}, [initialPath, title]);
 
