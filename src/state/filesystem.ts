@@ -3,12 +3,18 @@ import {
 	type FsReadResultMsg,
 	type FsResultMsg,
 	type FsWriteResultMsg,
+	type GitBranch,
 	type GitCommit,
 	type GitCommitFile,
 	type GitCommitFileDiffResultMsg,
 	type GitCommitFilesResultMsg,
 	type GitLogResultMsg,
+	type GitOperation,
+	type GitOperationResultMsg,
 	type GitReadResultMsg,
+	type GitWorkingTreeFile,
+	type GitWorkingTreeFileDiff,
+	type GitWorkingTreeStatus,
 	MsgType,
 	type ProjectFileSearchResultMsg,
 } from "@shellular/protocol";
@@ -25,6 +31,14 @@ export interface GitCommitFileDiff {
 	newText: string;
 	binary: boolean;
 }
+
+export type {
+	GitBranch,
+	GitOperation,
+	GitWorkingTreeFile,
+	GitWorkingTreeFileDiff,
+	GitWorkingTreeStatus,
+};
 
 export type GitFileStatus =
 	| "modified"
@@ -269,6 +283,34 @@ export async function getCommitFileDiff(
 	});
 	if (res.error) throw new Error(res.error);
 	if (!res.data) throw new Error("No diff data received");
+	return res.data;
+}
+
+export async function runGitOperation(
+	path: string,
+	operation: GitOperation,
+	options: {
+		files?: string[];
+		file?: string;
+		message?: string;
+		branch?: string;
+		force?: boolean;
+	} = {},
+): Promise<NonNullable<GitOperationResultMsg["data"]>> {
+	const res = await sendRequest<GitOperationResultMsg>({
+		type: MsgType.GIT_OPERATION,
+		data: {
+			path,
+			operation,
+			files: options.files,
+			file: options.file,
+			message: options.message,
+			branch: options.branch,
+			force: options.force,
+		},
+	});
+	if (res.error) throw new Error(res.error);
+	if (!res.data) throw new Error("No git operation data received");
 	return res.data;
 }
 
