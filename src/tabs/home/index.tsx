@@ -98,7 +98,7 @@ export default function HomeTab() {
 				)}
 			</div>
 
-			<div className={clsx("px-4 py-12", { hidden: isOnline })}>
+			<div className={clsx("px-4", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
 			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}

@@ -6,6 +6,7 @@ final class WebViewController: UIViewController {
     let bridge = Bridge()
     private(set) var isKeyboardVisible = false
     private var scrollObservation: NSKeyValueObservation?
+    private lazy var fileUploadHandler = WebViewFileUploadHandler(presenter: self)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -16,11 +17,21 @@ final class WebViewController: UIViewController {
 
         let contentController = WKUserContentController()
         contentController.add(WeakScriptMessageHandler(bridge), name: "exec")
+        contentController.add(
+            FileUploadInputMessageHandler(fileUploadHandler: fileUploadHandler),
+            name: WebViewFileUploadHandler.inputMetadataMessageName
+        )
+        contentController.addUserScript(WKUserScript(
+            source: WebViewFileUploadHandler.inputMetadataScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
         config.userContentController = contentController
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
 
         webView = NoAccessoryWKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
+        webView.uiDelegate = self
         webView.isInspectable = true
         webView.scrollView.bounces = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -132,6 +143,21 @@ extension WebViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         print("[WebView] didFinish loading: \(webView.url?.absoluteString ?? "nil")")
+    }
+}
+
+extension WebViewController: WKUIDelegate {
+    @available(iOS 18.4, *)
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        fileUploadHandler.presentOpenPanel(
+            parameters: parameters,
+            completionHandler: completionHandler
+        )
     }
 }
 

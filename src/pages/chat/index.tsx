@@ -75,7 +75,6 @@ import {
 	type PromptSuggestion,
 	readComposerParts,
 	replaceComposerTrigger,
-	updateComposerAttachment,
 } from "./ChatComposer";
 import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
@@ -162,6 +161,9 @@ export default function ChatConversationPage({
 		getSessionStreaming(agentId, sessionId),
 	);
 	const [composerParts, setComposerParts] = useState<ComposerPart[]>([]);
+	const [imageAttachments, setImageAttachments] = useState<
+		ComposerAttachment[]
+	>([]);
 	const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger>(null);
 	const [fileSuggestions, setFileSuggestions] = useState<PromptSuggestion[]>(
 		[],
@@ -254,16 +256,51 @@ export default function ChatConversationPage({
 					: [],
 		[availableCommands, composerTrigger, fileSuggestions],
 	);
-	const canSendPrompt = useMemo(
+	const hasSendableContent = useMemo(
 		() =>
 			composerParts.some(
 				(part) => part.type === "attachment" || part.text.trim().length > 0,
-			) &&
-			!composerParts.some(
-				(part) => part.type === "attachment" && part.attachment.status,
-			),
-		[composerParts],
+			) || imageAttachments.length > 0,
+		[composerParts, imageAttachments],
 	);
+	const attachmentsUploading = useMemo(
+		() =>
+			composerParts.some(
+				(part) =>
+					part.type === "attachment" && part.attachment.status === "pending",
+			) ||
+			imageAttachments.some((attachment) => attachment.status === "pending"),
+		[composerParts, imageAttachments],
+	);
+	const attachmentsFailed = useMemo(
+		() =>
+			composerParts.some(
+				(part) =>
+					part.type === "attachment" && part.attachment.status === "error",
+			) || imageAttachments.some((attachment) => attachment.status === "error"),
+		[composerParts, imageAttachments],
+	);
+	const canSendPrompt =
+		hasSendableContent && !attachmentsUploading && !attachmentsFailed;
+	// When the send button is disabled, tapping it should explain why rather than
+	// feeling broken. Ordered most-specific first; an empty composer returns null
+	// (nothing to say — the empty state is self-evident).
+	const sendBlockedReason = useMemo(() => {
+		if (!agentAvailable) return unavailableMessage ?? null;
+		if (connectionStatus !== "connected") return "Not connected to host";
+		if (syncing) return "Still loading this chat…";
+		if (attachmentsUploading) return "Hang on — an image is still uploading";
+		if (attachmentsFailed)
+			return "An image failed to upload. Remove it and try again";
+		return null;
+	}, [
+		agentAvailable,
+		attachmentsFailed,
+		attachmentsUploading,
+		connectionStatus,
+		syncing,
+		unavailableMessage,
+	]);
 	const contextMeter = useMemo(
 		() =>
 			contextWindowUsage ? (
@@ -1086,7 +1123,7 @@ export default function ChatConversationPage({
 	if (connectionStatus !== "connected" && !allMessages.length) {
 		return (
 			<Page title={displayTitle} subtitle={providerName} noBottomSafeArea>
-				<EmptyState message="Not connected to a device" mascot="sleep" />
+				<EmptyState message="Not connected to host" mascot="sleep" />
 			</Page>
 		);
 	}
@@ -1191,6 +1228,7 @@ export default function ChatConversationPage({
 				unavailableMessage={unavailableMessage}
 				isStreaming={isStreaming}
 				canSendPrompt={canSendPrompt}
+				sendBlockedReason={sendBlockedReason}
 				promptSuggestions={promptSuggestions}
 				activePromptSuggestionIndex={activePromptSuggestionIndex}
 				onPromptSuggestion={applyPromptSuggestion}
@@ -1198,6 +1236,9 @@ export default function ChatConversationPage({
 				onInput={handleComposerInput}
 				onKeyDown={handlePromptKeyDown}
 				onPaste={handleComposerPaste}
+				onAttachFiles={handleAttachFiles}
+				onRemoveImageAttachment={handleRemoveImageAttachment}
+				imageAttachments={imageAttachments}
 				onSend={handleSend}
 				onStop={handleStop}
 				contextMeter={contextMeter}
@@ -1309,17 +1350,38 @@ export default function ChatConversationPage({
 	);
 
 	async function handleSend() {
-		const parts = readComposerParts(promptInputRef.current);
-		const text = composerPartsToText(parts).trim();
-		if (!text && !parts.some((part) => part.type === "attachment")) return;
+		const composerOnlyParts = readComposerParts(promptInputRef.current);
+		const text = composerPartsToText(composerOnlyParts).trim();
+		const pendingImages = imageAttachments;
 		if (
-			parts.some((part) => part.type === "attachment" && part.attachment.status)
+			!text &&
+			!composerOnlyParts.some((part) => part.type === "attachment") &&
+			pendingImages.length === 0
+		) {
+			return;
+		}
+		if (
+			composerOnlyParts.some(
+				(part) => part.type === "attachment" && part.attachment.status,
+			) ||
+			pendingImages.some((attachment) => attachment.status)
 		) {
 			return;
 		}
 
+		// Image badges are appended after the composer text/@-mentions so the
+		// resource links ride along with the prompt.
+		const parts: ComposerPart[] = [
+			...composerOnlyParts,
+			...pendingImages.map((attachment) => ({
+				type: "attachment" as const,
+				attachment,
+			})),
+		];
+
 		setError("");
 		setComposerParts([]);
+		setImageAttachments([]);
 		setComposerTrigger(null);
 		setFileSuggestions([]);
 		clearComposer(promptInputRef.current);
@@ -1592,64 +1654,86 @@ export default function ChatConversationPage({
 		setActivePromptSuggestionIndex(0);
 	}
 
-	async function handleComposerPaste(
-		event: React.ClipboardEvent<HTMLDivElement>,
-	) {
+	function handleComposerPaste(event: React.ClipboardEvent<HTMLDivElement>) {
 		event.preventDefault();
 		const clipboard = event.clipboardData;
-		const pastedParts: ComposerPart[] = [];
 		const text = plainTextFromClipboard(clipboard);
-		if (text) pastedParts.push({ type: "text", text });
-
-		const images = imageFilesFromClipboard(clipboard);
-		const pendingUploads: { file: File; attachment: ComposerAttachment }[] = [];
-		for (let index = 0; index < images.length; index += 1) {
-			if (pastedParts.length) pastedParts.push({ type: "text", text: " " });
-			const attachment = createPendingPastedImageAttachment(
-				images[index],
-				index,
-			);
-			pastedParts.push({ type: "attachment", attachment });
-			pastedParts.push({ type: "text", text: " " });
-			pendingUploads.push({ file: images[index], attachment });
+		if (text) {
+			// Pasted text still belongs inline in the composer at the caret.
+			insertComposerParts(promptInputRef.current, [{ type: "text", text }]);
+			handleComposerInput();
 		}
 
-		if (!pastedParts.length) return;
-		insertComposerParts(promptInputRef.current, pastedParts);
-		handleComposerInput();
+		const images = imageFilesFromClipboard(clipboard);
+		if (images.length) attachImageFiles(images, "pasted");
+	}
+
+	// Add a removable badge for each image and upload it in the background,
+	// swapping the pending badge for the saved attachment. Badges live above the
+	// composer (not inline), so `origin` decides the filename prefix — images
+	// dropped via the attach button read "attached", clipboard images "pasted".
+	function attachImageFiles(images: File[], origin: "pasted" | "attached") {
+		const pendingUploads: { file: File; attachment: ComposerAttachment }[] = [];
+		for (let index = 0; index < images.length; index += 1) {
+			const attachment = createPendingImageAttachment(
+				images[index],
+				index,
+				origin,
+			);
+			pendingUploads.push({ file: images[index], attachment });
+		}
+		if (!pendingUploads.length) return;
+
+		setImageAttachments((prev) => [
+			...prev,
+			...pendingUploads.map((upload) => upload.attachment),
+		]);
 		updateInputOffset();
 
 		for (const upload of pendingUploads) {
 			savePastedImageAttachment(upload.file, upload.attachment)
 				.then((attachment) => {
-					updateComposerAttachment(
-						promptInputRef.current,
-						upload.attachment.id,
-						attachment,
+					setImageAttachments((prev) =>
+						prev.map((item) =>
+							item.id === upload.attachment.id ? attachment : item,
+						),
 					);
-					handleComposerInput();
 					updateInputOffset();
 				})
 				.catch((err) => {
-					updateComposerAttachment(
-						promptInputRef.current,
-						upload.attachment.id,
-						{
-							...upload.attachment,
-							status: "error",
-						},
+					setImageAttachments((prev) =>
+						prev.map((item) =>
+							item.id === upload.attachment.id
+								? { ...item, status: "error" }
+								: item,
+						),
 					);
-					handleComposerInput();
 					updateInputOffset();
 					setError((err as Error).message);
 				});
 		}
 	}
 
-	function createPendingPastedImageAttachment(file: File, index: number) {
+	function handleAttachFiles(files: File[]) {
+		const images = files.filter((file) => file.type.startsWith("image/"));
+		if (!images.length) return;
+		attachImageFiles(images, "attached");
+		requestAnimationFrame(() => promptInputRef.current?.focus());
+	}
+
+	function handleRemoveImageAttachment(id: string) {
+		setImageAttachments((prev) => prev.filter((item) => item.id !== id));
+		updateInputOffset();
+	}
+
+	function createPendingImageAttachment(
+		file: File,
+		index: number,
+		origin: "pasted" | "attached",
+	): ComposerAttachment {
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 		const ext = imageExtension(file);
-		const name = `pasted-image-${timestamp}-${index + 1}.${ext}`;
+		const name = `${origin}-image-${timestamp}-${index + 1}.${ext}`;
 		return {
 			id: `att:pending:${timestamp}:${index + 1}`,
 			path: "",

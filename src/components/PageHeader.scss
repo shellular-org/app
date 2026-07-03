@@ -28,8 +28,8 @@
 }
 
 .page-header-back {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -50,7 +50,7 @@
     background: rgba(255, 255, 255, 0.12);
   }
 
-  span[class^='icon-'] {
+  span[class^="icon-"] {
     font-size: 20px;
   }
 }
@@ -117,7 +117,7 @@
     pointer-events: none;
   }
 
-  span[class^='icon-'] {
+  span[class^="icon-"] {
     font-size: 18px;
   }
 }

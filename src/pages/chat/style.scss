@@ -1,16 +1,24 @@
 .chat-page {
-  >.page-content {
+  > .page-content {
     padding-bottom: calc(var(--chat-input-offset, 180px) + var(--keyboard-height, 0px)) !important;
     overflow-y: scroll;
   }
 
+  // Tighten the back → agent-icon → title spacing so the three read as one
+  // group. The back button already centers its chevron with ~8px of internal
+  // padding, so the parent's default 8px gap doubled the gap before the agent
+  // icon; pull it back to a hair. The icon then hugs the title with an even 6px.
+  .page-header {
+    gap: 2px;
+  }
+
   .page-header-title {
     display: grid;
-    grid-template-columns: 22px minmax(0, 1fr);
+    grid-template-columns: 20px minmax(0, 1fr);
     grid-template-rows: auto auto;
     align-items: center;
-    column-gap: 8px;
-    row-gap: 1px;
+    column-gap: 6px;
+    row-gap: 0;
   }
 
   .chat-header-agent-icon {
@@ -19,14 +27,13 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     line-height: 1;
-    font-size: 18px;
+    font-size: 17px;
     color: var(--secondary-text);
     flex-shrink: 0;
   }
-
 
   .page-header-title-text {
     grid-column: 2;
@@ -260,8 +267,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 10px;
   color: var(--primary-text);
   background: transparent;
