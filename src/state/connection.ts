@@ -471,7 +471,9 @@ class ConnectionManager {
 	// The host we're currently meant to be connected to. Retained across
 	// reconnects so app-resume / network-online can re-establish the session.
 	private activeHostId: string | null = null;
-	private onConnected: ((token: string) => void) | null = null;
+	private onConnected:
+		| ((token: string, prevStatus: ConnectionStatus) => void | Promise<void>)
+		| null = null;
 	private onDisconnected: (() => void) | null = null;
 	private onPreDisconnect: (() => void) | null = null;
 
@@ -484,7 +486,9 @@ class ConnectionManager {
 		return this.snapshot;
 	}
 
-	setOnConnectedCallback(fn: (token: string) => void) {
+	setOnConnectedCallback(
+		fn: (token: string, prevStatus: ConnectionStatus) => void | Promise<void>,
+	) {
 		this.onConnected = fn;
 	}
 
@@ -584,7 +588,7 @@ class ConnectionManager {
 						this.setSnapshot({ batteryInfo: msg.data });
 					});
 					this.startPing();
-					this.onConnected?.(hostId);
+					this.onConnected?.(hostId, status);
 					resolve();
 				})
 				.catch((err) => {
@@ -851,7 +855,9 @@ export function getHostInfo() {
 	return getConnectionSnapshot().hostInfo;
 }
 
-export function setOnConnectedCallback(fn: (token: string) => void) {
+export function setOnConnectedCallback(
+	fn: (token: string, prevStatus: ConnectionStatus) => void | Promise<void>,
+) {
 	connectionManager.setOnConnectedCallback(fn);
 }
 
