@@ -92,6 +92,7 @@ import {
 	getContextWindowState,
 	readContextWindowUsage,
 } from "./composer/contextWindowUsage";
+import { normalizeEditorPath } from "./pathUtils";
 
 const PAGE_SIZE = 30;
 const STOP_REASON_METADATA = "stop-reason";
@@ -1143,7 +1144,9 @@ export default function ChatConversationPage({
 			}
 			rightSlot={
 				<>
-					{syncing && <Loader size={18} mascot={false} />}
+					{syncing && allMessages.length > 0 && (
+						<Loader size={18} mascot={false} />
+					)}
 					{chatTabId && (
 						<button
 							type="button"
@@ -1998,34 +2001,6 @@ function openEditorPath(
 			initialColumn={target.column}
 		/>,
 	);
-}
-
-function normalizeEditorPath(rawPath: string, workspacePath: string) {
-	let path = decodeURIComponent(rawPath.trim())
-		.replace(/^file:\/\//, "")
-		.replace(/^#L(\d+)$/, "");
-	let line: number | undefined;
-	let column: number | undefined;
-
-	const hashLineMatch = path.match(/^(.*?)#L(\d+)(?:-L\d+)?$/);
-	if (hashLineMatch) {
-		path = hashLineMatch[1];
-		line = Number(hashLineMatch[2]);
-	}
-	path = path.replace(/\?[^/?]*$/, "");
-
-	const lineMatch = path.match(/^(.*?):(\d+)(?::(\d+))?$/);
-	if (lineMatch?.[1]) {
-		path = lineMatch[1];
-		line = Number(lineMatch[2]);
-		column = lineMatch[3] ? Number(lineMatch[3]) : undefined;
-	}
-
-	if (workspacePath && !path.startsWith("/") && !path.includes("://")) {
-		path = `${workspacePath.replace(/\/$/, "")}/${path.replace(/^\.\//, "")}`;
-	}
-
-	return { path, line, column };
 }
 
 function readConfigOptions(value: unknown): AiSessionConfigOption[] | null {

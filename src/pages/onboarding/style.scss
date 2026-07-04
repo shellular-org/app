@@ -41,7 +41,9 @@
   height: 4px;
   border-radius: 2px;
   background: var(--card-border);
-  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), background 0.35s;
+  transition:
+    width 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.35s;
   width: 4px;
 
   &--active {
@@ -144,7 +146,6 @@
 }
 
 @keyframes onboard-float {
-
   0%,
   100% {
     transform: translateY(0);
@@ -215,10 +216,10 @@
 
 .onboarding-terminal-card-title {
   font-size: 11px;
-  color: rgba(245, 241, 232, 0.35);
+  color: rgba(245, 241, 232, 0.4);
   font-weight: 500;
   flex: 1;
-  text-align: center;
+  margin-left: 6px;
   letter-spacing: 0.3px;
 }
 
@@ -229,77 +230,12 @@
   line-height: 1.6;
 }
 
-.onboarding-t-green {
-  color: var(--success);
-}
-
-.onboarding-t-cyan {
-  color: #8fb7b3;
-}
-
-.onboarding-t-hi {
-  color: var(--accent);
-  font-weight: 600;
-}
-
 .onboarding-t-dim {
   color: rgba(222, 214, 200, 0.42);
 }
 
 .onboarding-t-cmd {
   color: var(--primary-text);
-}
-
-.onboarding-cursor {
-  display: inline-block;
-  width: 7px;
-  height: 13px;
-  background: var(--accent);
-  vertical-align: middle;
-  animation: blink 1s step-end infinite;
-  border-radius: 1px;
-}
-
-/* Command copy block */
-.onboarding-cmd-block {
-  display: flex;
-  align-items: center;
-  background: var(--surface-soft);
-  border: 1px solid var(--card-border);
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 14px;
-}
-
-.onboarding-cmd-text {
-  flex: 1;
-  padding: 13px 16px;
-  font-family: "Fira Code", "Courier New", monospace;
-  font-size: 14px;
-  color: var(--accent);
-  letter-spacing: 0.3px;
-}
-
-.onboarding-cmd-copy {
-  padding: 13px 14px;
-  background: transparent;
-  border: none;
-  border-left: 1px solid var(--card-border);
-  color: var(--secondary-text);
-  cursor: pointer;
-  font-size: 16px;
-  line-height: 1;
-  -webkit-tap-highlight-color: transparent;
-  transition:
-    color 0.15s,
-    background 0.15s;
-  display: flex;
-  align-items: center;
-
-  &:active {
-    background: var(--card-border);
-    color: var(--accent);
-  }
 }
 
 /* Info pills */
@@ -357,6 +293,136 @@
   color: var(--secondary-text);
   opacity: 0.7;
   line-height: 1.5;
+}
+
+/* Device badge — makes "which screen" unmistakable */
+.onboarding-device-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  margin-bottom: 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: var(--accent);
+  text-transform: uppercase;
+
+  span[class^="icon-"] {
+    font-size: 15px;
+    color: var(--accent);
+  }
+}
+
+/* Inline keyboard key used inside body copy */
+.onboarding-inline-kbd,
+.onboarding-approve-key kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Fira Code", "Courier New", monospace;
+  font-weight: 700;
+  color: var(--primary-text);
+  background: var(--surface-soft);
+  border: 1px solid var(--card-border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+}
+
+.onboarding-inline-kbd {
+  min-width: 20px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  font-size: 12px;
+}
+
+/* Approve-on-computer view (slide 2, after scan) */
+.onboarding-approve-visual {
+  position: relative;
+  margin-bottom: 28px;
+}
+
+.onboarding-approve-screen {
+  width: 112px;
+  height: 112px;
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: onboard-approve-pulse 2.2s ease-in-out infinite;
+
+  span[class^="icon-"] {
+    font-size: 52px;
+    color: var(--accent);
+
+    &::before {
+      color: var(--accent);
+    }
+  }
+}
+
+.onboarding-approve-key {
+  position: absolute;
+  right: -10px;
+  bottom: -8px;
+  animation: onboard-float 2.6s ease-in-out infinite;
+
+  kbd {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    border-radius: 11px;
+    border-width: 1px;
+    border-bottom-width: 3px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
+}
+
+@keyframes onboard-approve-pulse {
+  0%,
+  100% {
+    border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+
+  50% {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+.onboarding-approve-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--card-border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--secondary-text);
+}
+
+.onboarding-approve-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: onboard-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes onboard-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Confirm row */

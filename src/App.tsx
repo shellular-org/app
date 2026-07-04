@@ -38,7 +38,7 @@ interface PageStackEntry {
 	showConnectionBanner: boolean;
 }
 
-const ONBOARDING_KEY = "shellular:onboarding-complete";
+export const ONBOARDING_KEY = "shellular:onboarding-complete";
 const PAGE_HIDE_DURATION = 240;
 const TABS: Tab[] = [
 	{ id: "home", label: "Home", icon: "home" },
