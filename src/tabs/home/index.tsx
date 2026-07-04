@@ -127,8 +127,7 @@ export default function HomeTab() {
 									key={`${session.agentId}:${session.sessionId}`}
 									className="home-active-session-row"
 								>
-									<button
-										type="button"
+									<div
 										className="home-active-session haptic-trigger"
 										onClick={() => openSession(session, agent)}
 									>
@@ -182,7 +181,7 @@ export default function HomeTab() {
 												/>
 											</div>
 										)}
-									</button>
+									</div>
 								</li>
 							);
 						})}
