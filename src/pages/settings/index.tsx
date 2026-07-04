@@ -381,11 +381,8 @@ export default function SettingsPage() {
 		{ id: "look-and-feel", label: "Look & Feel" },
 		{ id: "editor", label: "Editor" },
 		{ id: "terminal", label: "Terminal" },
+		{ id: "network", label: "Network" },
 	];
-
-	if (process.env.DEV_MODE) {
-		sidebarCategories.push({ id: "network", label: "Network" });
-	}
 
 	const isSearching = searchQuery.trim().length > 0;
 	const showAppearanceSettings = matchesSettingsSearch(searchQuery, [
