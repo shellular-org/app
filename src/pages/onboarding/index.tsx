@@ -45,12 +45,12 @@ export default function OnboardingPage({ onComplete }: OnboardingProps) {
 			buttonIcon = "icon-arrow-right";
 			break;
 		case 1:
-			buttonLabel = "CLI is running, continue";
+			buttonLabel = "Scan the QR";
 			buttonIcon = "icon-arrow-right";
 			break;
 		case 3:
 			buttonLabel = "Start using Shellular";
-			buttonIcon = "icon-zap";
+			buttonIcon = "icon-arrow-right";
 			break;
 
 		default:
@@ -108,7 +108,10 @@ export default function OnboardingPage({ onComplete }: OnboardingProps) {
 					cliConfirmed={cliConfirmed}
 					toggleConfirm={toggleConfirm}
 				/>
-				<Slide2 active={currentSlide === 2} />
+				<Slide2
+					active={currentSlide === 2}
+					connectionStatus={connectionStatus}
+				/>
 				<Slide3 active={currentSlide === 3} />
 			</div>
 
@@ -139,12 +142,13 @@ function Slide0({ active }: { active: boolean }) {
 			<div className="onboarding-slide-center">
 				<span className="icon-shellular onboarding-welcome-icon" />
 				<div className="onboarding-welcome-title">
-					Your dev machine
+					Your dev environment
 					<br />
 					in your pocket
 				</div>
 				<div className="onboarding-welcome-sub" style={{ marginBottom: 32 }}>
-					Access your agents, terminals, files, and ports from your phone.
+					Agents, terminals, local files, git repos, and ports — from your
+					phone.
 				</div>
 				<div className="onboarding-info-pills" style={{ width: "100%" }}>
 					<div className="onboarding-info-pill">
@@ -156,18 +160,7 @@ function Slide0({ active }: { active: boolean }) {
 								End-to-end encrypted
 							</div>
 							<div className="onboarding-info-pill-desc">
-								Pairing key exchanged via QR, never over the network.
-							</div>
-						</div>
-					</div>
-					<div className="onboarding-info-pill">
-						<div className="onboarding-info-pill-icon">
-							<span className="icon-zap" />
-						</div>
-						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">No accounts</div>
-							<div className="onboarding-info-pill-desc">
-								One CLI command to connect to your machine.
+								Key exchanged via QR, never over the network.
 							</div>
 						</div>
 					</div>
@@ -193,15 +186,14 @@ function Slide1({
 			})}
 		>
 			<div className="onboarding-slide-scroll">
-				<div className="onboarding-step-title">Start the CLI</div>
-				<div className="onboarding-step-desc">
-					Run this on the machine you want to connect - Your laptop, desktop,
-					Mac Mini or server.
+				<div className="onboarding-device-badge">
+					<span className="icon-monitor" />
+					<span>On your computer</span>
 				</div>
-
-				<div className="onboarding-cmd-block">
-					<span className="icon-chevron-right"></span>
-					<span className="pl-1! onboarding-cmd-text">npx shellular</span>
+				<div className="onboarding-step-title">Run this one command</div>
+				<div className="onboarding-step-desc">
+					Go to the computer, laptop, or server you want to control, open its
+					terminal, and run:
 				</div>
 
 				<div className="onboarding-terminal-card">
@@ -218,7 +210,7 @@ function Slide1({
 							className="onboarding-terminal-dot"
 							style={{ background: "#28CA41" }}
 						/>
-						<div className="onboarding-terminal-card-title">Terminal</div>
+						<div className="onboarding-terminal-card-title">Your Terminal</div>
 					</div>
 					<div className="onboarding-terminal-body">
 						<div>
@@ -226,29 +218,11 @@ function Slide1({
 							<span className="onboarding-t-cmd">npx shellular</span>
 						</div>
 						<div className="onboarding-t-dim" style={{ margin: "4px 0 0" }}>
-							Need to install: shellular@latest
+							Need to install the following packages:
 						</div>
+						<div className="onboarding-t-dim">shellular@latest</div>
 						<div className="onboarding-t-dim">
 							Ok to proceed? (y) <span className="onboarding-t-cmd">y</span>
-						</div>
-						<div style={{ marginTop: 8 }}>
-							<span className="onboarding-t-green">✔</span>{" "}
-							<span className="onboarding-t-hi">Shellular</span>{" "}
-							<span className="onboarding-t-dim">v0.0.15 ready</span>
-						</div>
-						<div>
-							<span className="onboarding-t-green">✔</span>{" "}
-							<span className="onboarding-t-dim">WebSocket relay started</span>
-						</div>
-						<div style={{ marginTop: 8 }}>
-							<span className="onboarding-t-dim">Install the app: </span>
-							<span className="onboarding-t-cyan">shellular.dev</span>
-						</div>
-						<div style={{ marginTop: 6 }}>
-							<span className="onboarding-t-dim">
-								Waiting for a device to connect...
-							</span>{" "}
-							<span className="onboarding-cursor" />
 						</div>
 					</div>
 				</div>
@@ -256,8 +230,18 @@ function Slide1({
 				<div className="onboarding-note-box">
 					<span className="icon-info" />
 					<span>
-						Requires Node.js. Run <code>node -v</code> to check. Get it at{" "}
-						<code>nodejs.org</code> if needed.
+						Requires Node.js <em>v20.20.2 or newer</em> (LTS preferred).
+						<br />
+						Run <code>node -v</code> to check. Get it at{" "}
+						<a
+							href="https://nodejs.org"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="underline"
+						>
+							nodejs.org
+						</a>{" "}
+						if needed.
 					</span>
 				</div>
 			</div>{" "}
@@ -276,74 +260,84 @@ function Slide1({
 					{cliConfirmed && <span className="icon-check" />}
 				</div>
 				<span className="onboarding-confirm-label">
-					CLI is running on my machine
+					I see the QR code on my computer
 				</span>
 			</button>
 		</div>
 	);
 }
 
-function Slide2({ active }: { active: boolean }) {
+function Slide2({
+	active,
+	connectionStatus,
+}: {
+	active: boolean;
+	connectionStatus: string;
+}) {
+	// Once the phone has scanned a QR and is handshaking, the server is waiting
+	// for the user to approve this device on their computer. Swap the scanner
+	// for a dedicated "approve on your computer" view at that moment.
+	const awaitingApproval =
+		connectionStatus === "connecting" || connectionStatus === "reconnecting";
+
 	return (
 		<div
 			className={clsx("onboarding-slide", {
 				"onboarding-slide--active": active,
 			})}
 		>
-			<div className="onboarding-slide-scroll">
-				<div className="onboarding-step-title">Scan the QR code</div>
-				<div className="onboarding-step-desc">
-					Your terminal shows a QR code. Point this phone at it to connect.
-				</div>
-
-				<Scanner
-					compact={true}
-					showScanner={active}
-					isOnboarding={true}
-					setShowScanner={() => {}}
-				/>
-
-				<div className="onboarding-info-pills">
-					<div className="onboarding-info-pill">
-						<div className="onboarding-info-pill-icon">
-							<span className="icon-shield" />
+			{awaitingApproval ? (
+				<div className="onboarding-slide-center">
+					<div className="onboarding-approve-visual">
+						<div className="onboarding-approve-screen">
+							<span className="icon-monitor" />
 						</div>
-						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">
-								Out-of-band pairing
-							</div>
-							<div className="onboarding-info-pill-desc">
-								Pairing key lives in the QR only, never sent over the network.
-							</div>
+						<div className="onboarding-approve-key">
+							<kbd>Y</kbd>
 						</div>
 					</div>
-					<div className="onboarding-info-pill">
-						<div className="onboarding-info-pill-icon">
-							<span
-								className="icon-check-circle"
-								style={{ color: "var(--success)" }}
-							/>
-						</div>
-						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">
-								Press Y in the terminal
-							</div>
-							<div className="onboarding-info-pill-desc">
-								After scanning, your terminal asks to approve this device. Press
-								Y.
-							</div>
-						</div>
+					<div
+						className="onboarding-step-title"
+						style={{ textAlign: "center" }}
+					>
+						Now approve it on
+						<br />
+						your computer
+					</div>
+					<div
+						className="onboarding-step-desc"
+						style={{ textAlign: "center", marginBottom: 24 }}
+					>
+						Your terminal is asking to allow this phone. Press{" "}
+						<kbd className="onboarding-inline-kbd">Y</kbd> there to connect.
+					</div>
+					<div className="onboarding-approve-status">
+						<span className="onboarding-approve-spinner" />
+						<span>Waiting for approval…</span>
+					</div>
+					<div className="onboarding-warn-box" style={{ marginTop: 20 }}>
+						<span className="icon-alert-triangle" />
+						<span>
+							No prompt on your computer? Run <code>npx shellular clients</code>{" "}
+							there to approve this device.
+						</span>
 					</div>
 				</div>
+			) : (
+				<div className="onboarding-slide-scroll">
+					<div className="onboarding-step-title">Scan the QR code</div>
+					<div className="onboarding-step-desc">
+						Your computer now shows a QR code. Point this phone at it.
+					</div>
 
-				<div className="onboarding-warn-box">
-					<span className="icon-alert-triangle" />
-					<span>
-						Connection rejected or no prompt? Run{" "}
-						<code>npx shellular clients</code> to find and approve this device.
-					</span>
+					<Scanner
+						compact={true}
+						showScanner={active}
+						isOnboarding={true}
+						setShowScanner={() => {}}
+					/>
 				</div>
-			</div>
+			)}
 		</div>
 	);
 }
@@ -364,28 +358,28 @@ function Slide3({ active }: { active: boolean }) {
 					You're in.
 				</div>
 				<div className="onboarding-welcome-sub" style={{ marginBottom: 32 }}>
-					Your dev machine is now in your pocket.
+					Your dev environment is now in your pocket.
 				</div>
 				<div className="onboarding-info-pills" style={{ width: "100%" }}>
-					<div className="onboarding-info-pill">
-						<div className="onboarding-info-pill-icon">
-							<span className="icon-terminal" />
-						</div>
-						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">Terminal</div>
-							<div className="onboarding-info-pill-desc">
-								Live shell access to your machine.
-							</div>
-						</div>
-					</div>
 					<div className="onboarding-info-pill">
 						<div className="onboarding-info-pill-icon">
 							<span className="icon-ai-chat" />
 						</div>
 						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">AI Agents</div>
+							<div className="onboarding-info-pill-title">Coding Agents</div>
 							<div className="onboarding-info-pill-desc">
-								Run Claude Code, Codex, OpenCode.
+								Claude Code, Codex, OpenCode, Pi and more
+							</div>
+						</div>
+					</div>
+					<div className="onboarding-info-pill">
+						<div className="onboarding-info-pill-icon">
+							<span className="icon-terminal" />
+						</div>
+						<div className="onboarding-info-pill-text">
+							<div className="onboarding-info-pill-title">Terminals</div>
+							<div className="onboarding-info-pill-desc">
+								Persistent terminals without tmux or ssh
 							</div>
 						</div>
 					</div>
@@ -394,9 +388,9 @@ function Slide3({ active }: { active: boolean }) {
 							<span className="icon-folder" />
 						</div>
 						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">Files</div>
+							<div className="onboarding-info-pill-title">Files & Git</div>
 							<div className="onboarding-info-pill-desc">
-								Browse and edit your project files.
+								Browse file, edit code, manage git repos
 							</div>
 						</div>
 					</div>
@@ -405,9 +399,11 @@ function Slide3({ active }: { active: boolean }) {
 							<span className="icon-globe" />
 						</div>
 						<div className="onboarding-info-pill-text">
-							<div className="onboarding-info-pill-title">Browser</div>
+							<div className="onboarding-info-pill-title">
+								Browser & DevTools
+							</div>
 							<div className="onboarding-info-pill-desc">
-								Access localhost web apps on the go.
+								Access your web apps and debug them
 							</div>
 						</div>
 					</div>

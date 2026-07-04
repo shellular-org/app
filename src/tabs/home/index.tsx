@@ -4,11 +4,13 @@ import type { HostInfo } from "@shellular/protocol";
 import clsx from "clsx";
 import AppMenu from "components/AppMenu";
 import OfflineBanner from "components/OfflineBanner";
+import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { shouldPromptForRating } from "lib/ratingService";
 import { getOnlineStatus } from "lib/utils";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
@@ -35,6 +37,7 @@ export default function HomeTab() {
 	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(
 		getActiveSessionActivities(),
 	);
+	const [showRatingDialog, setShowRatingDialog] = useState(false);
 	const compact = savedHosts.length > 0;
 	const visibleActiveSessions = activeSessions.filter(
 		(session) => agents[session.agentId]?.available,
@@ -70,6 +73,16 @@ export default function HomeTab() {
 		refresh();
 		return subscribeSessionActivities(refresh);
 	}, []);
+
+	useEffect(() => {
+		if (connectionStatus === "connected" && process.env.PLATFORM === "ios") {
+			shouldPromptForRating().then((should) => {
+				if (should) {
+					setShowRatingDialog(true);
+				}
+			});
+		}
+	}, [connectionStatus]);
 
 	return (
 		<div className="home-tab">
@@ -114,8 +127,7 @@ export default function HomeTab() {
 									key={`${session.agentId}:${session.sessionId}`}
 									className="home-active-session-row"
 								>
-									<button
-										type="button"
+									<div
 										className="home-active-session haptic-trigger"
 										onClick={() => openSession(session, agent)}
 									>
@@ -169,7 +181,7 @@ export default function HomeTab() {
 												/>
 											</div>
 										)}
-									</button>
+									</div>
 								</li>
 							);
 						})}
@@ -217,6 +229,10 @@ export default function HomeTab() {
 					</div>
 				</div>
 			)}
+			<RatingDialog
+				isOpen={showRatingDialog}
+				onClose={() => setShowRatingDialog(false)}
+			/>
 		</div>
 	);
 }
