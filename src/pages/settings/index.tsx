@@ -1,3 +1,4 @@
+import { ONBOARDING_KEY } from "App";
 import AppSelect from "components/AppSelect";
 import Page from "components/Page";
 import {
@@ -10,6 +11,7 @@ import {
 	saveSettings,
 	type TerminalCursorStyle,
 } from "lib/settings";
+import * as store from "lib/store";
 import React, { useEffect, useState } from "react";
 import themes from "themes";
 import "./style.scss";
@@ -259,6 +261,16 @@ export default function SettingsPage() {
 
 	const [hapticFeedback, setHapticFeedback] = useState(true);
 	const [isSavingDevServer, setIsSavingDevServer] = useState(false);
+	const [testOnboarding, setTestOnboarding] = useState(false);
+
+	useEffect(() => {
+		if (!process.env.DEV_MODE) return;
+		store.get<boolean>(ONBOARDING_KEY).then((val) => {
+			// "Test onboarding" is on when onboarding has NOT been completed,
+			// so the flow will show again on the next app launch.
+			setTestOnboarding(!val);
+		});
+	}, []);
 
 	useEffect(() => {
 		loadSettings().then((s) => {
@@ -363,6 +375,16 @@ export default function SettingsPage() {
 		await saveSettings({ hapticFeedback: value });
 	}
 
+	async function handleTestOnboardingChange(value: boolean) {
+		setTestOnboarding(value);
+		if (value) {
+			// Clear the completion flag so onboarding shows again on next launch.
+			await store.remove(ONBOARDING_KEY);
+		} else {
+			await store.set(ONBOARDING_KEY, true);
+		}
+	}
+
 	async function handleDevServerSave() {
 		setIsSavingDevServer(true);
 		try {
@@ -382,6 +404,7 @@ export default function SettingsPage() {
 		{ id: "editor", label: "Editor" },
 		{ id: "terminal", label: "Terminal" },
 		{ id: "network", label: "Network" },
+		...(process.env.DEV_MODE ? [{ id: "developer", label: "Developer" }] : []),
 	];
 
 	const isSearching = searchQuery.trim().length > 0;
@@ -447,6 +470,13 @@ export default function SettingsPage() {
 	const showNetworkSettings = matchesSettingsSearch(searchQuery, [
 		{ title: "Protocol", description: "HTTP uses WS, HTTPS uses WSS." },
 		{ title: "Base domain", description: "The host for the dev server API." },
+	]);
+	const showDeveloperSettings = matchesSettingsSearch(searchQuery, [
+		{
+			title: "Test onboarding",
+			description:
+				"Replays the onboarding flow the next time you open the app.",
+		},
 	]);
 	const monospaceFontOptions = MONOSPACE_FONT_FAMILY_OPTIONS.map((font) => ({
 		value: font.value,
@@ -757,6 +787,30 @@ export default function SettingsPage() {
 														{isSavingDevServer ? "Saving..." : "Save"}
 													</button>
 												</div>
+											}
+										/>
+									</SettingsGroup>
+								</div>
+							)}
+
+						{((isSearching && showDeveloperSettings) ||
+							(!isSearching && activeTab === "developer")) &&
+							process.env.DEV_MODE && (
+								<div className="animate-in fade-in duration-300">
+									{isSearching && (
+										<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">
+											Developer
+										</h2>
+									)}
+									<SettingsGroup title="Debug" searchQuery={searchQuery}>
+										<SettingsItem
+											title="Test onboarding"
+											description="Replays the onboarding flow the next time you open the app. Enable, then close and reopen the app."
+											control={
+												<Switch
+													checked={testOnboarding}
+													onChange={handleTestOnboardingChange}
+												/>
 											}
 										/>
 									</SettingsGroup>
