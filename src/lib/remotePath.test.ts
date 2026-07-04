@@ -49,8 +49,8 @@ describe("normalizeRemoteWorkspacePath", () => {
 		expect(
 			normalizeRemoteWorkspacePath("./src//pages", "/Users/ajit/app"),
 		).toBe("/Users/ajit/app/src/pages");
-		expect(normalizeRemoteWorkspacePath("src\\main.ts", "/Users/ajit/app")).toBe(
-			"/Users/ajit/app/src/main.ts",
-		);
+		expect(
+			normalizeRemoteWorkspacePath("src\\main.ts", "/Users/ajit/app"),
+		).toBe("/Users/ajit/app/src/main.ts");
 	});
 });
