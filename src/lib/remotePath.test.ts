@@ -9,24 +9,24 @@ describe("normalizeRemoteWorkspacePath", () => {
 		expect(
 			normalizeRemoteWorkspacePath(
 				"D:\\Work\\First_EC.VL.CommerceTools",
-				"C:\\Users\\vitavdas",
+				"C:\\Users\\biraj-rocks",
 			),
 		).toBe("D:\\Work\\First_EC.VL.CommerceTools");
 		expect(
 			normalizeRemoteWorkspacePath(
-				"C:\\Users\\vitavdas\\Documents\\WORK\\test",
-				"C:\\Users\\vitavdas",
+				"C:\\Users\\biraj-rocks\\Documents\\WORK\\test",
+				"C:\\Users\\biraj-rocks",
 			),
-		).toBe("C:\\Users\\vitavdas\\Documents\\WORK\\test");
+		).toBe("C:\\Users\\biraj-rocks\\Documents\\WORK\\test");
 	});
 
 	it("recognizes Windows drive and UNC paths as absolute remote paths", () => {
 		expect(isRemoteAbsolutePath("D:\\Work\\First_EC.VL.CommerceTools")).toBe(
 			true,
 		);
-		expect(isRemoteAbsolutePath("C:/Users/vitavdas/Documents/WORK/test")).toBe(
-			true,
-		);
+		expect(
+			isRemoteAbsolutePath("C:/Users/biraj-rocks/Documents/WORK/test"),
+		).toBe(true);
 		expect(isRemoteAbsolutePath("\\\\server\\share\\repo")).toBe(true);
 	});
 
@@ -34,11 +34,11 @@ describe("normalizeRemoteWorkspacePath", () => {
 		expect(
 			normalizeRemoteWorkspacePath(
 				"Documents\\WORK\\test",
-				"C:\\Users\\vitavdas",
+				"C:\\Users\\biraj-rocks",
 			),
-		).toBe("C:\\Users\\vitavdas\\Documents\\WORK\\test");
+		).toBe("C:\\Users\\biraj-rocks\\Documents\\WORK\\test");
 		expect(
-			normalizeRemoteWorkspacePath("..\\repo", "C:\\Users\\vitavdas"),
+			normalizeRemoteWorkspacePath("..\\repo", "C:\\Users\\biraj-rocks"),
 		).toBe("C:\\Users\\repo");
 	});
 
