@@ -1,8 +1,8 @@
 {
   "name": "io.foxbiz.shellular",
   "displayName": "Use your dev machine from your phone.",
-  "version": "0.0.31",
-  "versionCode": 31,
+  "version": "0.0.32",
+  "versionCode": 32,
   "description": "",
   "type": "module",
   "licenses": [
