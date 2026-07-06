@@ -57,8 +57,8 @@ importers:
         specifier: ^1.1.20
         version: 1.1.20(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@shellular/protocol':
-        specifier: ^0.0.23
-        version: 0.0.23
+        specifier: ^0.0.24
+        version: 0.0.24
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -1565,8 +1565,8 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@shellular/protocol@0.0.23':
-    resolution: {integrity: sha512-eMAbsrxXEqD2/cLRwNV9XK6mYbK1RZJOmPTcnof6mOZvdWhfcJqkXMkBwE/EtGkHehMAmLuB0OzSsx9Oo+zV8A==}
+  '@shellular/protocol@0.0.24':
+    resolution: {integrity: sha512-GF6E/Kje7xTJGsGOZ5cKwETpbezjsANcGNIjSVKBL5IXRm1UjBfAR2abvW8qMifHHlJO++8J8tvJt0iKaLjvhg==}
 
   '@shikijs/core@3.23.0':
     resolution: {integrity: sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA==}
@@ -5733,7 +5733,7 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@shellular/protocol@0.0.23':
+  '@shellular/protocol@0.0.24':
     dependencies:
       '@agentclientprotocol/sdk': 0.26.0(zod@4.3.6)
       zod: 4.3.6
