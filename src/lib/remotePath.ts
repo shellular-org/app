@@ -21,10 +21,20 @@ export function isRemoteAbsolutePath(path: string) {
 	);
 }
 
-function joinRemotePath(baseDir: string, path: string) {
+/**
+ * Join a child path onto a remote base using the base's path style. When the
+ * child is already an absolute remote path (POSIX root, Windows drive, or UNC)
+ * it is returned untouched — appending it onto the base would fuse two absolute
+ * roots into one string (e.g. `C:\Users\me` + `D:\proj` → `C:\Users\me\D:\proj`),
+ * the Windows cross-drive bug. Never build remote paths with a hardcoded `/`.
+ */
+export function joinRemotePath(baseDir: string, path: string) {
+	const raw = path.trim();
+	if (isRemoteAbsolutePath(raw)) return raw;
 	const separator = isWindowsPathLike(baseDir) ? "\\" : "/";
 	const base = baseDir.replace(/[\\/]+$/, "");
-	const child = path.replace(/^\.[\\/]/, "").replace(/^[\\/]+/, "");
+	const child = raw.replace(/^\.[\\/]/, "").replace(/^[\\/]+/, "");
+	if (!child) return base;
 	return `${base}${separator}${child}`;
 }
 

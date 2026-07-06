@@ -7,6 +7,7 @@ import type {
 } from "@shellular/protocol";
 import native from "bridge/native";
 import { getFileIcon } from "lib/fileIcon";
+import { joinRemotePath } from "lib/remotePath";
 import { formatFileSize, getFileMimeType } from "lib/utils";
 import type React from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -456,7 +457,7 @@ export function fileSuggestionFromDirectoryEntry(
 	entry: Awaited<ReturnType<typeof listDir>>[number],
 	workspacePath: string,
 ): PromptSuggestion {
-	const path = `${workspacePath.replace(/\/$/, "")}/${entry.name}`;
+	const path = joinRemotePath(workspacePath, entry.name);
 	return fileSuggestionFromSearchEntry({
 		...entry,
 		path,
