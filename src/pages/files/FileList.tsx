@@ -4,6 +4,7 @@ import native from "bridge/native";
 import AppMenu from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import { getFileIcon } from "lib/fileIcon";
+import { joinRemotePath } from "lib/remotePath";
 import toast from "lib/toast";
 import { formatFileSize } from "lib/utils";
 import { useRef, useState } from "react";
@@ -58,7 +59,9 @@ export default function FileList({
 	const resolvePath = (entry: FileEntry) => {
 		const path = (entry as ProjectFileSearchEntry).path;
 		if (typeof path === "string") return path;
-		return currentPath === "." ? entry.name : `${currentPath}/${entry.name}`;
+		return !currentPath || currentPath === "."
+			? entry.name
+			: joinRemotePath(currentPath, entry.name ?? "");
 	};
 
 	if (!entries.length) {

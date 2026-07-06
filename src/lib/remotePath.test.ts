@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	isRemoteAbsolutePath,
+	joinRemotePath,
 	normalizeRemoteWorkspacePath,
 } from "./remotePath";
 
@@ -52,5 +53,31 @@ describe("normalizeRemoteWorkspacePath", () => {
 		expect(
 			normalizeRemoteWorkspacePath("src\\main.ts", "/Users/ajit/app"),
 		).toBe("/Users/ajit/app/src/main.ts");
+	});
+});
+
+describe("joinRemotePath", () => {
+	it("does not fuse an absolute cross-drive child onto the base", () => {
+		// The core Windows bug: navigating/building under a D: project while the
+		// host base is on C: must not produce `C:\Users\me\D:\proj`.
+		expect(joinRemotePath("C:\\Users\\me", "D:\\proj")).toBe("D:\\proj");
+		expect(joinRemotePath("C:\\Users\\me", "D:/proj")).toBe("D:/proj");
+		expect(joinRemotePath("/Users/me", "/srv/other")).toBe("/srv/other");
+		expect(joinRemotePath("C:\\Users\\me", "\\\\server\\share")).toBe(
+			"\\\\server\\share",
+		);
+	});
+
+	it("joins relative children using the base path style", () => {
+		expect(joinRemotePath("D:\\Work\\proj", "src")).toBe("D:\\Work\\proj\\src");
+		expect(joinRemotePath("D:\\Work\\proj\\", "src")).toBe(
+			"D:\\Work\\proj\\src",
+		);
+		expect(joinRemotePath("/Users/me/app", "src")).toBe("/Users/me/app/src");
+		expect(joinRemotePath("/Users/me/app/", "./src")).toBe("/Users/me/app/src");
+	});
+
+	it("returns the base when the child is empty", () => {
+		expect(joinRemotePath("D:\\Work\\proj", "")).toBe("D:\\Work\\proj");
 	});
 });
