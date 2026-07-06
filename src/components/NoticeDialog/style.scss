@@ -1,0 +1,98 @@
+.notice-dialog-overlay {
+	position: fixed;
+	inset: 0;
+	background-color: rgba(0, 0, 0, 0.4);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 1000;
+	backdrop-filter: blur(4px);
+}
+
+.notice-dialog {
+	background-color: var(--primary);
+	border: 1px solid var(--card-border);
+	border-radius: 12px;
+	padding: 24px;
+	max-width: 360px;
+	width: 90%;
+	box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+	animation: noticeSlideUp 0.3s ease-out;
+}
+
+@keyframes noticeSlideUp {
+	from {
+		transform: translateY(20px);
+		opacity: 0;
+	}
+	to {
+		transform: translateY(0);
+		opacity: 1;
+	}
+}
+
+.notice-dialog-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	margin-bottom: 12px;
+}
+
+.notice-dialog-title {
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--primary-text);
+	margin: 0;
+}
+
+.notice-dialog-close {
+	background: none;
+	border: none;
+	color: var(--secondary-text);
+	cursor: pointer;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 20px;
+	transition: color 0.2s;
+
+	&:hover {
+		color: var(--primary-text);
+	}
+}
+
+.notice-dialog-message {
+	font-size: 14px;
+	color: var(--secondary-text);
+	line-height: 1.5;
+	margin: 0 0 24px 0;
+	white-space: pre-wrap;
+}
+
+.notice-dialog-actions {
+	display: flex;
+	gap: 12px;
+}
+
+.notice-dialog-button {
+	flex: 1;
+	padding: 10px 16px;
+	border-radius: 8px;
+	font-size: 14px;
+	font-weight: 500;
+	border: none;
+	cursor: pointer;
+	transition: all 0.2s;
+	min-height: 40px;
+}
+
+.notice-dialog-button-primary {
+	background-color: var(--accent);
+	color: var(--button-text);
+
+	&:active {
+		opacity: 0.9;
+	}
+}

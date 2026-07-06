@@ -264,7 +264,10 @@ export default function SettingsPage() {
 	const [testOnboarding, setTestOnboarding] = useState(false);
 
 	useEffect(() => {
-		if (!process.env.DEV_MODE) return;
+		if (!process.env.DEV_MODE) {
+			return;
+		}
+
 		store.get<boolean>(ONBOARDING_KEY).then((val) => {
 			// "Test onboarding" is on when onboarding has NOT been completed,
 			// so the flow will show again on the next app launch.
@@ -739,59 +742,58 @@ export default function SettingsPage() {
 						)}
 
 						{((isSearching && showNetworkSettings) ||
-							(!isSearching && activeTab === "network")) &&
-							process.env.DEV_MODE && (
-								<div className="animate-in fade-in duration-300">
-									{isSearching && (
-										<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">
-											Network
-										</h2>
-									)}
-									<SettingsGroup
-										title="Developer Server"
-										searchQuery={searchQuery}
-									>
-										<SettingsItem
-											title="Protocol"
-											description="HTTP uses WS, HTTPS uses WSS."
-											control={
-												<AppSelect
-													value={devServerProtocol}
-													onChange={(v) =>
-														setDevServerProtocol(v as DevServerProtocol)
-													}
-													options={[
-														{ value: "http", label: "HTTP" },
-														{ value: "https", label: "HTTPS" },
-													]}
+							(!isSearching && activeTab === "network")) && (
+							<div className="animate-in fade-in duration-300">
+								{isSearching && (
+									<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">
+										Network
+									</h2>
+								)}
+								<SettingsGroup
+									title="Developer Server"
+									searchQuery={searchQuery}
+								>
+									<SettingsItem
+										title="Protocol"
+										description="HTTP uses WS, HTTPS uses WSS."
+										control={
+											<AppSelect
+												value={devServerProtocol}
+												onChange={(v) =>
+													setDevServerProtocol(v as DevServerProtocol)
+												}
+												options={[
+													{ value: "http", label: "HTTP" },
+													{ value: "https", label: "HTTPS" },
+												]}
+											/>
+										}
+									/>
+									<SettingsItem
+										title="Base domain"
+										description="The host for the dev server API."
+										vertical
+										control={
+											<div className="flex flex-col sm:flex-row gap-3 w-full">
+												<TextInput
+													value={devServerDomain}
+													onChange={setDevServerDomain}
+													placeholder="api.shellular.dev"
 												/>
-											}
-										/>
-										<SettingsItem
-											title="Base domain"
-											description="The host for the dev server API."
-											vertical
-											control={
-												<div className="flex flex-col sm:flex-row gap-3 w-full">
-													<TextInput
-														value={devServerDomain}
-														onChange={setDevServerDomain}
-														placeholder="api.shellular.dev"
-													/>
-													<button
-														type="button"
-														className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
-														onClick={handleDevServerSave}
-														disabled={isSavingDevServer}
-													>
-														{isSavingDevServer ? "Saving..." : "Save"}
-													</button>
-												</div>
-											}
-										/>
-									</SettingsGroup>
-								</div>
-							)}
+												<button
+													type="button"
+													className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
+													onClick={handleDevServerSave}
+													disabled={isSavingDevServer}
+												>
+													{isSavingDevServer ? "Saving..." : "Save"}
+												</button>
+											</div>
+										}
+									/>
+								</SettingsGroup>
+							</div>
+						)}
 
 						{((isSearching && showDeveloperSettings) ||
 							(!isSearching && activeTab === "developer")) &&

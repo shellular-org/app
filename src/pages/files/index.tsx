@@ -1,5 +1,5 @@
 import actionStack from "lib/actionStack";
-import { normalizeRemoteWorkspacePath } from "lib/remotePath";
+import { joinRemotePath, normalizeRemoteWorkspacePath } from "lib/remotePath";
 import {
 	loadSettings,
 	SETTINGS_CHANGED_EVENT,
@@ -205,10 +205,10 @@ export default function FileBrowserPage({
 
 	const handleNavigate = useCallback(
 		(entry: FileEntry) => {
-			let targetPath = `${currentPath}/${entry.name}`;
-			if (currentPath === ".") {
-				targetPath = entry.name;
-			}
+			const targetPath =
+				currentPath === "."
+					? entry.name
+					: joinRemotePath(currentPath, entry.name);
 			openEntry(entry, targetPath);
 		},
 		[currentPath, openEntry],
@@ -342,7 +342,8 @@ export default function FileBrowserPage({
 	const isSearchMode = searchOpen && searchQuery.trim().length > 0;
 
 	const buildServerPath = useCallback(
-		(name: string) => (currentPath === "." ? name : `${currentPath}/${name}`),
+		(name: string) =>
+			currentPath === "." ? name : joinRemotePath(currentPath, name),
 		[currentPath],
 	);
 
