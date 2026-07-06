@@ -3,6 +3,7 @@ import { pushPage } from "App";
 import type { HostInfo } from "@shellular/protocol";
 import clsx from "clsx";
 import AppMenu from "components/AppMenu";
+import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
 import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
@@ -10,6 +11,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
 import { getOnlineStatus } from "lib/utils";
 import { useEffect, useState } from "react";
@@ -38,6 +40,8 @@ export default function HomeTab() {
 		getActiveSessionActivities(),
 	);
 	const [showRatingDialog, setShowRatingDialog] = useState(false);
+	const [noticeQueue, setNoticeQueue] = useState<Notice[]>([]);
+	const notice = noticeQueue[0] ?? null;
 	const compact = savedHosts.length > 0;
 	const visibleActiveSessions = activeSessions.filter(
 		(session) => agents[session.agentId]?.available,
@@ -72,6 +76,16 @@ export default function HomeTab() {
 		const refresh = () => setActiveSessions(getActiveSessionActivities());
 		refresh();
 		return subscribeSessionActivities(refresh);
+	}, []);
+
+	useEffect(() => {
+		let active = true;
+		getUndismissedNotices().then((notices) => {
+			if (active) setNoticeQueue(notices);
+		});
+		return () => {
+			active = false;
+		};
 	}, []);
 
 	useEffect(() => {
@@ -232,6 +246,14 @@ export default function HomeTab() {
 			<RatingDialog
 				isOpen={showRatingDialog}
 				onClose={() => setShowRatingDialog(false)}
+			/>
+			<NoticeDialog
+				notice={notice}
+				onDismiss={(id) => {
+					dismissNotice(id);
+					// Drop this notice and reveal the next one in the queue, if any.
+					setNoticeQueue((queue) => queue.filter((n) => n.id !== id));
+				}}
 			/>
 		</div>
 	);
