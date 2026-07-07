@@ -1,4 +1,30 @@
 .editor-page {
+  &.page {
+    >.page-content {
+      padding: 0;
+    }
+  }
+
+  @include tablet {
+    @include ios {
+      &.page {
+        >.page-content {
+          padding-left: 0;
+          padding-right: 0;
+        }
+      }
+    }
+
+    @include android {
+      &.page {
+        >.page-content {
+          padding-left: 0;
+          padding-right: 0;
+        }
+      }
+    }
+  }
+
   >.page-content {
     padding: 0;
     max-width: none;

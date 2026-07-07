@@ -1,8 +1,13 @@
 import "./style.scss";
 import { closePage } from "App";
+import type { MergeView } from "@codemirror/merge";
 import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import dialog from "bridge/dialog";
+import type { EditorView } from "codemirror";
+import EmptyState from "components/EmptyState";
+import Loader from "components/Loader";
+import Mascot from "components/Mascot";
 import Page from "components/Page";
 import actionStack from "lib/actionStack";
 import { loadLanguageForFilename } from "lib/codemirrorLanguages";
@@ -29,12 +34,6 @@ import { useShellular } from "state";
 import type { GitFileStatus } from "state/filesystem";
 import EditorFindReplace from "./EditorFindReplace";
 import EditorToolbar from "./EditorToolbar";
-import "./style.scss";
-import type { MergeView } from "@codemirror/merge";
-import type { EditorView } from "codemirror";
-import EmptyState from "components/EmptyState";
-import Loader from "components/Loader";
-import Mascot from "components/Mascot";
 
 type DiffMode = "unified" | "split";
 type PreviewKind = "text" | "image" | "video" | "audio" | "pdf" | "binary";
