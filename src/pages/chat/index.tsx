@@ -1021,7 +1021,9 @@ export default function ChatConversationPage({
 		if (!showSidebar) return;
 		actionStack.push({
 			id: "chat-sidebar",
-			action: () => setShowSidebar(false),
+			action: () => {
+				setShowSidebar(false);
+			},
 		});
 		return () => {
 			actionStack.remove("chat-sidebar");

@@ -118,7 +118,9 @@ export default function App() {
 			setPageStack((prev) => [...prev, { id, element, showConnectionBanner }]);
 			actionStack.push({
 				id,
-				action: () => popPage(id),
+				action: () => {
+					popPage(id);
+				},
 			});
 		};
 		closePageHandler = (id) => {

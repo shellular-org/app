@@ -38,7 +38,9 @@ export default function TerminalTab() {
 		setShowPasteView(true);
 		actionStack.push({
 			id: "terminal-pasteview",
-			action: () => setShowPasteView(false),
+			action: () => {
+				setShowPasteView(false);
+			},
 		});
 	}, []);
 

@@ -3,9 +3,10 @@ import native from "bridge/native";
 
 type Action = {
 	id: string;
-	action: () => void | boolean | Promise<void | boolean>;
+	action: () => ActionResult | Promise<ActionResult>;
 	freeze?: boolean;
 };
+type ActionResult = boolean | undefined;
 type BaseActionEvent = "pop" | "push" | "remove";
 type ActionEvent = BaseActionEvent | `on${BaseActionEvent}`;
 type ActionEventListener = (action: Action) => void;

@@ -1,7 +1,7 @@
 import "./style.scss";
+import { closePage } from "App";
 import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { closePage } from "App";
 import dialog from "bridge/dialog";
 import Page from "components/Page";
 import actionStack from "lib/actionStack";
