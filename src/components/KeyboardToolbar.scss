@@ -71,6 +71,12 @@
       background: var(--accent);
       color: var(--button-text);
     }
+
+    &:disabled {
+      cursor: default;
+      opacity: 0.35;
+      transform: none;
+    }
   }
 
   .keyboard-toolbar-swipe-panel {

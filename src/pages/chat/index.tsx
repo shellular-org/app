@@ -1999,6 +1999,7 @@ function openEditorPath(
 			filePath={target.path}
 			initialLine={target.line}
 			initialColumn={target.column}
+			pageId={pageKey}
 		/>,
 	);
 }

@@ -3,7 +3,7 @@ import native from "bridge/native";
 
 type Action = {
 	id: string;
-	action: () => void;
+	action: () => void | boolean | Promise<void | boolean>;
 	freeze?: boolean;
 };
 type BaseActionEvent = "pop" | "push" | "remove";
@@ -20,6 +20,7 @@ const listeners: Record<ActionEvent, ActionEventListener[]> = {
 	onremove: [],
 };
 let freeze = false;
+let popPending = false;
 
 const actionStack = {
 	/**
@@ -32,8 +33,8 @@ const actionStack = {
 	/**
 	 * Pops an action
 	 */
-	pop() {
-		if (freeze) {
+	async pop() {
+		if (freeze || popPending) {
 			return;
 		}
 
@@ -49,9 +50,23 @@ const actionStack = {
 			return;
 		}
 
-		action.action();
-		emit("pop", action);
-		emit("remove", action);
+		popPending = true;
+		try {
+			const result = await action.action();
+			if (result !== false) {
+				emit("pop", action);
+				emit("remove", action);
+				return;
+			}
+			stack.push(action);
+			emit("push", action);
+		} catch (error) {
+			stack.push(action);
+			emit("push", action);
+			throw error;
+		} finally {
+			popPending = false;
+		}
 	},
 	/**
 	 * Clears the stack
@@ -79,6 +94,15 @@ const actionStack = {
 	 */
 	has(id: string): boolean {
 		return Boolean(stack.find((action) => action.id === id));
+	},
+	/**
+	 * Replaces an existing action while preserving its stack position.
+	 */
+	replace(action: Action): boolean {
+		const index = stack.findIndex((item) => item.id === action.id);
+		if (index === -1) return false;
+		stack[index] = action;
+		return true;
 	},
 	/**
 	 * Adds an event listener

@@ -195,9 +195,14 @@ export default function FileBrowserPage({
 				return;
 			}
 
+			const pageId = `file-${entry.name}-${Date.now()}`;
 			pushPage(
-				`file-${entry.name}-${Date.now()}`,
-				<EditorPage filePath={targetPath} gitStatus={entry.gitStatus} />,
+				pageId,
+				<EditorPage
+					filePath={targetPath}
+					gitStatus={entry.gitStatus}
+					pageId={pageId}
+				/>,
 			);
 		},
 		[closeSearch, currentPath, fetchDir],
