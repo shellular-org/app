@@ -1,6 +1,5 @@
 import "./style.scss";
 import { closePage, toToTab } from "App";
-import { MsgType } from "@shellular/protocol";
 import dialog from "bridge/dialog";
 import AgentIcon from "components/AgentIcon";
 import EmptyState from "components/EmptyState";
@@ -19,8 +18,8 @@ import {
 	type CustomAcpAgentInput,
 	type ManagedAcpAgentInfo,
 } from "state/acp";
-import { getHostInfo, sendMessage } from "state/connection";
-import { createTerminal, getXterm } from "state/terminals";
+import { getHostInfo } from "state/connection";
+import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
 
 type BusyAction = "install" | "toggle" | "remove";
 
@@ -74,10 +73,7 @@ export default function ManageAgentsPage() {
 				toToTab("terminals");
 				await waitForXterm(terminalId, 5000);
 				await new Promise((resolve) => setTimeout(resolve, 300));
-				sendMessage({
-					type: MsgType.TERMINAL_DATA,
-					data: { terminalId, data: `${command}\r` },
-				});
+				sendTerminalInput(terminalId, `${command}\r`);
 				toast("Command started. Refresh agents after it finishes.", 3500);
 			} finally {
 				commandRunningRef.current = false;

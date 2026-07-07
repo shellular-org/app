@@ -1,7 +1,10 @@
 import "./style.scss";
 import { search } from "@codemirror/search";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { closePage } from "App";
+import dialog from "bridge/dialog";
 import Page from "components/Page";
+import actionStack from "lib/actionStack";
 import { loadLanguageForFilename } from "lib/codemirrorLanguages";
 import keyboard from "lib/keyboard";
 import {
@@ -49,6 +52,7 @@ interface Props {
 	initialLine?: number;
 	initialColumn?: number;
 	readOnly?: boolean;
+	pageId?: string;
 }
 
 function createHiddenSearchPanel(view: EditorView) {
@@ -532,6 +536,7 @@ export default function EditorPage({
 	initialLine,
 	initialColumn,
 	readOnly,
+	pageId,
 }: Props) {
 	const { readFile, readFileBytes, readGitFile, writeFile } = useShellular();
 	const editorRef = useRef<HTMLDivElement>(null);
@@ -581,6 +586,25 @@ export default function EditorPage({
 		gitStatus &&
 		gitStatus !== "untracked" &&
 		gitStatus !== "ignored";
+
+	useEffect(() => {
+		if (!pageId) return;
+		actionStack.replace({
+			id: pageId,
+			action: async () => {
+				if (!dirty || readOnly) {
+					closePage(pageId);
+					return;
+				}
+				const confirmed = await dialog.confirm(
+					"Discard unsaved changes?",
+					"Unsaved Changes",
+				);
+				if (!confirmed) return false;
+				closePage(pageId);
+			},
+		});
+	}, [dirty, pageId, readOnly]);
 
 	const destroyViews = useCallback(() => {
 		viewRef.current?.destroy();

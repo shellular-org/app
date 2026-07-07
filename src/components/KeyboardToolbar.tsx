@@ -20,6 +20,7 @@ interface Props {
 	onSwipeLeftOpen?: () => void;
 	onSwipeLeftClose?: () => void;
 	keyMap?: Record<keyof typeof KEY_MAP, keyof typeof KEY_MAP>;
+	disabledKeys?: string[];
 	rows?: string[][];
 }
 
@@ -52,6 +53,12 @@ const KEY_MAP: Record<string, Key> = {
 		key: IS_DARWIN ? "cmd+shift+z" : "ctrl+shift+z",
 	},
 	interrupt: { label: "^C", key: "ctrl+c" },
+	switchTerminal: {
+		label: "Switch terminal",
+		icon: "icon-repeat",
+		key: "SwitchTerminal",
+	},
+	del: { label: "Del", key: "Delete" },
 	home: { label: "Home", key: "Home" },
 	up: { label: "Up", icon: "icon-arrow-up", key: "ArrowUp" },
 	end: { label: "End", key: "End" },
@@ -79,6 +86,7 @@ export default function KeyboardToolbar({
 	onSwipeLeftClose,
 	swipeLeftOpen = false,
 	keyMap = {},
+	disabledKeys = [],
 	rows = KEYS,
 }: Props) {
 	const toolbarRef = useRef<HTMLDivElement>(null);
@@ -284,6 +292,8 @@ export default function KeyboardToolbar({
 							const mappedKey = keyMap[key] || key;
 							const { label, icon } = KEY_MAP[mappedKey] || {};
 							const isActive = modifiers[mappedKey as keyof ModifierState];
+							const isDisabled =
+								disabledKeys.includes(key) || disabledKeys.includes(mappedKey);
 							return (
 								<button
 									type="button"
@@ -291,6 +301,7 @@ export default function KeyboardToolbar({
 									className={`keyboard-toolbar-key ${
 										isActive ? "active" : ""
 									} ${icon ? "icon-button" : ""}`}
+									disabled={isDisabled}
 									onTouchStart={() =>
 										handleKeyDown(
 											key,
@@ -305,6 +316,7 @@ export default function KeyboardToolbar({
 										if (t) clearTimeout(t);
 										keydownTimeouts.current.delete(key);
 									}}
+									aria-label={icon ? label || mappedKey : undefined}
 									aria-pressed={isActive || undefined}
 								>
 									{icon ? (

@@ -1,17 +1,16 @@
 import { pushPage, toToTab } from "App";
-import { MsgType } from "@shellular/protocol";
 import AgentIcon from "components/AgentIcon";
 import AppMenu from "components/AppMenu";
 import { getInstallationOptions } from "lib/agents";
 import ChatSessionsPage from "pages/sessions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcpAgentInfo } from "state/acp";
-import { getHostInfo, sendMessage } from "state/connection";
+import { getHostInfo } from "state/connection";
 import {
 	getAgentStreaming,
 	listenToSessionStreamingEvent,
 } from "state/sessions";
-import { createTerminal, getXterm } from "state/terminals";
+import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
 
 interface AgentTileProps {
 	agent: AcpAgentInfo;
@@ -44,10 +43,7 @@ export default function AgentTile({ agent }: AgentTileProps) {
 			toToTab("terminals");
 			await waitForXterm(terminalId, 5000);
 			await new Promise((r) => setTimeout(r, 500));
-			sendMessage({
-				type: MsgType.TERMINAL_DATA,
-				data: { terminalId, data: `${command}\r` },
-			});
+			sendTerminalInput(terminalId, `${command}\r`);
 		} finally {
 			setInstalling(false);
 			installingRef.current = false;
