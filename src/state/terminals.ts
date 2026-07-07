@@ -309,14 +309,6 @@ export function getXterm(terminalId: string): Terminal | null {
 	return terminalEntries.get(terminalId)?.terminal ?? null;
 }
 
-export function hasUndoableTerminalInput(terminalId: string): boolean {
-	const inputState = terminalStickyCommands.get(terminalId)?.inputState;
-	return Boolean(
-		inputState &&
-			(inputState.line.length > 0 || inputState.shouldCaptureVisibleCommand),
-	);
-}
-
 // ─── Init listeners (called once on connect) ─────────────────
 export function initTerminalListeners(): void {
 	// Guard: only initialize once per connection
@@ -425,12 +417,7 @@ function recordTerminalInput(terminalId: string, data: string): void {
 	const runtime = terminalStickyCommands.get(terminalId);
 	if (!runtime) return;
 
-	const hadUndoableInput = hasUndoableTerminalInput(terminalId);
 	const result = applyTerminalInputToCommandState(runtime.inputState, data);
-	const hasUndoableInput = hasUndoableTerminalInput(terminalId);
-	if (hadUndoableInput !== hasUndoableInput) {
-		emit();
-	}
 	if (result.clearHistory) {
 		clearStickyCommandHistory(terminalId);
 	}

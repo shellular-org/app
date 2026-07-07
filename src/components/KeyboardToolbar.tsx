@@ -21,6 +21,7 @@ interface Props {
 	onSwipeLeftClose?: () => void;
 	keyMap?: Record<keyof typeof KEY_MAP, keyof typeof KEY_MAP>;
 	disabledKeys?: string[];
+	onDisabledKeyPress?: (key: string) => void;
 	rows?: string[][];
 }
 
@@ -87,6 +88,7 @@ export default function KeyboardToolbar({
 	swipeLeftOpen = false,
 	keyMap = {},
 	disabledKeys = [],
+	onDisabledKeyPress,
 	rows = KEYS,
 }: Props) {
 	const toolbarRef = useRef<HTMLDivElement>(null);
@@ -300,17 +302,26 @@ export default function KeyboardToolbar({
 									key={key}
 									className={`keyboard-toolbar-key ${
 										isActive ? "active" : ""
-									} ${icon ? "icon-button" : ""}`}
-									disabled={isDisabled}
-									onTouchStart={() =>
+									} ${icon ? "icon-button" : ""} ${isDisabled ? "disabled" : ""}`}
+									aria-disabled={isDisabled || undefined}
+									onTouchStart={() => {
+										// Don't use the native `disabled` attribute: it swallows the
+										// touch and drops focus from the terminal, closing the
+										// keyboard. Instead keep the button live and hand disabled
+										// taps to onDisabledKeyPress (which can explain the key via a
+										// toast) while preserving focus.
+										if (isDisabled) {
+											onDisabledKeyPress?.(key);
+											return;
+										}
 										handleKeyDown(
 											key,
 											mappedKey,
 											handleKey,
 											isSwiping,
 											keydownTimeouts,
-										)
-									}
+										);
+									}}
 									onTouchCancel={() => {
 										const t = keydownTimeouts.current.get(key);
 										if (t) clearTimeout(t);

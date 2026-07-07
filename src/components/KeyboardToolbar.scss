@@ -72,10 +72,15 @@
       color: var(--button-text);
     }
 
-    &:disabled {
+    &:disabled,
+    &.disabled {
       cursor: default;
       opacity: 0.35;
-      transform: none;
+
+      &:active {
+        transform: none;
+        opacity: 0.35;
+      }
     }
   }
 

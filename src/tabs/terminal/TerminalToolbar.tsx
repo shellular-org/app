@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { useShellular } from "state";
 import {
 	getModifierState,
-	hasUndoableTerminalInput,
 	type ProcessInfo,
 	type RemoteTerminalInfo,
 	setModifierState,
@@ -33,9 +32,15 @@ const SEQUENCES: Record<string, string> = {
 };
 
 const TERMINAL_TOOLBAR_ROWS = [
-	["esc", "undo", "redo", "switchTerminal", "home", "up", "end", "pageup"],
-	["tab", "ctrl", "alt", "shift", "left", "down", "right", "pagedown"],
+	["esc", "shift", "home", "end", "up", "switchTerminal", "pageup"],
+	["tab", "ctrl", "alt", "left", "down", "right", "pagedown"],
 ];
+
+// Shown as a toast when a greyed-out toolbar key is tapped, so it's clear what
+// the key does and why it's currently unavailable.
+const DISABLED_KEY_HINTS: Record<string, string> = {
+	switchTerminal: "Used to switch between multiple terminals.",
+};
 
 export default function TerminalToolbar({
 	activeTerminalId,
@@ -53,20 +58,15 @@ export default function TerminalToolbar({
 	const [ctrl, setCtrl] = useState(false);
 	const [alt, setAlt] = useState(false);
 	const [shift, setShift] = useState(false);
-	const [canUndo, setCanUndo] = useState(false);
 	const pasteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
 	useEffect(() => {
-		if (!activeTerminalId) {
-			setCanUndo(false);
-			return;
-		}
+		if (!activeTerminalId) return;
 		const sync = () => {
 			const m = getModifierState(activeTerminalId);
 			setCtrl(m.ctrl);
 			setAlt(m.alt);
 			setShift(m.shift);
-			setCanUndo(hasUndoableTerminalInput(activeTerminalId));
 		};
 		sync();
 		return subscribeTerminals(sync);
@@ -75,7 +75,7 @@ export default function TerminalToolbar({
 	const handleKey: KeyHandler = (e) => {
 		if (e.type !== "keydown") return;
 		if (!activeTerminalId) return;
-		const { key, ctrlKey, altKey, metaKey, shiftKey } = e;
+		const { key, ctrlKey, altKey, shiftKey } = e;
 
 		if (key === "SwitchTerminal") {
 			const nextTerminal = getNextTerminal(
@@ -143,14 +143,6 @@ export default function TerminalToolbar({
 			}
 		};
 
-		// Undo: Ctrl+Z or Cmd+Z → readline Ctrl+_ (\x1f). No standard redo.
-		if ((effectiveCtrl || metaKey) && key === "z" && !effectiveShift) {
-			clearModifiers();
-			xterm.input("\x1f");
-			xterm.focus();
-			return;
-		}
-
 		// Interrupt: Ctrl+C → SIGINT (\x03).
 		if (effectiveCtrl && key === "c") {
 			clearModifiers();
@@ -174,6 +166,13 @@ export default function TerminalToolbar({
 	const handleHideKeyboard = () => {
 		const xterm = activeTerminalId ? getXterm(activeTerminalId) : null;
 		xterm?.blur();
+	};
+
+	const handleDisabledKeyPress = (key: string) => {
+		const message = DISABLED_KEY_HINTS[key];
+		if (message) toast(message, 2200);
+		// Keep the terminal focused so the keyboard doesn't close on a tap.
+		if (activeTerminalId) getXterm(activeTerminalId)?.focus();
 	};
 
 	useEffect(() => {
@@ -209,11 +208,8 @@ export default function TerminalToolbar({
 		<KeyboardToolbar
 			handleKey={handleKey}
 			modifiers={{ ctrl, alt, shift, meta: false }}
-			disabledKeys={[
-				...(canUndo ? [] : ["undo"]),
-				"redo",
-				...(activeTerminals.length <= 1 ? ["switchTerminal"] : []),
-			]}
+			disabledKeys={activeTerminals.length <= 1 ? ["switchTerminal"] : []}
+			onDisabledKeyPress={handleDisabledKeyPress}
 			onHideKeyboard={handleHideKeyboard}
 			rows={TERMINAL_TOOLBAR_ROWS}
 			swipeLeftPanel={
