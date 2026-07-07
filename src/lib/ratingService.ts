@@ -1,3 +1,4 @@
+import native from "bridge/native";
 import * as store from "lib/store";
 
 const RATING_KEY = "shellular:app-rating-prompted";
@@ -31,10 +32,10 @@ export async function markRatingPrompted(): Promise<void> {
 export function openAppStore(): void {
 	if (process.env.PLATFORM === "ios") {
 		const url = "https://apps.apple.com/us/app/shellular/id6761985327";
-		window.location.href = url;
+		native.openInBrowser(url);
 	} else if (process.env.PLATFORM === "android") {
 		const url =
 			"https://play.google.com/store/apps/details?id=io.foxbiz.shellular";
-		window.location.href = url;
+		native.openInBrowser(url);
 	}
 }
