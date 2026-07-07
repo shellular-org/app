@@ -17,7 +17,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { ShellularProvider, useShellular } from "state";
+import { ShellularProvider } from "state";
 import {
 	getHasAnyStreaming,
 	listenToSessionStreamingEvent,
@@ -118,7 +118,9 @@ export default function App() {
 			setPageStack((prev) => [...prev, { id, element, showConnectionBanner }]);
 			actionStack.push({
 				id,
-				action: () => popPage(id),
+				action: () => {
+					popPage(id);
+				},
 			});
 		};
 		closePageHandler = (id) => {
@@ -179,7 +181,6 @@ function TabView() {
 	const [activeTab, setActiveTab] = useState<TabId>(currentTab);
 	const prevTabRef = useRef<TabId>(currentTab);
 	const TabContent = TABS_MAP[activeTab];
-	const { savedHosts } = useShellular();
 
 	handleTabChange = useCallback((newTab: TabId) => {
 		if (newTab === "browser") {
@@ -212,9 +213,7 @@ function TabView() {
 					<TabContent />
 				</Suspense>
 			</div>
-			{savedHosts.length > 0 && (
-				<TabBar activeTab={activeTab} onTabChange={handleTabChange} />
-			)}
+			<TabBar activeTab={activeTab} onTabChange={handleTabChange} />
 		</div>
 	);
 }

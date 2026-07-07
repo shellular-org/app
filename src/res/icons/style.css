@@ -1,6 +1,6 @@
 @font-face {
   font-family: 'shellular-app';
-  src: url('shellular-app.ttf?kf6tdc') format('truetype');
+  src: url('shellular-app.ttf?azwrs2') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: block;
@@ -37,12 +37,16 @@
 .icon-bookmark-filled:before {
   content: '\ea59';
 }
+.icon-grok:before {
+  content: '\ea61';
+}
+.icon-google:before {
+  content: '\ea60';
+  color: #4285f4;
+}
 .icon-cursor:before {
   content: '\ea5f';
-  color: #000;
-}
-[data-theme-type="dark"] .icon-cursor:before {
-  color: #fff;
+  color: #72716d;
 }
 .icon-cursor-alt:before {
   content: '\ea5e';

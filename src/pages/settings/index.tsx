@@ -12,6 +12,7 @@ import {
 	type TerminalCursorStyle,
 } from "lib/settings";
 import * as store from "lib/store";
+import toast from "lib/toast";
 import React, { useEffect, useState } from "react";
 import themes from "themes";
 import "./style.scss";
@@ -296,74 +297,91 @@ export default function SettingsPage() {
 		});
 	}, []);
 
+	// Settings save instantly on change, so a success toast per change would be
+	// noisy. But a failed write must not pass silently — surface it so the user
+	// knows the change didn't stick. Returns whether the save succeeded.
+	async function persistSettings(
+		settings: Parameters<typeof saveSettings>[0],
+	): Promise<boolean> {
+		try {
+			await saveSettings(settings);
+			return true;
+		} catch (err) {
+			console.error("Failed to save settings:", err);
+			toast("Couldn't save setting", 2600);
+			return false;
+		}
+	}
+
 	async function handleThemeChange(name: string) {
 		const themeName = name.toLowerCase();
 		setCurrentTheme(themeName);
-		await saveSettings({ theme: themeName });
-		await themes.applyTheme(themeName);
+		if (await persistSettings({ theme: themeName })) {
+			await themes.applyTheme(themeName);
+		}
 	}
 
 	async function handleEditorFontSizeChange(value: number) {
 		setEditorFontSize(value);
-		await saveSettings({ editor: { fontSize: value } });
+		await persistSettings({ editor: { fontSize: value } });
 	}
 
 	async function handleEditorFontFamilyChange(value: string) {
 		setEditorFontFamily(value);
-		await saveSettings({ editor: { fontFamily: value } });
+		await persistSettings({ editor: { fontFamily: value } });
 	}
 
 	async function handleEditorWordWrapChange(value: boolean) {
 		setEditorWordWrap(value);
-		await saveSettings({ editor: { wordWrap: value } });
+		await persistSettings({ editor: { wordWrap: value } });
 	}
 
 	async function handleEditorLineNumbersChange(value: boolean) {
 		setEditorLineNumbers(value);
-		await saveSettings({ editor: { lineNumbers: value } });
+		await persistSettings({ editor: { lineNumbers: value } });
 	}
 
 	async function handleEditorTabSizeChange(value: number) {
 		setEditorTabSize(value);
-		await saveSettings({ editor: { tabSize: value } });
+		await persistSettings({ editor: { tabSize: value } });
 	}
 
 	async function handleTerminalFontSizeChange(value: number) {
 		setTerminalFontSize(value);
-		await saveSettings({ terminal: { fontSize: value } });
+		await persistSettings({ terminal: { fontSize: value } });
 	}
 
 	async function handleTerminalFontFamilyChange(value: string) {
 		setTerminalFontFamily(value);
-		await saveSettings({ terminal: { fontFamily: value } });
+		await persistSettings({ terminal: { fontFamily: value } });
 	}
 
 	async function handleTerminalCursorStyleChange(value: string) {
 		const cursorStyle = value as TerminalCursorStyle;
 		setTerminalCursorStyle(cursorStyle);
-		await saveSettings({ terminal: { cursorStyle } });
+		await persistSettings({ terminal: { cursorStyle } });
 	}
 
 	async function handleTerminalCursorInactiveStyleChange(value: string) {
 		const cursorInactiveStyle =
 			value as typeof DEFAULT_TERMINAL_SETTINGS.cursorInactiveStyle;
 		setTerminalCursorInactiveStyle(cursorInactiveStyle);
-		await saveSettings({ terminal: { cursorInactiveStyle } });
+		await persistSettings({ terminal: { cursorInactiveStyle } });
 	}
 
 	async function handleTerminalCursorBlinkChange(value: boolean) {
 		setTerminalCursorBlink(value);
-		await saveSettings({ terminal: { cursorBlink: value } });
+		await persistSettings({ terminal: { cursorBlink: value } });
 	}
 
 	async function handleTerminalScrollbackChange(value: number) {
 		setTerminalScrollback(value);
-		await saveSettings({ terminal: { scrollback: value } });
+		await persistSettings({ terminal: { scrollback: value } });
 	}
 
 	async function handleTerminalLetterSpacingChange(value: number) {
 		setTerminalLetterSpacing(value);
-		await saveSettings({ terminal: { letterSpacing: value } });
+		await persistSettings({ terminal: { letterSpacing: value } });
 	}
 
 	function normalizeDomain(domain: string) {
@@ -375,7 +393,7 @@ export default function SettingsPage() {
 
 	async function handleHapticFeedbackChange(value: boolean) {
 		setHapticFeedback(value);
-		await saveSettings({ hapticFeedback: value });
+		await persistSettings({ hapticFeedback: value });
 	}
 
 	async function handleTestOnboardingChange(value: boolean) {
@@ -388,15 +406,21 @@ export default function SettingsPage() {
 		}
 	}
 
-	async function handleDevServerSave() {
+	async function handleRelayServerSave() {
 		setIsSavingDevServer(true);
 		try {
 			const domain =
 				normalizeDomain(devServerDomain) || DEFAULT_DEV_SERVER_SETTINGS.domain;
 			setDevServerDomain(domain);
-			await saveSettings({
-				devServer: { protocol: devServerProtocol, domain },
-			});
+			// Explicit Save action (unlike the auto-saving controls), so confirm
+			// success with a toast. persistSettings toasts on failure.
+			if (
+				await persistSettings({
+					devServer: { protocol: devServerProtocol, domain },
+				})
+			) {
+				toast("Relay server settings saved", 2000);
+			}
 		} finally {
 			setIsSavingDevServer(false);
 		}
@@ -472,7 +496,7 @@ export default function SettingsPage() {
 	]);
 	const showNetworkSettings = matchesSettingsSearch(searchQuery, [
 		{ title: "Protocol", description: "HTTP uses WS, HTTPS uses WSS." },
-		{ title: "Base domain", description: "The host for the dev server API." },
+		{ title: "Base domain", description: "The domain of the relay server." },
 	]);
 	const showDeveloperSettings = matchesSettingsSearch(searchQuery, [
 		{
@@ -749,10 +773,7 @@ export default function SettingsPage() {
 										Network
 									</h2>
 								)}
-								<SettingsGroup
-									title="Developer Server"
-									searchQuery={searchQuery}
-								>
+								<SettingsGroup title="Relay Server" searchQuery={searchQuery}>
 									<SettingsItem
 										title="Protocol"
 										description="HTTP uses WS, HTTPS uses WSS."
@@ -771,7 +792,7 @@ export default function SettingsPage() {
 									/>
 									<SettingsItem
 										title="Base domain"
-										description="The host for the dev server API."
+										description="The domain of the relay server."
 										vertical
 										control={
 											<div className="flex flex-col sm:flex-row gap-3 w-full">
@@ -783,7 +804,7 @@ export default function SettingsPage() {
 												<button
 													type="button"
 													className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
-													onClick={handleDevServerSave}
+													onClick={handleRelayServerSave}
 													disabled={isSavingDevServer}
 												>
 													{isSavingDevServer ? "Saving..." : "Save"}
