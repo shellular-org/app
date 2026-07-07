@@ -68,7 +68,9 @@ export default function Scanner({
 
 		actionStack.push({
 			id: "qr-code-scanner",
-			action: handleCancelScanner,
+			action: () => {
+				handleCancelScanner();
+			},
 		});
 
 		try {

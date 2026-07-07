@@ -71,7 +71,9 @@ export default function toast(msg: string, timeoutMs?: number): void {
 
 	const index = toastCount++;
 
-	el.style.bottom = `${24 + index * (TOAST_HEIGHT + GAP)}px`;
+	el.style.bottom = `calc(var(--keyboard-height, 0px) + var(--sab, 0px) + ${
+		24 + index * (TOAST_HEIGHT + GAP)
+	}px)`;
 	document.body.appendChild(el);
 
 	const duration = timeoutMs ?? DEFAULT_TIMEOUT;
