@@ -7,8 +7,10 @@ import type {
 } from "@shellular/protocol";
 import native from "bridge/native";
 import { getFileIcon } from "lib/fileIcon";
+import { joinRemotePath } from "lib/remotePath";
 import { formatFileSize, getFileMimeType } from "lib/utils";
 import type React from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { listDir, ProjectFileSearchEntry } from "state/filesystem";
 import { escapeHtml, fileUri } from "./chat-bubble/lib/utils";
 
@@ -52,15 +54,24 @@ type ChatComposerProps = {
 	unavailableMessage?: string;
 	isStreaming: boolean;
 	canSendPrompt: boolean;
+	/**
+	 * Why sending is blocked, if it is. When set and the user taps the (visually
+	 * disabled) send button, we surface this as a toast instead of silently doing
+	 * nothing — so a background upload or dropped connection is legible.
+	 */
+	sendBlockedReason?: string | null;
 	promptSuggestions: PromptSuggestion[];
 	activePromptSuggestionIndex: number;
 	configControls: React.ReactNode;
 	contextMeter?: React.ReactNode;
+	imageAttachments: ComposerAttachment[];
 	onPromptSuggestion: (suggestion: PromptSuggestion) => void;
 	onPromptSuggestionHover: (index: number) => void;
 	onInput: () => void;
 	onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 	onPaste: (event: React.ClipboardEvent<HTMLDivElement>) => void;
+	onAttachFiles: (files: File[]) => void;
+	onRemoveImageAttachment: (id: string) => void;
 	onSend: () => void;
 	onStop: () => void;
 };
@@ -73,18 +84,32 @@ export function ChatComposer({
 	unavailableMessage,
 	isStreaming,
 	canSendPrompt,
+	sendBlockedReason,
 	promptSuggestions,
 	activePromptSuggestionIndex,
 	configControls,
 	contextMeter,
+	imageAttachments,
 	onPromptSuggestion,
 	onPromptSuggestionHover,
 	onInput,
 	onKeyDown,
 	onPaste,
+	onAttachFiles,
+	onRemoveImageAttachment,
 	onSend,
 	onStop,
 }: ChatComposerProps) {
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	const handleFileInputChange = (
+		event: React.ChangeEvent<HTMLInputElement>,
+	) => {
+		const files = Array.from(event.target.files ?? []);
+		event.target.value = "";
+		if (files.length) onAttachFiles(files);
+	};
+
 	const handleComposerPointerDown = (
 		event: React.PointerEvent<HTMLDivElement>,
 	) => {
@@ -105,6 +130,12 @@ export function ChatComposer({
 
 	return (
 		<div ref={inputBarRef} className="chat-composer">
+			{imageAttachments.length > 0 && (
+				<AttachmentBadgeRow
+					attachments={imageAttachments}
+					onRemove={onRemoveImageAttachment}
+				/>
+			)}
 			<Combobox
 				value={null}
 				onChange={(suggestion: PromptSuggestion | null) => {
@@ -178,7 +209,28 @@ export function ChatComposer({
 				</div>
 			</Combobox>
 			<div className="chat-input-toolbar">
-				<div className="chat-config-controls">{configControls}</div>
+				<input
+					ref={fileInputRef}
+					type="file"
+					accept="image/*"
+					multiple
+					className="chat-attach-input"
+					tabIndex={-1}
+					aria-hidden="true"
+					onChange={handleFileInputChange}
+				/>
+				<div className="chat-toolbar-group">
+					<button
+						type="button"
+						className="chat-toolbar-btn chat-attach-btn haptic-trigger"
+						onClick={() => fileInputRef.current?.click()}
+						disabled={!agentAvailable || !isConnected}
+						aria-label="Attach image"
+					>
+						<span className="icon-image" aria-hidden="true" />
+					</button>
+					<div className="chat-config-controls">{configControls}</div>
+				</div>
 				{contextMeter}
 				{isStreaming ? (
 					<button
@@ -192,9 +244,19 @@ export function ChatComposer({
 				) : (
 					<button
 						type="button"
-						className="chat-send-btn"
-						onClick={onSend}
-						disabled={!canSendPrompt || !isConnected || !agentAvailable}
+						// Kept tappable even when it can't send, so tapping can explain
+						// *why* (e.g. an image is still uploading) via a toast instead of
+						// silently doing nothing. The dimmed look is a class, not the
+						// native `disabled` attribute, which would swallow the tap.
+						className={`chat-send-btn${canSendPrompt && isConnected && agentAvailable ? "" : " chat-send-btn--blocked"}`}
+						onClick={() => {
+							if (canSendPrompt && isConnected && agentAvailable) {
+								onSend();
+							} else if (sendBlockedReason) {
+								native.toast(sendBlockedReason);
+							}
+						}}
+						aria-disabled={!canSendPrompt || !isConnected || !agentAvailable}
 						aria-label="Send"
 					>
 						<span className="icon-send" aria-hidden="true" />
@@ -202,6 +264,123 @@ export function ChatComposer({
 				)}
 			</div>
 		</div>
+	);
+}
+
+// Attached images sit in one horizontally-scrollable row so they never eat
+// vertical space on a phone. Because the scrollbar is hidden, a "+N" pill in the
+// corner tells the user how many badges are scrolled off the right edge, and
+// disappears once the row is fully in view (or fits without scrolling).
+function AttachmentBadgeRow({
+	attachments,
+	onRemove,
+}: {
+	attachments: ComposerAttachment[];
+	onRemove: (id: string) => void;
+}) {
+	const rowRef = useRef<HTMLDivElement>(null);
+	const [hiddenCount, setHiddenCount] = useState(0);
+
+	const measure = useCallback(() => {
+		const row = rowRef.current;
+		if (!row) return;
+		const badges = row.querySelectorAll<HTMLElement>(".chat-attachment-badge");
+		// A badge counts as hidden once its right edge sits past the row's right
+		// edge (with a small tolerance so a fully-visible last chip never counts).
+		const rowRight = row.scrollLeft + row.clientWidth;
+		let hidden = 0;
+		for (const badge of badges) {
+			if (badge.offsetLeft + badge.offsetWidth > rowRight + 1) hidden += 1;
+		}
+		setHiddenCount(hidden);
+	}, []);
+
+	useLayoutEffect(() => {
+		measure();
+		const row = rowRef.current;
+		if (!row) return;
+		const observer = new ResizeObserver(measure);
+		observer.observe(row);
+		return () => observer.disconnect();
+	}, [measure]);
+
+	return (
+		<div className="chat-attachment-row">
+			<div ref={rowRef} className="chat-attachment-badges" onScroll={measure}>
+				{attachments.map((attachment) => (
+					<ImageAttachmentBadge
+						key={attachment.id}
+						attachment={attachment}
+						onRemove={() => onRemove(attachment.id)}
+					/>
+				))}
+			</div>
+			{hiddenCount > 0 && (
+				<span
+					className="chat-attachment-overflow"
+					title={`${hiddenCount} more attachment${hiddenCount > 1 ? "s" : ""}`}
+				>
+					+{hiddenCount}
+				</span>
+			)}
+		</div>
+	);
+}
+
+function ImageAttachmentBadge({
+	attachment,
+	onRemove,
+}: {
+	attachment: ComposerAttachment;
+	onRemove: () => void;
+}) {
+	const icon = getFileIcon(attachment.name);
+	const className = [
+		"chat-attachment-badge",
+		attachment.status === "pending" ? "chat-attachment-badge--pending" : "",
+		attachment.status === "error" ? "chat-attachment-badge--error" : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+	const statusIcon =
+		attachment.status === "pending"
+			? "icon-clock"
+			: attachment.status === "error"
+				? "icon-alert-triangle"
+				: null;
+	return (
+		<span
+			className={className}
+			title={
+				attachment.status === "pending"
+					? "Saving image…"
+					: attachment.status === "error"
+						? "Image failed to save"
+						: attachment.relativePath
+			}
+		>
+			<span
+				className={`chat-attachment-badge__icon ${icon}`}
+				aria-hidden="true"
+			/>
+			<span className="chat-attachment-badge__name">
+				{attachment.relativePath}
+			</span>
+			{statusIcon && (
+				<span
+					className={`chat-attachment-badge__status ${statusIcon}`}
+					aria-hidden="true"
+				/>
+			)}
+			<button
+				type="button"
+				className="chat-attachment-badge__remove haptic-trigger"
+				onClick={onRemove}
+				aria-label={`Remove ${attachment.relativePath}`}
+			>
+				<span className="icon-x" aria-hidden="true" />
+			</button>
+		</span>
 	);
 }
 
@@ -278,7 +457,7 @@ export function fileSuggestionFromDirectoryEntry(
 	entry: Awaited<ReturnType<typeof listDir>>[number],
 	workspacePath: string,
 ): PromptSuggestion {
-	const path = `${workspacePath.replace(/\/$/, "")}/${entry.name}`;
+	const path = joinRemotePath(workspacePath, entry.name);
 	return fileSuggestionFromSearchEntry({
 		...entry,
 		path,
@@ -357,16 +536,22 @@ export function insertAttachmentSuggestion(
 export function insertComposerParts(
 	root: HTMLDivElement | null,
 	parts: ComposerPart[],
+	options?: { atEnd?: boolean },
 ) {
 	if (!root || !parts.length) return;
-	const cursor = getComposerCursorOffset(root);
+	// When triggered from a control that steals focus (e.g. the attach button),
+	// the composer's caret/selection is gone, so cursor-relative insertion is
+	// unreliable. Append at the end of the existing text instead.
+	const offset = options?.atEnd
+		? getComposerTextLength(root)
+		: getComposerCursorOffset(root);
 	replaceComposerRange(
 		root,
 		{
 			trigger: "/" as const,
 			query: "",
-			start: cursor,
-			end: cursor,
+			start: offset,
+			end: offset,
 		},
 		parts,
 	);
@@ -563,6 +748,10 @@ function getComposerLinearText(root: HTMLDivElement) {
 			part.type === "text" ? part.text : `@${part.attachment.relativePath}`,
 		)
 		.join("");
+}
+
+function getComposerTextLength(root: HTMLDivElement) {
+	return getComposerLinearText(root).length;
 }
 
 function getComposerCursorOffset(root: HTMLDivElement) {

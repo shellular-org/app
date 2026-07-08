@@ -124,7 +124,10 @@
     cursor: pointer;
     flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
-    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    transition:
+      background 0.15s,
+      border-color 0.15s,
+      color 0.15s;
 
     &:hover:not(:disabled) {
       background: var(--surface-soft);

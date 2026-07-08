@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
-import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 
 import androidx.browser.customtabs.CustomTabColorSchemeParams;
@@ -17,6 +16,7 @@ import org.json.JSONObject;
 
 import io.foxbiz.shellular.Callback;
 import io.foxbiz.shellular.Service;
+import io.foxbiz.shellular.webView.ChromeClient;
 
 public class BrowserService extends Service {
     private static final long AUTH_CANCEL_DELAY_MS = 250;
@@ -224,7 +224,9 @@ public class BrowserService extends Service {
             BrowserView bv = activeDialog.getBrowserView();
             if (bv != null && bv.filePathCallback != null) {
                 bv.filePathCallback.onReceiveValue(
-                        WebChromeClient.FileChooserParams.parseResult(resultCode, data));
+                        resultCode == Activity.RESULT_OK
+                                ? ChromeClient.getUrisFromIntent(data)
+                                : null);
                 bv.filePathCallback = null;
             }
         }

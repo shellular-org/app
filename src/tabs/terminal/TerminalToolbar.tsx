@@ -1,8 +1,12 @@
 import KeyboardToolbar, { type KeyHandler } from "components/KeyboardToolbar";
+import { textifyEmoji } from "lib/emoji";
+import toast from "lib/toast";
 import { useEffect, useRef, useState } from "react";
 import { useShellular } from "state";
 import {
 	getModifierState,
+	type ProcessInfo,
+	type RemoteTerminalInfo,
 	setModifierState,
 	subscribeTerminals,
 } from "state/terminals";
@@ -27,15 +31,33 @@ const SEQUENCES: Record<string, string> = {
 	ArrowLeft: "\x1b[D",
 };
 
+const TERMINAL_TOOLBAR_ROWS = [
+	["esc", "shift", "home", "end", "up", "switchTerminal", "pageup"],
+	["tab", "ctrl", "alt", "left", "down", "right", "pagedown"],
+];
+
+// Shown as a toast when a greyed-out toolbar key is tapped, so it's clear what
+// the key does and why it's currently unavailable.
+const DISABLED_KEY_HINTS: Record<string, string> = {
+	switchTerminal: "Used to switch between multiple terminals.",
+};
+
 export default function TerminalToolbar({
 	activeTerminalId,
 	showPaste = false,
 	onPasteOpen,
 	onPasteClose,
 }: Props) {
-	const { getXterm } = useShellular();
+	const {
+		activeTerminals,
+		getXterm,
+		setActiveTerminalId,
+		terminalNames,
+		terminalProcesses,
+	} = useShellular();
 	const [ctrl, setCtrl] = useState(false);
 	const [alt, setAlt] = useState(false);
+	const [shift, setShift] = useState(false);
 	const pasteTextareaRef = useRef<HTMLTextAreaElement>(null);
 
 	useEffect(() => {
@@ -44,6 +66,7 @@ export default function TerminalToolbar({
 			const m = getModifierState(activeTerminalId);
 			setCtrl(m.ctrl);
 			setAlt(m.alt);
+			setShift(m.shift);
 		};
 		sync();
 		return subscribeTerminals(sync);
@@ -52,10 +75,30 @@ export default function TerminalToolbar({
 	const handleKey: KeyHandler = (e) => {
 		if (e.type !== "keydown") return;
 		if (!activeTerminalId) return;
+		const { key, ctrlKey, altKey, shiftKey } = e;
+
+		if (key === "SwitchTerminal") {
+			const nextTerminal = getNextTerminal(
+				activeTerminalId,
+				activeTerminals,
+				terminalNames,
+				terminalProcesses,
+			);
+			if (nextTerminal) {
+				setActiveTerminalId(nextTerminal.terminalId);
+				if (nextTerminal.hasDuplicateName) {
+					toast(
+						`Switched to terminal ${nextTerminal.index + 1} of ${activeTerminals.length}`,
+						1600,
+					);
+				}
+				requestAnimationFrame(() => getXterm(nextTerminal.terminalId)?.focus());
+			}
+			return;
+		}
+
 		const xterm = getXterm(activeTerminalId);
 		if (!xterm) return;
-
-		const { key, ctrlKey, metaKey, shiftKey } = e;
 
 		if (key === "Control") {
 			const m = getModifierState(activeTerminalId);
@@ -67,16 +110,54 @@ export default function TerminalToolbar({
 			setModifierState(activeTerminalId, { alt: !m.alt });
 			return;
 		}
+		if (key === "Shift") {
+			const m = getModifierState(activeTerminalId);
+			setModifierState(activeTerminalId, { shift: !m.shift });
+			return;
+		}
 
-		// Undo: Ctrl+Z or Cmd+Z → readline Ctrl+_ (\x1f). No standard redo.
-		if ((ctrlKey || metaKey) && key === "z" && !shiftKey) {
-			xterm.input("\x1f");
+		// Toolbar keys (Tab/arrows/etc.) don't carry the toggled ctrl/alt/shift
+		// state on their own synthetic event, so fold in the toggled modifiers
+		// here. Read from the store (getModifierState) rather than the React
+		// `ctrl`/`alt`/`shift` state: those are a display mirror updated via a
+		// subscription + re-render, so on fast taps (e.g. Shift then Tab) the
+		// closure can still see the pre-toggle value and send a plain Tab
+		// instead of back-tab. The store is always current.
+		const m = getModifierState(activeTerminalId);
+		const effectiveCtrl = ctrlKey || m.ctrl;
+		const effectiveAlt = altKey || m.alt;
+		const effectiveShift = shiftKey || m.shift;
+
+		// The toolbar already folded the toggled modifiers into the sequence
+		// below. Clear them *before* xterm.input() so the onData interceptor
+		// (state/terminals.ts) — which fires synchronously during input() and
+		// re-applies + resets modifiers from the store — doesn't double-apply
+		// them to our already-encoded sequence.
+		const clearModifiers = () => {
+			if (m.ctrl || m.alt || m.shift) {
+				setModifierState(activeTerminalId, {
+					ctrl: false,
+					alt: false,
+					shift: false,
+				});
+			}
+		};
+
+		// Interrupt: Ctrl+C → SIGINT (\x03).
+		if (effectiveCtrl && key === "c") {
+			clearModifiers();
+			xterm.input("\x03");
 			xterm.focus();
 			return;
 		}
 
-		const seq = SEQUENCES[key];
+		const seq = getTerminalSequence(key, {
+			ctrl: effectiveCtrl,
+			altKey: effectiveAlt,
+			shiftKey: effectiveShift,
+		});
 		if (seq) {
+			clearModifiers();
 			xterm.input(seq);
 			xterm.focus();
 		}
@@ -85,6 +166,13 @@ export default function TerminalToolbar({
 	const handleHideKeyboard = () => {
 		const xterm = activeTerminalId ? getXterm(activeTerminalId) : null;
 		xterm?.blur();
+	};
+
+	const handleDisabledKeyPress = (key: string) => {
+		const message = DISABLED_KEY_HINTS[key];
+		if (message) toast(message, 2200);
+		// Keep the terminal focused so the keyboard doesn't close on a tap.
+		if (activeTerminalId) getXterm(activeTerminalId)?.focus();
 	};
 
 	useEffect(() => {
@@ -119,8 +207,11 @@ export default function TerminalToolbar({
 	return (
 		<KeyboardToolbar
 			handleKey={handleKey}
-			modifiers={{ ctrl, alt, meta: false }}
+			modifiers={{ ctrl, alt, shift, meta: false }}
+			disabledKeys={activeTerminals.length <= 1 ? ["switchTerminal"] : []}
+			onDisabledKeyPress={handleDisabledKeyPress}
 			onHideKeyboard={handleHideKeyboard}
+			rows={TERMINAL_TOOLBAR_ROWS}
 			swipeLeftPanel={
 				<textarea
 					ref={pasteTextareaRef}
@@ -138,4 +229,119 @@ export default function TerminalToolbar({
 			onSwipeLeftClose={onPasteClose}
 		/>
 	);
+}
+
+function getTerminalSequence(
+	key: string,
+	modifiers: { ctrl: boolean; altKey: boolean; shiftKey: boolean },
+): string | undefined {
+	if (
+		key === "Tab" &&
+		(modifiers.shiftKey || modifiers.ctrl || modifiers.altKey)
+	) {
+		if (modifiers.shiftKey && !modifiers.ctrl && !modifiers.altKey) {
+			return "\x1b[Z";
+		}
+	}
+
+	if (
+		key === "ArrowUp" ||
+		key === "ArrowDown" ||
+		key === "ArrowRight" ||
+		key === "ArrowLeft" ||
+		key === "Home" ||
+		key === "End" ||
+		key === "PageUp" ||
+		key === "PageDown"
+	) {
+		const modifierCode =
+			1 +
+			(modifiers.shiftKey ? 1 : 0) +
+			(modifiers.altKey ? 2 : 0) +
+			(modifiers.ctrl ? 4 : 0);
+
+		if (modifierCode > 1) {
+			switch (key) {
+				case "ArrowUp":
+					return `\x1b[1;${modifierCode}A`;
+				case "ArrowDown":
+					return `\x1b[1;${modifierCode}B`;
+				case "ArrowRight":
+					return `\x1b[1;${modifierCode}C`;
+				case "ArrowLeft":
+					return `\x1b[1;${modifierCode}D`;
+				case "Home":
+					return `\x1b[1;${modifierCode}H`;
+				case "End":
+					return `\x1b[1;${modifierCode}F`;
+				case "PageUp":
+					return `\x1b[5;${modifierCode}~`;
+				case "PageDown":
+					return `\x1b[6;${modifierCode}~`;
+			}
+		}
+	}
+
+	return SEQUENCES[key];
+}
+
+function getNextTerminal(
+	activeTerminalId: string,
+	activeTerminals: RemoteTerminalInfo[],
+	terminalNames: Record<string, string>,
+	terminalProcesses: Record<string, ProcessInfo | null>,
+): { terminalId: string; index: number; hasDuplicateName: boolean } | null {
+	if (activeTerminals.length <= 1) return null;
+	const activeIndex = activeTerminals.findIndex(
+		(t) => t.terminalId === activeTerminalId,
+	);
+	const nextIndex = activeIndex >= 0 ? activeIndex + 1 : 0;
+	const index = nextIndex % activeTerminals.length;
+	const nextTerminal = activeTerminals[index];
+	if (!nextTerminal) return null;
+
+	const nextName = getDisplayName(
+		nextTerminal,
+		index,
+		terminalNames,
+		terminalProcesses,
+	);
+	const hasDuplicateName =
+		activeTerminals.filter(
+			(terminal, terminalIndex) =>
+				getDisplayName(
+					terminal,
+					terminalIndex,
+					terminalNames,
+					terminalProcesses,
+				) === nextName,
+		).length > 1;
+
+	return {
+		terminalId: nextTerminal.terminalId,
+		index,
+		hasDuplicateName,
+	};
+}
+
+function getDisplayName(
+	terminal: RemoteTerminalInfo,
+	index: number,
+	names: Record<string, string>,
+	processes: Record<string, ProcessInfo | null>,
+): string {
+	const customName = names[terminal.terminalId];
+	const process = processes[terminal.terminalId];
+
+	let name: string;
+	if (customName && process) {
+		name = `${customName}: ${process.name}`;
+	} else if (customName) {
+		name = customName;
+	} else if (process) {
+		name = process.name;
+	} else {
+		name = terminal.shell || `Terminal ${index + 1}`;
+	}
+	return textifyEmoji(name);
 }

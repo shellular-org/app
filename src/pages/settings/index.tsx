@@ -1,3 +1,4 @@
+import { ONBOARDING_KEY } from "App";
 import AppSelect from "components/AppSelect";
 import Page from "components/Page";
 import {
@@ -10,6 +11,8 @@ import {
 	saveSettings,
 	type TerminalCursorStyle,
 } from "lib/settings";
+import * as store from "lib/store";
+import toast from "lib/toast";
 import React, { useEffect, useState } from "react";
 import themes from "themes";
 import "./style.scss";
@@ -259,6 +262,19 @@ export default function SettingsPage() {
 
 	const [hapticFeedback, setHapticFeedback] = useState(true);
 	const [isSavingDevServer, setIsSavingDevServer] = useState(false);
+	const [testOnboarding, setTestOnboarding] = useState(false);
+
+	useEffect(() => {
+		if (!process.env.DEV_MODE) {
+			return;
+		}
+
+		store.get<boolean>(ONBOARDING_KEY).then((val) => {
+			// "Test onboarding" is on when onboarding has NOT been completed,
+			// so the flow will show again on the next app launch.
+			setTestOnboarding(!val);
+		});
+	}, []);
 
 	useEffect(() => {
 		loadSettings().then((s) => {
@@ -281,74 +297,91 @@ export default function SettingsPage() {
 		});
 	}, []);
 
+	// Settings save instantly on change, so a success toast per change would be
+	// noisy. But a failed write must not pass silently — surface it so the user
+	// knows the change didn't stick. Returns whether the save succeeded.
+	async function persistSettings(
+		settings: Parameters<typeof saveSettings>[0],
+	): Promise<boolean> {
+		try {
+			await saveSettings(settings);
+			return true;
+		} catch (err) {
+			console.error("Failed to save settings:", err);
+			toast("Couldn't save setting", 2600);
+			return false;
+		}
+	}
+
 	async function handleThemeChange(name: string) {
 		const themeName = name.toLowerCase();
 		setCurrentTheme(themeName);
-		await saveSettings({ theme: themeName });
-		await themes.applyTheme(themeName);
+		if (await persistSettings({ theme: themeName })) {
+			await themes.applyTheme(themeName);
+		}
 	}
 
 	async function handleEditorFontSizeChange(value: number) {
 		setEditorFontSize(value);
-		await saveSettings({ editor: { fontSize: value } });
+		await persistSettings({ editor: { fontSize: value } });
 	}
 
 	async function handleEditorFontFamilyChange(value: string) {
 		setEditorFontFamily(value);
-		await saveSettings({ editor: { fontFamily: value } });
+		await persistSettings({ editor: { fontFamily: value } });
 	}
 
 	async function handleEditorWordWrapChange(value: boolean) {
 		setEditorWordWrap(value);
-		await saveSettings({ editor: { wordWrap: value } });
+		await persistSettings({ editor: { wordWrap: value } });
 	}
 
 	async function handleEditorLineNumbersChange(value: boolean) {
 		setEditorLineNumbers(value);
-		await saveSettings({ editor: { lineNumbers: value } });
+		await persistSettings({ editor: { lineNumbers: value } });
 	}
 
 	async function handleEditorTabSizeChange(value: number) {
 		setEditorTabSize(value);
-		await saveSettings({ editor: { tabSize: value } });
+		await persistSettings({ editor: { tabSize: value } });
 	}
 
 	async function handleTerminalFontSizeChange(value: number) {
 		setTerminalFontSize(value);
-		await saveSettings({ terminal: { fontSize: value } });
+		await persistSettings({ terminal: { fontSize: value } });
 	}
 
 	async function handleTerminalFontFamilyChange(value: string) {
 		setTerminalFontFamily(value);
-		await saveSettings({ terminal: { fontFamily: value } });
+		await persistSettings({ terminal: { fontFamily: value } });
 	}
 
 	async function handleTerminalCursorStyleChange(value: string) {
 		const cursorStyle = value as TerminalCursorStyle;
 		setTerminalCursorStyle(cursorStyle);
-		await saveSettings({ terminal: { cursorStyle } });
+		await persistSettings({ terminal: { cursorStyle } });
 	}
 
 	async function handleTerminalCursorInactiveStyleChange(value: string) {
 		const cursorInactiveStyle =
 			value as typeof DEFAULT_TERMINAL_SETTINGS.cursorInactiveStyle;
 		setTerminalCursorInactiveStyle(cursorInactiveStyle);
-		await saveSettings({ terminal: { cursorInactiveStyle } });
+		await persistSettings({ terminal: { cursorInactiveStyle } });
 	}
 
 	async function handleTerminalCursorBlinkChange(value: boolean) {
 		setTerminalCursorBlink(value);
-		await saveSettings({ terminal: { cursorBlink: value } });
+		await persistSettings({ terminal: { cursorBlink: value } });
 	}
 
 	async function handleTerminalScrollbackChange(value: number) {
 		setTerminalScrollback(value);
-		await saveSettings({ terminal: { scrollback: value } });
+		await persistSettings({ terminal: { scrollback: value } });
 	}
 
 	async function handleTerminalLetterSpacingChange(value: number) {
 		setTerminalLetterSpacing(value);
-		await saveSettings({ terminal: { letterSpacing: value } });
+		await persistSettings({ terminal: { letterSpacing: value } });
 	}
 
 	function normalizeDomain(domain: string) {
@@ -360,18 +393,34 @@ export default function SettingsPage() {
 
 	async function handleHapticFeedbackChange(value: boolean) {
 		setHapticFeedback(value);
-		await saveSettings({ hapticFeedback: value });
+		await persistSettings({ hapticFeedback: value });
 	}
 
-	async function handleDevServerSave() {
+	async function handleTestOnboardingChange(value: boolean) {
+		setTestOnboarding(value);
+		if (value) {
+			// Clear the completion flag so onboarding shows again on next launch.
+			await store.remove(ONBOARDING_KEY);
+		} else {
+			await store.set(ONBOARDING_KEY, true);
+		}
+	}
+
+	async function handleRelayServerSave() {
 		setIsSavingDevServer(true);
 		try {
 			const domain =
 				normalizeDomain(devServerDomain) || DEFAULT_DEV_SERVER_SETTINGS.domain;
 			setDevServerDomain(domain);
-			await saveSettings({
-				devServer: { protocol: devServerProtocol, domain },
-			});
+			// Explicit Save action (unlike the auto-saving controls), so confirm
+			// success with a toast. persistSettings toasts on failure.
+			if (
+				await persistSettings({
+					devServer: { protocol: devServerProtocol, domain },
+				})
+			) {
+				toast("Relay server settings saved", 2000);
+			}
 		} finally {
 			setIsSavingDevServer(false);
 		}
@@ -381,11 +430,9 @@ export default function SettingsPage() {
 		{ id: "look-and-feel", label: "Look & Feel" },
 		{ id: "editor", label: "Editor" },
 		{ id: "terminal", label: "Terminal" },
+		{ id: "network", label: "Network" },
+		...(process.env.DEV_MODE ? [{ id: "developer", label: "Developer" }] : []),
 	];
-
-	if (process.env.DEV_MODE) {
-		sidebarCategories.push({ id: "network", label: "Network" });
-	}
 
 	const isSearching = searchQuery.trim().length > 0;
 	const showAppearanceSettings = matchesSettingsSearch(searchQuery, [
@@ -449,7 +496,14 @@ export default function SettingsPage() {
 	]);
 	const showNetworkSettings = matchesSettingsSearch(searchQuery, [
 		{ title: "Protocol", description: "HTTP uses WS, HTTPS uses WSS." },
-		{ title: "Base domain", description: "The host for the dev server API." },
+		{ title: "Base domain", description: "The domain of the relay server." },
+	]);
+	const showDeveloperSettings = matchesSettingsSearch(searchQuery, [
+		{
+			title: "Test onboarding",
+			description:
+				"Replays the onboarding flow the next time you open the app.",
+		},
 	]);
 	const monospaceFontOptions = MONOSPACE_FONT_FAMILY_OPTIONS.map((font) => ({
 		value: font.value,
@@ -712,54 +766,74 @@ export default function SettingsPage() {
 						)}
 
 						{((isSearching && showNetworkSettings) ||
-							(!isSearching && activeTab === "network")) &&
+							(!isSearching && activeTab === "network")) && (
+							<div className="animate-in fade-in duration-300">
+								{isSearching && (
+									<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">
+										Network
+									</h2>
+								)}
+								<SettingsGroup title="Relay Server" searchQuery={searchQuery}>
+									<SettingsItem
+										title="Protocol"
+										description="HTTP uses WS, HTTPS uses WSS."
+										control={
+											<AppSelect
+												value={devServerProtocol}
+												onChange={(v) =>
+													setDevServerProtocol(v as DevServerProtocol)
+												}
+												options={[
+													{ value: "http", label: "HTTP" },
+													{ value: "https", label: "HTTPS" },
+												]}
+											/>
+										}
+									/>
+									<SettingsItem
+										title="Base domain"
+										description="The domain of the relay server."
+										vertical
+										control={
+											<div className="flex flex-col sm:flex-row gap-3 w-full">
+												<TextInput
+													value={devServerDomain}
+													onChange={setDevServerDomain}
+													placeholder="api.shellular.dev"
+												/>
+												<button
+													type="button"
+													className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
+													onClick={handleRelayServerSave}
+													disabled={isSavingDevServer}
+												>
+													{isSavingDevServer ? "Saving..." : "Save"}
+												</button>
+											</div>
+										}
+									/>
+								</SettingsGroup>
+							</div>
+						)}
+
+						{((isSearching && showDeveloperSettings) ||
+							(!isSearching && activeTab === "developer")) &&
 							process.env.DEV_MODE && (
 								<div className="animate-in fade-in duration-300">
 									{isSearching && (
 										<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">
-											Network
+											Developer
 										</h2>
 									)}
-									<SettingsGroup
-										title="Developer Server"
-										searchQuery={searchQuery}
-									>
+									<SettingsGroup title="Debug" searchQuery={searchQuery}>
 										<SettingsItem
-											title="Protocol"
-											description="HTTP uses WS, HTTPS uses WSS."
+											title="Test onboarding"
+											description="Replays the onboarding flow the next time you open the app. Enable, then close and reopen the app."
 											control={
-												<AppSelect
-													value={devServerProtocol}
-													onChange={(v) =>
-														setDevServerProtocol(v as DevServerProtocol)
-													}
-													options={[
-														{ value: "http", label: "HTTP" },
-														{ value: "https", label: "HTTPS" },
-													]}
+												<Switch
+													checked={testOnboarding}
+													onChange={handleTestOnboardingChange}
 												/>
-											}
-										/>
-										<SettingsItem
-											title="Base domain"
-											description="The host for the dev server API."
-											vertical
-											control={
-												<div className="flex flex-col sm:flex-row gap-3 w-full">
-													<TextInput
-														value={devServerDomain}
-														onChange={setDevServerDomain}
-														placeholder="api.shellular.dev"
-													/>
-													<button
-														type="button"
-														className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
-														onClick={handleDevServerSave}
-														disabled={isSavingDevServer}
-													>
-														{isSavingDevServer ? "Saving..." : "Save"}
-													</button>
-												</div>
 											}
 										/>
 									</SettingsGroup>

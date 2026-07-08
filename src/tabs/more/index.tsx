@@ -1,9 +1,13 @@
-import "./style.scss";
 import { pushPage } from "App";
+import RatingDialog from "components/RatingDialog";
 import TabPageHeader from "components/TabPageHeader";
 import AboutPage from "pages/about";
 import PortsPage from "pages/ports";
+import ReachOutPage from "pages/reach-out";
 import SettingsPage from "pages/settings";
+import { useState } from "react";
+
+import "./style.scss";
 
 interface AppTile {
 	id: string;
@@ -14,6 +18,8 @@ interface AppTile {
 }
 
 export default function MoreTab() {
+	const [showRatingDialog, setShowRatingDialog] = useState(false);
+
 	const tiles: AppTile[] = [
 		{
 			id: "ports",
@@ -34,6 +40,17 @@ export default function MoreTab() {
 			},
 		},
 		{
+			id: "reach-out",
+			label: "Reach Out",
+			description: "Contact us, report an issue, or say hi",
+			icon: "icon-message-circle",
+			onTap: () => {
+				pushPage("reach-out", <ReachOutPage />, {
+					showConnectionBanner: false,
+				});
+			},
+		},
+		{
 			id: "about",
 			label: "About",
 			description: "Version info and licenses",
@@ -42,6 +59,19 @@ export default function MoreTab() {
 				pushPage("about", <AboutPage />, { showConnectionBanner: false });
 			},
 		},
+		...(process.env.PLATFORM === "ios"
+			? [
+					{
+						id: "rate",
+						label: "Rate App",
+						description: "Leave a review on the App Store",
+						icon: "icon-star",
+						onTap: () => {
+							setShowRatingDialog(true);
+						},
+					},
+				]
+			: []),
 	];
 
 	return (
@@ -64,6 +94,10 @@ export default function MoreTab() {
 					</li>
 				))}
 			</ul>
+			<RatingDialog
+				isOpen={showRatingDialog}
+				onClose={() => setShowRatingDialog(false)}
+			/>
 		</div>
 	);
 }

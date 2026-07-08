@@ -12,6 +12,7 @@ import {
 	type SavedHost,
 	upsertSavedHost,
 } from "lib/machines";
+import { incrementSessionCount } from "lib/ratingService";
 import { getBaseServerUrl } from "lib/settings";
 import {
 	createContext,
@@ -31,6 +32,7 @@ import {
 import { loadChatTabs, resetChatTabs } from "./chatTabs";
 import {
 	type BatteryInfo,
+	type ConnectionStatus,
 	connectToServer,
 	disconnect as disconnectWs,
 	getConnectionSnapshot,
@@ -42,9 +44,14 @@ import {
 } from "./connection";
 import type {
 	FileEntry,
+	GitBranch,
 	GitCommitFileDiff,
 	GitFileStatus,
 	GitLogPage,
+	GitOperation,
+	GitWorkingTreeFile,
+	GitWorkingTreeFileDiff,
+	GitWorkingTreeStatus,
 	ProjectFileSearchEntry,
 	ProjectFileSearchResult,
 } from "./filesystem";
@@ -56,6 +63,7 @@ import {
 	readFile,
 	readFileBytes,
 	readGitFile,
+	runGitOperation,
 	searchProjectFiles,
 	writeFile,
 	writeFileBinary,
@@ -148,6 +156,23 @@ interface ShellularContextValue {
 		hash: string,
 		file: string,
 	) => Promise<GitCommitFileDiff>;
+	runGitOperation: (
+		path: string,
+		operation: GitOperation,
+		options?: {
+			files?: string[];
+			file?: string;
+			message?: string;
+			branch?: string;
+			force?: boolean;
+		},
+	) => Promise<{
+		ok: boolean;
+		output?: string;
+		status?: GitWorkingTreeStatus;
+		branches?: GitBranch[];
+		diff?: GitWorkingTreeFileDiff;
+	}>;
 	writeFile: (path: string, content: string) => Promise<void>;
 	writeFileBinary: (path: string, base64Content: string) => Promise<void>;
 
@@ -294,49 +319,57 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		// teardown happens only on a final disconnect (onDisconnected).
 		setOnPreDisconnectCallback(detachTerminalListeners);
 
-		setOnConnectedCallback(async (_token: string) => {
-			const { hostInfo } = getConnectionSnapshot();
+		setOnConnectedCallback(
+			async (_token: string, prevStatus: ConnectionStatus) => {
+				const { hostInfo } = getConnectionSnapshot();
 
-			if (!hostInfo) {
-				return;
-			}
+				if (!hostInfo) {
+					return;
+				}
 
-			// Load projects for this device
-			if (hostInfo.id !== loadedProjectsForRef.current) {
-				loadedProjectsForRef.current = hostInfo.id;
-				setLoadingProjects(true);
-				loadProjects(hostInfo.id)
-					.then(async (loaded) => {
-						const enriched = await enrichProjectsWithGitInfo(
-							loaded,
-							hostInfo?.dir,
-						);
-						setProjects(enriched);
-					})
-					.catch(console.error)
-					.finally(() => setLoadingProjects(false));
-				loadBookmarkedSessions(hostInfo.id).catch(console.error);
-				loadChatTabs(hostInfo.id).catch(console.error);
-			}
+				// Increment session count for rating prompt (only on fresh connections)
+				if (prevStatus === "connecting") {
+					incrementSessionCount().catch(console.error);
+				}
 
-			if (pendingSavedHostRef.current) {
-				const savedHost = await findHostById(hostInfo.id);
-				await upsertSavedHost({
-					alias: savedHost?.alias,
-					hostId: pendingSavedHostRef.current.hostId,
-					machineId: hostInfo.machineId,
-					username: hostInfo.username,
-					encryptionKey: pendingSavedHostRef.current.encryptionKey,
-					hostname: hostInfo.hostname,
-					platform: hostInfo.platform,
-					lastConnected: Date.now(),
-				});
-				setSavedHosts(await getSavedHosts());
-			} else if (hostInfo) {
-				console.warn("[hosts] Skipping save because hostId is missing");
-			}
-			await restoreTerminals();
-		});
+				// Load projects for this device
+				if (hostInfo.id !== loadedProjectsForRef.current) {
+					loadedProjectsForRef.current = hostInfo.id;
+					setLoadingProjects(true);
+					loadProjects(hostInfo.id)
+						.then(async (loaded) => {
+							const enriched = await enrichProjectsWithGitInfo(
+								loaded,
+								hostInfo?.dir,
+							);
+							setProjects(enriched);
+						})
+						.catch(console.error)
+						.finally(() => setLoadingProjects(false));
+					loadBookmarkedSessions(hostInfo.id).catch(console.error);
+					loadChatTabs(hostInfo.id).catch(console.error);
+				}
+
+				if (pendingSavedHostRef.current) {
+					const savedHost = await findHostById(hostInfo.id);
+					await upsertSavedHost({
+						alias: savedHost?.alias,
+						hostId: pendingSavedHostRef.current.hostId,
+						machineId: hostInfo.machineId,
+						username: hostInfo.username,
+						encryptionKey: pendingSavedHostRef.current.encryptionKey,
+						hostname: hostInfo.hostname,
+						platform: hostInfo.platform,
+						lastConnected: Date.now(),
+						cliVersion: hostInfo.cliVersion ?? savedHost?.cliVersion,
+					});
+					setSavedHosts(await getSavedHosts());
+				} else if (hostInfo) {
+					console.warn("[hosts] Skipping save because hostId is missing");
+				}
+				await restoreTerminals();
+			},
+		);
 
 		setOnDisconnectedCallback(() => {
 			detachAllTerminals();
@@ -470,6 +503,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		getGitLog,
 		getCommitFiles,
 		getCommitFileDiff,
+		runGitOperation,
 		writeFile,
 		writeFileBinary,
 		projects,
@@ -498,11 +532,16 @@ export function useShellular(): ShellularContextValue {
 export type {
 	BatteryInfo,
 	FileEntry,
+	GitBranch,
 	GitCommit,
 	GitCommitFile,
 	GitCommitFileDiff,
 	GitFileStatus,
 	GitLogPage,
+	GitOperation,
+	GitWorkingTreeFile,
+	GitWorkingTreeFileDiff,
+	GitWorkingTreeStatus,
 	ProcessInfo,
 	ProjectFileSearchEntry,
 	ProjectFileSearchResult,

@@ -1,5 +1,5 @@
 import actionStack from "lib/actionStack";
-import { normalizeRemoteWorkspacePath } from "lib/remotePath";
+import { joinRemotePath, normalizeRemoteWorkspacePath } from "lib/remotePath";
 import {
 	loadSettings,
 	SETTINGS_CHANGED_EVENT,
@@ -195,9 +195,14 @@ export default function FileBrowserPage({
 				return;
 			}
 
+			const pageId = `file-${entry.name}-${Date.now()}`;
 			pushPage(
-				`file-${entry.name}-${Date.now()}`,
-				<EditorPage filePath={targetPath} gitStatus={entry.gitStatus} />,
+				pageId,
+				<EditorPage
+					filePath={targetPath}
+					gitStatus={entry.gitStatus}
+					pageId={pageId}
+				/>,
 			);
 		},
 		[closeSearch, currentPath, fetchDir],
@@ -205,10 +210,10 @@ export default function FileBrowserPage({
 
 	const handleNavigate = useCallback(
 		(entry: FileEntry) => {
-			let targetPath = `${currentPath}/${entry.name}`;
-			if (currentPath === ".") {
-				targetPath = entry.name;
-			}
+			const targetPath =
+				currentPath === "."
+					? entry.name
+					: joinRemotePath(currentPath, entry.name);
 			openEntry(entry, targetPath);
 		},
 		[currentPath, openEntry],
@@ -342,7 +347,8 @@ export default function FileBrowserPage({
 	const isSearchMode = searchOpen && searchQuery.trim().length > 0;
 
 	const buildServerPath = useCallback(
-		(name: string) => (currentPath === "." ? name : `${currentPath}/${name}`),
+		(name: string) =>
+			currentPath === "." ? name : joinRemotePath(currentPath, name),
 		[currentPath],
 	);
 
@@ -388,10 +394,10 @@ export default function FileBrowserPage({
 
 	const openGitHistory = useCallback(async () => {
 		const projectPath = initialPath ?? ".";
-		const GitHistoryPage = await import("pages/git-history");
+		const GitClientPage = await import("pages/git-client");
 		pushPage(
-			`git-history-${projectPath}`,
-			<GitHistoryPage.default projectPath={projectPath} projectName={title} />,
+			`git-client-${projectPath}`,
+			<GitClientPage.default projectPath={projectPath} projectName={title} />,
 		);
 	}, [initialPath, title]);
 
@@ -563,7 +569,8 @@ export default function FileBrowserPage({
 								closePage();
 							}}
 						>
-							<span className="icon-check"></span> Select
+							<span className="icon-check" aria-hidden="true" />
+							Select
 						</button>
 					)}
 					<button
@@ -572,7 +579,8 @@ export default function FileBrowserPage({
 						onClick={closePage}
 						aria-label="Close"
 					>
-						<span className="icon-x" aria-hidden="true" /> Close
+						<span className="icon-x" aria-hidden="true" />
+						Close
 					</button>
 				</div>
 			</Page>

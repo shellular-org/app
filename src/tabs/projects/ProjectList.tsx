@@ -71,6 +71,17 @@ export default function ProjectList({ projects, adding }: Props) {
 		[],
 	);
 
+	const openGitClient = useCallback(async (project: ProjectInfo) => {
+		const GitClientPage = await import("pages/git-client");
+		pushPage(
+			`git-client-${project.path}`,
+			<GitClientPage.default
+				projectPath={project.path}
+				projectName={project.name}
+			/>,
+		);
+	}, []);
+
 	return (
 		<div className="project-list">
 			{projects.map((project) => (
@@ -156,6 +167,15 @@ export default function ProjectList({ projects, adding }: Props) {
 									toToTab("terminals");
 								},
 							},
+							...(project.gitInfo?.hasGit
+								? [
+										{
+											icon: "icon-git-branch",
+											label: "Open Git",
+											onClick: () => openGitClient(project),
+										},
+									]
+								: []),
 							{
 								icon: "icon-trash",
 								label: "Remove",

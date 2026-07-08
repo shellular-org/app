@@ -150,6 +150,38 @@
   .xterm-wrapper {
     background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
 
+    .terminal-sticky-command {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 8;
+      box-sizing: border-box;
+      overflow: hidden;
+      pointer-events: none;
+      color: var(--xterm-foreground, var(--primary-text));
+      background: var(--primary);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.18);
+
+      &[hidden] {
+        display: none;
+      }
+    }
+
+    .terminal-sticky-command-content {
+      box-sizing: border-box;
+      min-height: 100%;
+      margin: 0;
+      padding: 0 0 0 0;
+      overflow: hidden;
+      color: inherit;
+      background: transparent;
+      white-space: pre;
+      tab-size: 8;
+      user-select: none;
+      -webkit-user-select: none;
+    }
 
     .scrollbar {
       overflow-x: visible;

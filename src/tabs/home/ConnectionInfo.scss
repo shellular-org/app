@@ -66,6 +66,20 @@
       align-items: flex-start;
       gap: 10px;
 
+      // Stacks the icon+details on top and the action button below it, so the
+      // button gets its own line instead of crowding the version text.
+      &--stack {
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .connection-row-main {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        width: 100%;
+      }
+
       .connection-icon {
         font-size: 16px;
         width: 18px;
@@ -105,6 +119,45 @@
           font-style: italic;
         }
       }
+
+      .connection-update-hint {
+        color: var(--success);
+        font-family: inherit;
+        font-weight: 600;
+      }
+
+      .connection-update-link {
+        // Plain underlined text link below the version row (inside
+        // .connection-row--stack), aligned to the text by matching the icon
+        // column width + gap. No badge/padding — keeps the row compact.
+        align-self: flex-start;
+        margin-left: 28px;
+        padding: 0;
+        border: none;
+        background: none;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--success);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        -webkit-tap-highlight-color: transparent;
+
+        &:active {
+          opacity: 0.7;
+        }
+
+        &:disabled {
+          opacity: 0.55;
+          cursor: default;
+        }
+
+        // Neutral/secondary tone for the "how to update" link shown when the
+        // host can't self-update.
+        &--info {
+          color: var(--secondary-text);
+        }
+      }
     }
   }
 
@@ -121,9 +174,7 @@
     height: 40px;
     border-radius: 10px;
     border: 1px solid var(--line-soft, rgba(255, 255, 255, 0.07));
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent),
-      var(--surface-soft);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent), var(--surface-soft);
     color: var(--primary-text);
     cursor: pointer;
     display: flex;

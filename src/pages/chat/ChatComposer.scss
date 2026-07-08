@@ -124,6 +124,122 @@
     }
   }
 
+  // Removable image attachment badges shown above the input. Pasted/attached
+  // images live here instead of inline in the composer so they can be dismissed
+  // with an explicit cross rather than backspaced out of the text.
+  //
+  // On a phone, wrapping badges eat precious vertical space, so lay them out in
+  // a single horizontally-scrollable row instead. The negative margin + matching
+  // padding lets chips bleed to the composer's padded edge while scrolling.
+  .chat-attachment-row {
+    position: relative;
+    margin: 0 -12px;
+  }
+
+  .chat-attachment-badges {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 0 12px 1px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-snap-type: x proximity;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  // "+N" counter pinned to the right edge, shown while badges are scrolled off
+  // screen. The gradient blends the composer background under it so the hidden
+  // chips read as continuing beneath the pill rather than being cut off.
+  .chat-attachment-overflow {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 1px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px 0 24px;
+    color: var(--secondary-text);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    pointer-events: none;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--secondary) 40%
+    );
+  }
+
+  .chat-attachment-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    max-width: 200px;
+    height: 26px;
+    scroll-snap-align: start;
+    padding: 0 4px 0 8px;
+    border-radius: 8px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border-color);
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
+
+    &__icon {
+      flex-shrink: 0;
+      font-size: 13px;
+    }
+
+    &__name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    &__status {
+      flex-shrink: 0;
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    &__remove {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      color: var(--secondary-text);
+      font-size: 12px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s, color 0.15s;
+
+      &:active {
+        background: var(--card-border);
+        color: var(--primary-text);
+      }
+    }
+
+    &--pending {
+      color: var(--secondary-text);
+      border-style: dashed;
+      opacity: 0.82;
+    }
+
+    &--error {
+      color: var(--error, #e05252);
+      border-color: currentColor;
+    }
+  }
+
   .chat-prompt-combobox {
     min-width: 0;
     display: flex;
@@ -242,6 +358,44 @@
       padding: 0;
     }
 
+    .chat-attach-input {
+      display: none;
+    }
+
+    // The attach button and the config/model control form one matched set on
+    // the left: same height, radius, muted color and press feedback.
+    .chat-toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chat-toolbar-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      color: var(--secondary-text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.15rem;
+      flex-shrink: 0;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s, opacity 0.15s;
+
+      &:active {
+        background: var(--surface-soft);
+      }
+
+      &:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+    }
+
     .chat-send-btn {
       width: 34px;
       height: 34px;
@@ -257,6 +411,12 @@
       transition: opacity 0.15s;
 
       &:disabled {
+        opacity: 0.35;
+      }
+
+      // Dimmed like a disabled control, but still tappable — the tap surfaces a
+      // toast explaining why it can't send yet (see ChatComposer.tsx).
+      &--blocked {
         opacity: 0.35;
       }
 
@@ -289,11 +449,19 @@
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
-    border-radius: 8px;
+    border-radius: 9px;
     cursor: pointer;
     overflow: hidden;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.15s;
+
+    // Match the attach button's icon size so the two left-hand controls read as
+    // one set. The trigger's own font-size is 12px (for the text tags), so the
+    // leading icon needs an explicit size to line up with .chat-toolbar-btn.
+    > span[class^="icon-"] {
+      font-size: 1.15rem;
+      flex-shrink: 0;
+    }
 
     &:active {
       background: var(--surface-soft);

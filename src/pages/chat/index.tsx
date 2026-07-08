@@ -53,6 +53,7 @@ import { listDir, searchProjectFiles } from "state/filesystem";
 import {
 	getSessionActivity,
 	getSessionStreaming,
+	isSettledSessionStatus,
 	setSessionStreaming,
 	subscribeSessionActivities,
 } from "state/sessions";
@@ -74,7 +75,6 @@ import {
 	type PromptSuggestion,
 	readComposerParts,
 	replaceComposerTrigger,
-	updateComposerAttachment,
 } from "./ChatComposer";
 import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
@@ -92,6 +92,7 @@ import {
 	getContextWindowState,
 	readContextWindowUsage,
 } from "./composer/contextWindowUsage";
+import { normalizeEditorPath } from "./pathUtils";
 
 const PAGE_SIZE = 30;
 const STOP_REASON_METADATA = "stop-reason";
@@ -161,6 +162,9 @@ export default function ChatConversationPage({
 		getSessionStreaming(agentId, sessionId),
 	);
 	const [composerParts, setComposerParts] = useState<ComposerPart[]>([]);
+	const [imageAttachments, setImageAttachments] = useState<
+		ComposerAttachment[]
+	>([]);
 	const [composerTrigger, setComposerTrigger] = useState<ComposerTrigger>(null);
 	const [fileSuggestions, setFileSuggestions] = useState<PromptSuggestion[]>(
 		[],
@@ -253,16 +257,51 @@ export default function ChatConversationPage({
 					: [],
 		[availableCommands, composerTrigger, fileSuggestions],
 	);
-	const canSendPrompt = useMemo(
+	const hasSendableContent = useMemo(
 		() =>
 			composerParts.some(
 				(part) => part.type === "attachment" || part.text.trim().length > 0,
-			) &&
-			!composerParts.some(
-				(part) => part.type === "attachment" && part.attachment.status,
-			),
-		[composerParts],
+			) || imageAttachments.length > 0,
+		[composerParts, imageAttachments],
 	);
+	const attachmentsUploading = useMemo(
+		() =>
+			composerParts.some(
+				(part) =>
+					part.type === "attachment" && part.attachment.status === "pending",
+			) ||
+			imageAttachments.some((attachment) => attachment.status === "pending"),
+		[composerParts, imageAttachments],
+	);
+	const attachmentsFailed = useMemo(
+		() =>
+			composerParts.some(
+				(part) =>
+					part.type === "attachment" && part.attachment.status === "error",
+			) || imageAttachments.some((attachment) => attachment.status === "error"),
+		[composerParts, imageAttachments],
+	);
+	const canSendPrompt =
+		hasSendableContent && !attachmentsUploading && !attachmentsFailed;
+	// When the send button is disabled, tapping it should explain why rather than
+	// feeling broken. Ordered most-specific first; an empty composer returns null
+	// (nothing to say — the empty state is self-evident).
+	const sendBlockedReason = useMemo(() => {
+		if (!agentAvailable) return unavailableMessage ?? null;
+		if (connectionStatus !== "connected") return "Not connected to host";
+		if (syncing) return "Still loading this chat…";
+		if (attachmentsUploading) return "Hang on — an image is still uploading";
+		if (attachmentsFailed)
+			return "An image failed to upload. Remove it and try again";
+		return null;
+	}, [
+		agentAvailable,
+		attachmentsFailed,
+		attachmentsUploading,
+		connectionStatus,
+		syncing,
+		unavailableMessage,
+	]);
 	const contextMeter = useMemo(
 		() =>
 			contextWindowUsage ? (
@@ -342,6 +381,25 @@ export default function ChatConversationPage({
 
 	const handlePermissionRequest = useCallback(
 		(permission: AcpPermissionRequest) => {
+			// A permission with no actionable options is a resolution/withdrawal
+			// signal, not a request — the CLI re-emits the permission with an empty
+			// options list once it has been answered elsewhere or cancelled. Rendering
+			// it would produce a dead, button-less card the user can't dismiss, so
+			// treat it as a removal of any existing card for this id instead.
+			const hasActionableOptions =
+				Array.isArray(permission.options) &&
+				permission.options.some(
+					(option) =>
+						option != null &&
+						typeof option === "object" &&
+						typeof (option as { optionId?: unknown }).optionId === "string",
+				);
+			if (!hasActionableOptions) {
+				setPendingPermissions((prev) =>
+					prev.filter((item) => item.id !== permission.id),
+				);
+				return;
+			}
 			setPendingPermissions((prev) => {
 				const existing = prev.findIndex((item) => item.id === permission.id);
 				if (existing >= 0) {
@@ -901,12 +959,19 @@ export default function ChatConversationPage({
 			} else if (isRealTitle(title)) {
 				setDisplayTitle(title);
 			}
-			const pendingPermission = readPendingActivityPermission(
-				activity?.pendingPermission,
-			);
+			const pendingPermission =
+				activity?.status === "waiting_for_permission"
+					? readPendingActivityPermission(activity.pendingPermission)
+					: null;
 			if (pendingPermission) {
 				handlePermissionRequest(pendingPermission);
-			} else if (activity && activity.status !== "waiting_for_permission") {
+			} else if (activity && isSettledSessionStatus(activity.status)) {
+				// Only drop the card once the turn has genuinely settled (stopped,
+				// finished, errored, cancelled…). We must NOT clear on "running":
+				// while a permission is still open the status flips to "running" as
+				// tokens/messages stream in for the same turn, which used to wipe the
+				// card out from under the user before they could answer. Answering is
+				// handled explicitly by handlePermissionReply.
 				setPendingPermissions((prev) =>
 					prev.filter((item) => item.sessionId !== targetSessionId),
 				);
@@ -956,7 +1021,9 @@ export default function ChatConversationPage({
 		if (!showSidebar) return;
 		actionStack.push({
 			id: "chat-sidebar",
-			action: () => setShowSidebar(false),
+			action: () => {
+				setShowSidebar(false);
+			},
 		});
 		return () => {
 			actionStack.remove("chat-sidebar");
@@ -1059,7 +1126,7 @@ export default function ChatConversationPage({
 	if (connectionStatus !== "connected" && !allMessages.length) {
 		return (
 			<Page title={displayTitle} subtitle={providerName} noBottomSafeArea>
-				<EmptyState message="Not connected to a device" mascot="sleep" />
+				<EmptyState message="Not connected to host" mascot="sleep" />
 			</Page>
 		);
 	}
@@ -1079,7 +1146,9 @@ export default function ChatConversationPage({
 			}
 			rightSlot={
 				<>
-					{syncing && <Loader size={18} mascot={false} />}
+					{syncing && allMessages.length > 0 && (
+						<Loader size={18} mascot={false} />
+					)}
 					{chatTabId && (
 						<button
 							type="button"
@@ -1096,9 +1165,13 @@ export default function ChatConversationPage({
 			{loading && allMessages.length === 0 && (
 				<EmptyState message="Loading messages…" mascot="loading" />
 			)}
-			{!loading && !syncing && allMessages.length === 0 && !isStreaming && (
-				<EmptyState message="No messages yet" mascot="greeting" />
-			)}
+			{!loading &&
+				!syncing &&
+				allMessages.length === 0 &&
+				!isStreaming &&
+				pendingPermissions.length === 0 && (
+					<EmptyState message="No messages yet" mascot="greeting" />
+				)}
 			<div ref={historyContentRef} className="chat-history-content">
 				{syncing && allMessages.length === 0 && <ChatHistorySkeleton />}
 				{hasMore && historyScrollReady && (
@@ -1132,13 +1205,18 @@ export default function ChatConversationPage({
 						streaming
 					/>
 				)}
-				{pendingPermissions.map((permission) => (
-					<PermissionRequestCard
-						key={permission.id}
-						permission={permission}
-						onReply={handlePermissionReply}
-					/>
-				))}
+				{/* Hold permission cards back until the conversation has hydrated.
+				    A stored `pendingPermission` from the activity store can be
+				    known before messages finish loading on reopen; rendering the
+				    card then shows a context-less prompt over an empty history. */}
+				{!loading &&
+					pendingPermissions.map((permission) => (
+						<PermissionRequestCard
+							key={permission.id}
+							permission={permission}
+							onReply={handlePermissionReply}
+						/>
+					))}
 				{error && (
 					<div className="chat-error">
 						<span className="icon-alert-triangle" aria-hidden="true" />
@@ -1155,6 +1233,7 @@ export default function ChatConversationPage({
 				unavailableMessage={unavailableMessage}
 				isStreaming={isStreaming}
 				canSendPrompt={canSendPrompt}
+				sendBlockedReason={sendBlockedReason}
 				promptSuggestions={promptSuggestions}
 				activePromptSuggestionIndex={activePromptSuggestionIndex}
 				onPromptSuggestion={applyPromptSuggestion}
@@ -1162,6 +1241,9 @@ export default function ChatConversationPage({
 				onInput={handleComposerInput}
 				onKeyDown={handlePromptKeyDown}
 				onPaste={handleComposerPaste}
+				onAttachFiles={handleAttachFiles}
+				onRemoveImageAttachment={handleRemoveImageAttachment}
+				imageAttachments={imageAttachments}
 				onSend={handleSend}
 				onStop={handleStop}
 				contextMeter={contextMeter}
@@ -1273,17 +1355,38 @@ export default function ChatConversationPage({
 	);
 
 	async function handleSend() {
-		const parts = readComposerParts(promptInputRef.current);
-		const text = composerPartsToText(parts).trim();
-		if (!text && !parts.some((part) => part.type === "attachment")) return;
+		const composerOnlyParts = readComposerParts(promptInputRef.current);
+		const text = composerPartsToText(composerOnlyParts).trim();
+		const pendingImages = imageAttachments;
 		if (
-			parts.some((part) => part.type === "attachment" && part.attachment.status)
+			!text &&
+			!composerOnlyParts.some((part) => part.type === "attachment") &&
+			pendingImages.length === 0
+		) {
+			return;
+		}
+		if (
+			composerOnlyParts.some(
+				(part) => part.type === "attachment" && part.attachment.status,
+			) ||
+			pendingImages.some((attachment) => attachment.status)
 		) {
 			return;
 		}
 
+		// Image badges are appended after the composer text/@-mentions so the
+		// resource links ride along with the prompt.
+		const parts: ComposerPart[] = [
+			...composerOnlyParts,
+			...pendingImages.map((attachment) => ({
+				type: "attachment" as const,
+				attachment,
+			})),
+		];
+
 		setError("");
 		setComposerParts([]);
+		setImageAttachments([]);
 		setComposerTrigger(null);
 		setFileSuggestions([]);
 		clearComposer(promptInputRef.current);
@@ -1427,6 +1530,7 @@ export default function ChatConversationPage({
 		permission: AcpPermissionRequest,
 		optionId: string,
 	) {
+		// Optimistically remove the card so the tap feels instant.
 		setPendingPermissions((prev) =>
 			prev.filter((item) => item.id !== permission.id),
 		);
@@ -1438,6 +1542,15 @@ export default function ChatConversationPage({
 				optionId,
 			);
 		} catch (err) {
+			// The reply never reached the agent, so it is still blocked waiting on
+			// this exact permission. Put the card back so the user can retry rather
+			// than being stranded with a wedged, un-answerable turn.
+			setPendingPermissions((prev) =>
+				prev.some((item) => item.id === permission.id)
+					? prev
+					: [...prev, permission],
+			);
+			setPermissionScrollTick((tick) => tick + 1);
 			setError((err as Error).message);
 		}
 	}
@@ -1546,64 +1659,86 @@ export default function ChatConversationPage({
 		setActivePromptSuggestionIndex(0);
 	}
 
-	async function handleComposerPaste(
-		event: React.ClipboardEvent<HTMLDivElement>,
-	) {
+	function handleComposerPaste(event: React.ClipboardEvent<HTMLDivElement>) {
 		event.preventDefault();
 		const clipboard = event.clipboardData;
-		const pastedParts: ComposerPart[] = [];
 		const text = plainTextFromClipboard(clipboard);
-		if (text) pastedParts.push({ type: "text", text });
-
-		const images = imageFilesFromClipboard(clipboard);
-		const pendingUploads: { file: File; attachment: ComposerAttachment }[] = [];
-		for (let index = 0; index < images.length; index += 1) {
-			if (pastedParts.length) pastedParts.push({ type: "text", text: " " });
-			const attachment = createPendingPastedImageAttachment(
-				images[index],
-				index,
-			);
-			pastedParts.push({ type: "attachment", attachment });
-			pastedParts.push({ type: "text", text: " " });
-			pendingUploads.push({ file: images[index], attachment });
+		if (text) {
+			// Pasted text still belongs inline in the composer at the caret.
+			insertComposerParts(promptInputRef.current, [{ type: "text", text }]);
+			handleComposerInput();
 		}
 
-		if (!pastedParts.length) return;
-		insertComposerParts(promptInputRef.current, pastedParts);
-		handleComposerInput();
+		const images = imageFilesFromClipboard(clipboard);
+		if (images.length) attachImageFiles(images, "pasted");
+	}
+
+	// Add a removable badge for each image and upload it in the background,
+	// swapping the pending badge for the saved attachment. Badges live above the
+	// composer (not inline), so `origin` decides the filename prefix — images
+	// dropped via the attach button read "attached", clipboard images "pasted".
+	function attachImageFiles(images: File[], origin: "pasted" | "attached") {
+		const pendingUploads: { file: File; attachment: ComposerAttachment }[] = [];
+		for (let index = 0; index < images.length; index += 1) {
+			const attachment = createPendingImageAttachment(
+				images[index],
+				index,
+				origin,
+			);
+			pendingUploads.push({ file: images[index], attachment });
+		}
+		if (!pendingUploads.length) return;
+
+		setImageAttachments((prev) => [
+			...prev,
+			...pendingUploads.map((upload) => upload.attachment),
+		]);
 		updateInputOffset();
 
 		for (const upload of pendingUploads) {
 			savePastedImageAttachment(upload.file, upload.attachment)
 				.then((attachment) => {
-					updateComposerAttachment(
-						promptInputRef.current,
-						upload.attachment.id,
-						attachment,
+					setImageAttachments((prev) =>
+						prev.map((item) =>
+							item.id === upload.attachment.id ? attachment : item,
+						),
 					);
-					handleComposerInput();
 					updateInputOffset();
 				})
 				.catch((err) => {
-					updateComposerAttachment(
-						promptInputRef.current,
-						upload.attachment.id,
-						{
-							...upload.attachment,
-							status: "error",
-						},
+					setImageAttachments((prev) =>
+						prev.map((item) =>
+							item.id === upload.attachment.id
+								? { ...item, status: "error" }
+								: item,
+						),
 					);
-					handleComposerInput();
 					updateInputOffset();
 					setError((err as Error).message);
 				});
 		}
 	}
 
-	function createPendingPastedImageAttachment(file: File, index: number) {
+	function handleAttachFiles(files: File[]) {
+		const images = files.filter((file) => file.type.startsWith("image/"));
+		if (!images.length) return;
+		attachImageFiles(images, "attached");
+		requestAnimationFrame(() => promptInputRef.current?.focus());
+	}
+
+	function handleRemoveImageAttachment(id: string) {
+		setImageAttachments((prev) => prev.filter((item) => item.id !== id));
+		updateInputOffset();
+	}
+
+	function createPendingImageAttachment(
+		file: File,
+		index: number,
+		origin: "pasted" | "attached",
+	): ComposerAttachment {
 		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
 		const ext = imageExtension(file);
-		const name = `pasted-image-${timestamp}-${index + 1}.${ext}`;
+		const name = `${origin}-image-${timestamp}-${index + 1}.${ext}`;
 		return {
 			id: `att:pending:${timestamp}:${index + 1}`,
 			path: "",
@@ -1866,36 +2001,9 @@ function openEditorPath(
 			filePath={target.path}
 			initialLine={target.line}
 			initialColumn={target.column}
+			pageId={pageKey}
 		/>,
 	);
-}
-
-function normalizeEditorPath(rawPath: string, workspacePath: string) {
-	let path = decodeURIComponent(rawPath.trim())
-		.replace(/^file:\/\//, "")
-		.replace(/^#L(\d+)$/, "");
-	let line: number | undefined;
-	let column: number | undefined;
-
-	const hashLineMatch = path.match(/^(.*?)#L(\d+)(?:-L\d+)?$/);
-	if (hashLineMatch) {
-		path = hashLineMatch[1];
-		line = Number(hashLineMatch[2]);
-	}
-	path = path.replace(/\?[^/?]*$/, "");
-
-	const lineMatch = path.match(/^(.*?):(\d+)(?::(\d+))?$/);
-	if (lineMatch?.[1]) {
-		path = lineMatch[1];
-		line = Number(lineMatch[2]);
-		column = lineMatch[3] ? Number(lineMatch[3]) : undefined;
-	}
-
-	if (workspacePath && !path.startsWith("/") && !path.includes("://")) {
-		path = `${workspacePath.replace(/\/$/, "")}/${path.replace(/^\.\//, "")}`;
-	}
-
-	return { path, line, column };
 }
 
 function readConfigOptions(value: unknown): AiSessionConfigOption[] | null {

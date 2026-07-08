@@ -58,9 +58,7 @@ export default function ChatSessionsPage({
 	} = useBookmarkedSessions(backend);
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [searchQuery, setSearchQuery] = useState("");
-	const [bookmarkedExpanded, setBookmarkedExpanded] = useState(() =>
-		readBookmarkedExpanded(backend),
-	);
+	const [bookmarkedExpanded, setBookmarkedExpanded] = useState(false);
 	const [showInfo, setShowInfo] = useState(false);
 	const infoNote = agentAvailable ? (agent.note ?? null) : null;
 	const [searchClosing, setSearchClosing] = useState(false);
@@ -315,7 +313,7 @@ export default function ChatSessionsPage({
 	if (connectionStatus !== "connected") {
 		return (
 			<Page title={pageTitle} className="agent-sessions-page">
-				<EmptyState message="Not connected to a device" mascot="sleep" />
+				<EmptyState message="Not connected to host" mascot="sleep" />
 			</Page>
 		);
 	}
@@ -743,16 +741,6 @@ function getBookmarkedMeta(bookmark: BookmarkedSession) {
 	}
 	if (bookmark.updatedAt) meta.push(formatRelativeTime(bookmark.updatedAt));
 	return meta.join(" · ");
-}
-
-function readBookmarkedExpanded(backend: AiBackend) {
-	try {
-		return (
-			localStorage.getItem(getBookmarkedPreferenceKey(backend)) !== "collapsed"
-		);
-	} catch {
-		return true;
-	}
 }
 
 function writeBookmarkedExpanded(backend: AiBackend, expanded: boolean) {

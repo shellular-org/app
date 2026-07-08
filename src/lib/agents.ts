@@ -18,6 +18,8 @@ export function getAgentIcon(agent: AiBackend) {
 			return "icon-hermes";
 		case "cursor":
 			return "icon-cursor";
+		case "grok-build":
+			return "icon-grok";
 		default:
 			return "icon-message-square";
 	}

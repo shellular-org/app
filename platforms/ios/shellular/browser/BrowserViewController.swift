@@ -57,6 +57,7 @@ final class BrowserViewController: UIViewController {
     private var forwardButton: UIButton?
     private var pageBridgeHandler: PageBridgeHandler?
     private var portBridgeHandler: PortBridgeHandler?
+    private lazy var fileUploadHandler = WebViewFileUploadHandler(presenter: self)
 
     // Device presets matching Android
     struct DevicePreset {
@@ -128,6 +129,9 @@ final class BrowserViewController: UIViewController {
                 self.webView?.configuration.userContentController.removeScriptMessageHandler(forName: "shellularEnsurePort")
                 self.portBridgeHandler = nil
             }
+            self.webView?.configuration.userContentController.removeScriptMessageHandler(
+                forName: WebViewFileUploadHandler.inputMetadataMessageName
+            )
             self.willMove(toParent: nil)
             self.removeFromParent()
             self.onDismiss?()
@@ -292,6 +296,15 @@ final class BrowserViewController: UIViewController {
         portHandler.controller = self
         portBridgeHandler = portHandler
         wkConfig.userContentController.add(portHandler, name: "shellularEnsurePort")
+        wkConfig.userContentController.add(
+            FileUploadInputMessageHandler(fileUploadHandler: fileUploadHandler),
+            name: WebViewFileUploadHandler.inputMetadataMessageName
+        )
+        wkConfig.userContentController.addUserScript(WKUserScript(
+            source: WebViewFileUploadHandler.inputMetadataScript,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
 
         // Inject localhost API hooks at document start so they're ready before any page JS runs
         injectLocalhostHooks(into: wkConfig.userContentController)
@@ -935,6 +948,19 @@ extension BrowserViewController: WKUIDelegate {
             webView.load(navigationAction.request)
         }
         return nil
+    }
+
+    @available(iOS 18.4, *)
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping ([URL]?) -> Void
+    ) {
+        fileUploadHandler.presentOpenPanel(
+            parameters: parameters,
+            completionHandler: completionHandler
+        )
     }
 }
 

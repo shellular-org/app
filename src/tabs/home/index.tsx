@@ -3,13 +3,17 @@ import { pushPage } from "App";
 import type { HostInfo } from "@shellular/protocol";
 import clsx from "clsx";
 import AppMenu from "components/AppMenu";
+import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
+import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { useAuth } from "lib/auth";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
+import { shouldPromptForRating } from "lib/ratingService";
 import { getOnlineStatus } from "lib/utils";
 import AccountPage from "pages/account";
 import { useEffect, useState } from "react";
@@ -38,6 +42,9 @@ export default function HomeTab() {
 	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(
 		getActiveSessionActivities(),
 	);
+	const [showRatingDialog, setShowRatingDialog] = useState(false);
+	const [noticeQueue, setNoticeQueue] = useState<Notice[]>([]);
+	const notice = noticeQueue[0] ?? null;
 	const compact = savedHosts.length > 0;
 	const visibleActiveSessions = activeSessions.filter(
 		(session) => agents[session.agentId]?.available,
@@ -74,6 +81,26 @@ export default function HomeTab() {
 		return subscribeSessionActivities(refresh);
 	}, []);
 
+	useEffect(() => {
+		let active = true;
+		getUndismissedNotices().then((notices) => {
+			if (active) setNoticeQueue(notices);
+		});
+		return () => {
+			active = false;
+		};
+	}, []);
+
+	useEffect(() => {
+		if (connectionStatus === "connected" && process.env.PLATFORM === "ios") {
+			shouldPromptForRating().then((should) => {
+				if (should) {
+					setShowRatingDialog(true);
+				}
+			});
+		}
+	}, [connectionStatus]);
+
 	return (
 		<div className="home-tab">
 			<div className="home-hero">
@@ -101,7 +128,7 @@ export default function HomeTab() {
 				)}
 			</div>
 
-			<div className={clsx("px-4 py-12", { hidden: isOnline })}>
+			<div className={clsx("px-4", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
 			{user && (
@@ -145,11 +172,30 @@ export default function HomeTab() {
 									key={`${session.agentId}:${session.sessionId}`}
 									className="home-active-session-row"
 								>
-									<div className="home-active-session">
-										<button
-											type="button"
-											className="home-active-session-main haptic-trigger"
-											onClick={() => openSession(session, agent)}
+									<div
+										className="home-active-session haptic-trigger"
+										onClick={() => openSession(session, agent)}
+									>
+										<span
+											className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
+											aria-hidden="true"
+										/>
+										<span className="home-active-session-text">
+											<span className="home-active-session-title">
+												{sessionDisplayTitle(session)}
+											</span>
+											<span className="home-active-session-meta">
+												{[
+													agent?.title ?? session.agentId,
+													basename(session.workspacePath),
+												]
+													.filter(Boolean)
+													.join(" · ")}
+											</span>
+										</span>
+										<div
+											className="home-active-session-status"
+											data-status={session.status}
 										>
 											<span
 												className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
@@ -174,7 +220,7 @@ export default function HomeTab() {
 											>
 												{statusLabel(session)}
 											</span>
-										</button>
+										</div>
 										{dismissible && (
 											<AppMenu
 												ariaLabel="Session options"
@@ -248,6 +294,18 @@ export default function HomeTab() {
 					</div>
 				</div>
 			)}
+			<RatingDialog
+				isOpen={showRatingDialog}
+				onClose={() => setShowRatingDialog(false)}
+			/>
+			<NoticeDialog
+				notice={notice}
+				onDismiss={(id) => {
+					dismissNotice(id);
+					// Drop this notice and reveal the next one in the queue, if any.
+					setNoticeQueue((queue) => queue.filter((n) => n.id !== id));
+				}}
+			/>
 		</div>
 	);
 }

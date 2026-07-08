@@ -19,7 +19,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { ShellularProvider, useShellular } from "state";
+import { ShellularProvider } from "state";
 import {
 	getHasAnyStreaming,
 	listenToSessionStreamingEvent,
@@ -40,7 +40,7 @@ interface PageStackEntry {
 	showConnectionBanner: boolean;
 }
 
-const ONBOARDING_KEY = "shellular:onboarding-complete";
+export const ONBOARDING_KEY = "shellular:onboarding-complete";
 const PAGE_HIDE_DURATION = 240;
 const TABS: Tab[] = [
 	{ id: "home", label: "Home", icon: "home" },
@@ -142,7 +142,9 @@ function AuthenticatedApp() {
 			setPageStack((prev) => [...prev, { id, element, showConnectionBanner }]);
 			actionStack.push({
 				id,
-				action: () => popPage(id),
+				action: () => {
+					popPage(id);
+				},
 			});
 		};
 		closePageHandler = (id) => {
@@ -203,7 +205,6 @@ function TabView() {
 	const [activeTab, setActiveTab] = useState<TabId>(currentTab);
 	const prevTabRef = useRef<TabId>(currentTab);
 	const TabContent = TABS_MAP[activeTab];
-	const { savedHosts } = useShellular();
 
 	handleTabChange = useCallback((newTab: TabId) => {
 		if (newTab === "browser") {
@@ -236,9 +237,7 @@ function TabView() {
 					<TabContent />
 				</Suspense>
 			</div>
-			{savedHosts.length > 0 && (
-				<TabBar activeTab={activeTab} onTabChange={handleTabChange} />
-			)}
+			<TabBar activeTab={activeTab} onTabChange={handleTabChange} />
 		</div>
 	);
 }

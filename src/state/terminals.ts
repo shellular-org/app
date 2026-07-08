@@ -27,6 +27,11 @@ import {
 	sendMessage,
 	sendRequest,
 } from "./connection";
+import {
+	applyTerminalInputToCommandState,
+	createTerminalCommandInputState,
+	type TerminalCommandInputState,
+} from "./terminalStickyCommands";
 
 export interface RemoteTerminalInfo {
 	terminalId: string;
@@ -169,12 +174,20 @@ function transformWithModifiers(
 	data: string,
 	modifiers: ModifierState,
 ): string {
-	if (!modifiers.ctrl && !modifiers.alt) {
+	if (!modifiers.ctrl && !modifiers.alt && !modifiers.shift) {
 		return data; // No modifiers, return as-is
 	}
 
+	// Leave escape sequences and multi-character terminal data alone.
+	// Toolbar navigation keys synthesize their own modifier-aware CSI sequences.
+	if (data.length !== 1) {
+		return data;
+	}
+
+	const next = modifiers.shift ? applyShiftToCharacter(data) : data;
+
 	// Get first character code
-	const code = data.charCodeAt(0);
+	const code = next.charCodeAt(0);
 
 	// Apply modifiers to alphabetic characters
 	if (code >= 97 && code <= 122) {
@@ -189,7 +202,7 @@ function transformWithModifiers(
 		}
 		if (modifiers.alt) {
 			// Alt+key: ESC + key
-			return `\x1b${data}`;
+			return `\x1b${next}`;
 		}
 	} else if (code >= 65 && code <= 90) {
 		// uppercase A-Z
@@ -200,14 +213,46 @@ function transformWithModifiers(
 			return String.fromCharCode(code - 64);
 		}
 		if (modifiers.alt) {
-			return `\x1b${data}`;
+			return `\x1b${next}`;
 		}
 	} else if (modifiers.alt) {
 		// For non-alphabetic keys with Alt, just prepend ESC
-		return `\x1b${data}`;
+		return `\x1b${next}`;
 	}
 
-	return data;
+	return next;
+}
+
+function applyShiftToCharacter(data: string): string {
+	if (data >= "a" && data <= "z") {
+		return data.toUpperCase();
+	}
+
+	const shiftedSymbols: Record<string, string> = {
+		"1": "!",
+		"2": "@",
+		"3": "#",
+		"4": "$",
+		"5": "%",
+		"6": "^",
+		"7": "&",
+		"8": "*",
+		"9": "(",
+		"0": ")",
+		"`": "~",
+		"-": "_",
+		"=": "+",
+		"[": "{",
+		"]": "}",
+		"\\": "|",
+		";": ":",
+		"'": '"',
+		",": "<",
+		".": ">",
+		"/": "?",
+	};
+
+	return shiftedSymbols[data] ?? data;
 }
 
 // terminalId → { container HTMLElement, xterm Terminal instance }
@@ -215,6 +260,29 @@ interface TerminalEntry {
 	container: TerminalHTMLElement;
 	terminal: Terminal;
 	needsInitialScroll: boolean;
+}
+
+type TerminalMarker = NonNullable<ReturnType<Terminal["registerMarker"]>>;
+
+interface StickyCommandRecord {
+	command: string;
+	marker: TerminalMarker;
+	sourceRows: string[];
+	visualRowCount: number;
+}
+
+interface PendingStickyCommand {
+	command?: string;
+	attempts: number;
+}
+
+interface StickyCommandRuntime {
+	inputState: TerminalCommandInputState;
+	commands: StickyCommandRecord[];
+	pendingCommands: PendingStickyCommand[];
+	overlay: HTMLDivElement;
+	content: HTMLPreElement;
+	refreshQueued: boolean;
 }
 
 // Type extensions for HTMLElement custom properties
@@ -225,6 +293,7 @@ export interface TerminalHTMLElement extends HTMLDivElement {
 const terminalEntries = new Map<string, TerminalEntry>();
 const terminalDisposers = new Map<string, Array<() => void>>();
 const terminalShells = new Map<string, string>();
+const terminalStickyCommands = new Map<string, StickyCommandRuntime>();
 
 let unlistenData: (() => void) | null = null;
 let unlistenClosed: (() => void) | null = null;
@@ -279,15 +348,19 @@ export function initTerminalListeners(): void {
 				wasAtBottom = viewportY + terminal.rows >= baseY + cursorY;
 			} catch {}
 
-			// Write the data (force text-style emoji rendering)
-			terminal.write(textifyEmoji(data));
+			// Write the data (force text-style emoji rendering). xterm applies
+			// writes asynchronously, so command markers must be captured only after
+			// the echoed command/output has been parsed into the buffer.
+			terminal.write(textifyEmoji(data), () => {
+				capturePendingStickyCommands(terminalId);
+				queueStickyCommandRefresh(terminalId);
 
-			// If user was at bottom, keep them there after new data
-			if (wasAtBottom) {
-				try {
-					terminal.scrollToBottom();
-				} catch {}
-			}
+				if (wasAtBottom) {
+					try {
+						terminal.scrollToBottom();
+					} catch {}
+				}
+			});
 		}
 	});
 
@@ -330,6 +403,373 @@ export function initTerminalListeners(): void {
 		persistTerminalProcessNames();
 		emit();
 	});
+}
+
+export function sendTerminalInput(terminalId: string, data: string): void {
+	recordTerminalInput(terminalId, data);
+	sendMessage({
+		type: MsgType.TERMINAL_DATA,
+		data: { terminalId, data },
+	});
+}
+
+function recordTerminalInput(terminalId: string, data: string): void {
+	const runtime = terminalStickyCommands.get(terminalId);
+	if (!runtime) return;
+
+	const result = applyTerminalInputToCommandState(runtime.inputState, data);
+	if (result.clearHistory) {
+		clearStickyCommandHistory(terminalId);
+	}
+	if (result.commands.length) {
+		runtime.pendingCommands.push(
+			...result.commands.map((command) => ({ command, attempts: 0 })),
+		);
+		runtime.pendingCommands = runtime.pendingCommands.slice(-10);
+		capturePendingStickyCommands(terminalId);
+		queueStickyCommandRefresh(terminalId);
+	}
+	if (result.captureCurrentLine) {
+		const terminal = terminalEntries.get(terminalId)?.terminal;
+		const record = terminal ? findVisibleStickyCommandRecord(terminal) : null;
+		if (record) {
+			addStickyCommandRecord(runtime, record);
+		} else {
+			runtime.pendingCommands.push({ attempts: 0 });
+		}
+		queueStickyCommandRefresh(terminalId);
+	}
+}
+
+function attachStickyCommandHeader(
+	terminalId: string,
+	container: TerminalHTMLElement,
+	xterm: Terminal,
+	disposers: Array<() => void>,
+): void {
+	const overlay = document.createElement("div");
+	overlay.className = "terminal-sticky-command";
+	overlay.hidden = true;
+
+	const content = document.createElement("pre");
+	content.className = "terminal-sticky-command-content";
+	overlay.appendChild(content);
+	container.appendChild(overlay);
+
+	const runtime: StickyCommandRuntime = {
+		inputState: createTerminalCommandInputState(),
+		commands: [],
+		pendingCommands: [],
+		overlay,
+		content,
+		refreshQueued: false,
+	};
+	terminalStickyCommands.set(terminalId, runtime);
+
+	const scrollDisposable = xterm.onScroll(() =>
+		queueStickyCommandRefresh(terminalId),
+	);
+	const lineFeedDisposable = xterm.onLineFeed(() => {
+		capturePendingStickyCommands(terminalId);
+		queueStickyCommandRefresh(terminalId);
+	});
+	const cursorDisposable = xterm.onCursorMove(() =>
+		queueStickyCommandRefresh(terminalId),
+	);
+	const resizeDisposable = xterm.onResize(() =>
+		queueStickyCommandRefresh(terminalId),
+	);
+
+	disposers.push(() => {
+		scrollDisposable.dispose();
+		lineFeedDisposable.dispose();
+		cursorDisposable.dispose();
+		resizeDisposable.dispose();
+		clearStickyCommandRecords(runtime);
+		terminalStickyCommands.delete(terminalId);
+		overlay.remove();
+	});
+
+	queueStickyCommandRefresh(terminalId);
+}
+
+function capturePendingStickyCommands(terminalId: string): void {
+	const runtime = terminalStickyCommands.get(terminalId);
+	const terminal = terminalEntries.get(terminalId)?.terminal;
+	if (!runtime || !terminal || runtime.pendingCommands.length === 0) return;
+
+	const pending: PendingStickyCommand[] = [];
+	for (const command of runtime.pendingCommands) {
+		const record = command.command
+			? findStickyCommandRecord(terminal, command.command)
+			: findVisibleStickyCommandRecord(terminal);
+		if (record) {
+			addStickyCommandRecord(runtime, record);
+		} else if (command.attempts < 20) {
+			pending.push({ ...command, attempts: command.attempts + 1 });
+		}
+	}
+	runtime.pendingCommands = pending;
+}
+
+function addStickyCommandRecord(
+	runtime: StickyCommandRuntime,
+	record: StickyCommandRecord,
+): void {
+	runtime.commands.push(record);
+	const retained = runtime.commands
+		.filter((item) => item.marker.line !== -1)
+		.slice(-50);
+	for (const command of runtime.commands) {
+		if (!retained.includes(command)) {
+			command.marker.dispose();
+		}
+	}
+	runtime.commands = retained;
+}
+
+function findStickyCommandRecord(
+	terminal: Terminal,
+	command: string,
+): StickyCommandRecord | null {
+	const buffer = terminal.buffer.active;
+	if (buffer.type !== "normal") return null;
+
+	const cursorLine = buffer.baseY + buffer.cursorY;
+	const startSearch = Math.max(0, cursorLine - 200);
+	const normalizedCommand = normalizeTerminalCommandMatchText(command);
+	const seenRanges = new Set<string>();
+
+	for (let lineIndex = cursorLine; lineIndex >= startSearch; lineIndex--) {
+		const range = getWrappedRowRange(buffer, lineIndex);
+		const rangeKey = `${range.start}:${range.end}`;
+		if (seenRanges.has(rangeKey)) continue;
+		seenRanges.add(rangeKey);
+
+		const sourceRows = getBufferRows(buffer, range.start, range.end);
+		const normalizedRows = normalizeTerminalCommandMatchText(
+			sourceRows.join(""),
+		);
+		if (!normalizedRows.includes(normalizedCommand)) continue;
+
+		const marker = terminal.registerMarker(range.start - cursorLine);
+		if (!marker) return null;
+
+		return {
+			command,
+			marker,
+			sourceRows,
+			visualRowCount: sourceRows.length,
+		};
+	}
+
+	return null;
+}
+
+function findVisibleStickyCommandRecord(
+	terminal: Terminal,
+): StickyCommandRecord | null {
+	const buffer = terminal.buffer.active;
+	if (buffer.type !== "normal") return null;
+
+	const cursorLine = buffer.baseY + buffer.cursorY;
+	const startSearch = Math.max(0, cursorLine - 5);
+	const seenRanges = new Set<string>();
+
+	for (let lineIndex = cursorLine; lineIndex >= startSearch; lineIndex--) {
+		const range = getWrappedRowRange(buffer, lineIndex);
+		const rangeKey = `${range.start}:${range.end}`;
+		if (seenRanges.has(rangeKey)) continue;
+		seenRanges.add(rangeKey);
+
+		const sourceRows = getBufferRows(buffer, range.start, range.end);
+		const displayText = sourceRows.join("").trim();
+		if (!displayText) continue;
+
+		const marker = terminal.registerMarker(range.start - cursorLine);
+		if (!marker) return null;
+
+		return {
+			command: displayText,
+			marker,
+			sourceRows,
+			visualRowCount: sourceRows.length,
+		};
+	}
+
+	return null;
+}
+
+function getWrappedRowRange(
+	buffer: Terminal["buffer"]["active"],
+	lineIndex: number,
+): { start: number; end: number } {
+	let start = lineIndex;
+	while (start > 0 && buffer.getLine(start)?.isWrapped) {
+		start--;
+	}
+
+	let end = lineIndex;
+	while (buffer.getLine(end + 1)?.isWrapped) {
+		end++;
+	}
+
+	return { start, end };
+}
+
+function getBufferRows(
+	buffer: Terminal["buffer"]["active"],
+	start: number,
+	end: number,
+): string[] {
+	const rows: string[] = [];
+	for (let i = start; i <= end; i++) {
+		rows.push(buffer.getLine(i)?.translateToString(true) ?? "");
+	}
+	return rows;
+}
+
+function normalizeTerminalCommandMatchText(value: string): string {
+	return value.replace(/\s+/g, "");
+}
+
+function queueStickyCommandRefresh(terminalId: string): void {
+	const runtime = terminalStickyCommands.get(terminalId);
+	if (!runtime || runtime.refreshQueued) return;
+
+	runtime.refreshQueued = true;
+	queueMicrotask(() => {
+		runtime.refreshQueued = false;
+		refreshStickyCommandHeader(terminalId);
+	});
+}
+
+function refreshStickyCommandHeader(terminalId: string): void {
+	const runtime = terminalStickyCommands.get(terminalId);
+	const terminal = terminalEntries.get(terminalId)?.terminal;
+	if (!runtime || !terminal) return;
+
+	const buffer = terminal.buffer.active;
+	if (buffer.type !== "normal") {
+		hideStickyCommand(runtime);
+		return;
+	}
+
+	runtime.commands = runtime.commands.filter((command) =>
+		isStickyCommandRecordValid(terminal, command),
+	);
+
+	const viewportY = buffer.viewportY;
+	let stickyCommand: StickyCommandRecord | undefined;
+	for (const command of runtime.commands) {
+		if (command.marker.line === -1) continue;
+		if (viewportY <= command.marker.line + command.visualRowCount - 1) {
+			continue;
+		}
+		if (!stickyCommand || command.marker.line > stickyCommand.marker.line) {
+			stickyCommand = command;
+		}
+	}
+
+	if (!stickyCommand) {
+		hideStickyCommand(runtime);
+		return;
+	}
+
+	renderStickyCommand(runtime, terminal, stickyCommand);
+}
+
+function isStickyCommandRecordValid(
+	terminal: Terminal,
+	command: StickyCommandRecord,
+): boolean {
+	const markerLine = command.marker.line;
+	if (markerLine === -1) return false;
+
+	const buffer = terminal.buffer.active;
+	if (buffer.type !== "normal") return false;
+
+	for (let i = 0; i < command.sourceRows.length; i++) {
+		const current = buffer.getLine(markerLine + i)?.translateToString(true);
+		if (current !== command.sourceRows[i]) return false;
+	}
+
+	return true;
+}
+
+function renderStickyCommand(
+	runtime: StickyCommandRuntime,
+	terminal: Terminal,
+	command: StickyCommandRecord,
+): void {
+	const maxRows = Math.max(
+		1,
+		Math.min(5, Math.floor(terminal.rows * 0.4) || 1),
+	);
+	const visibleRows = command.sourceRows.slice(0, maxRows);
+	if (command.sourceRows.length > maxRows) {
+		visibleRows[visibleRows.length - 1] =
+			`${visibleRows[visibleRows.length - 1]} ...`;
+	}
+
+	const rowHeight = getTerminalRowHeight(terminal);
+	const rowCount = Math.max(1, visibleRows.length);
+	runtime.overlay.hidden = false;
+	runtime.overlay.style.height = `${rowCount * rowHeight}px`;
+	runtime.overlay.style.setProperty(
+		"--terminal-sticky-command-rows",
+		`${rowCount}`,
+	);
+	runtime.content.textContent = visibleRows.join("\n");
+	runtime.content.style.fontFamily =
+		typeof terminal.options.fontFamily === "string"
+			? terminal.options.fontFamily
+			: "";
+	runtime.content.style.fontSize =
+		typeof terminal.options.fontSize === "number"
+			? `${terminal.options.fontSize}px`
+			: "";
+	runtime.content.style.lineHeight = `${rowHeight}px`;
+	runtime.content.style.letterSpacing =
+		typeof terminal.options.letterSpacing === "number"
+			? `${terminal.options.letterSpacing}px`
+			: "";
+}
+
+function getTerminalRowHeight(terminal: Terminal): number {
+	const terminalElement = terminal.element;
+	if (terminalElement && terminal.rows > 0) {
+		const height = terminalElement.getBoundingClientRect().height;
+		if (height > 0) return height / terminal.rows;
+	}
+
+	const fontSize =
+		typeof terminal.options.fontSize === "number"
+			? terminal.options.fontSize
+			: 14;
+	return fontSize * 1.2;
+}
+
+function hideStickyCommand(runtime: StickyCommandRuntime): void {
+	runtime.overlay.hidden = true;
+	runtime.content.textContent = "";
+}
+
+function clearStickyCommandHistory(terminalId: string): void {
+	const runtime = terminalStickyCommands.get(terminalId);
+	if (!runtime) return;
+
+	clearStickyCommandRecords(runtime);
+	runtime.pendingCommands = [];
+	runtime.inputState.line = "";
+	hideStickyCommand(runtime);
+}
+
+function clearStickyCommandRecords(runtime: StickyCommandRuntime): void {
+	for (const command of runtime.commands) {
+		command.marker.dispose();
+	}
+	runtime.commands = [];
 }
 
 // ─── Touch scroll with inertia ────────────────────────────────
@@ -743,6 +1183,8 @@ window.addEventListener(SETTINGS_CHANGED_EVENT, (event) => {
 			applyTerminalKeyboardSuggestionAttributes(textarea);
 		}
 		container.fit?.();
+		const terminalId = container.dataset.terminalId;
+		if (terminalId) queueStickyCommandRefresh(terminalId);
 	}
 
 	if (
@@ -931,6 +1373,7 @@ export async function attachToTerminal(
 	if (shouldAttachTouchScroll()) {
 		attachTouchScroll(container, xterm, disposers);
 	}
+	attachStickyCommandHeader(terminalId, container, xterm, disposers);
 
 	// Attach to existing CLI PTY session
 	const response = await sendRequest<TerminalAttachResultMsg>({
@@ -944,6 +1387,7 @@ export async function attachToTerminal(
 
 	if (response.error) {
 		console.error("Failed to attach to terminal:", response.error);
+		for (const dispose of disposers) dispose();
 		xterm.dispose();
 		container.remove();
 		return false;
@@ -954,6 +1398,7 @@ export async function attachToTerminal(
 		console.error(
 			`[Terminals] Missing serialized snapshot for terminal ${terminalId}`,
 		);
+		for (const dispose of disposers) dispose();
 		xterm.dispose();
 		container.remove();
 		return false;
@@ -973,10 +1418,7 @@ export async function attachToTerminal(
 				resetModifiers(terminalId);
 			}
 
-			sendMessage({
-				type: MsgType.TERMINAL_DATA,
-				data: { terminalId, data: processedData },
-			});
+			sendTerminalInput(terminalId, processedData);
 		}).dispose,
 	);
 
@@ -1106,6 +1548,7 @@ async function resyncExistingTerminal(terminalId: string): Promise<boolean> {
 	const { terminal } = entry;
 	if (snapshot) {
 		// Replace the frozen buffer with the authoritative CLI snapshot.
+		clearStickyCommandHistory(terminalId);
 		terminal.reset();
 		terminal.write(textifyEmoji(snapshot));
 		entry.needsInitialScroll = true;
@@ -1198,6 +1641,7 @@ function cleanupTerminal(relayId: string) {
 		) {
 			setAndroidKeyboardSuggestionsEnabled(true);
 		}
+		clearStickyCommandHistory(relayId);
 		entry.terminal.dispose();
 		entry.container.remove();
 		terminalEntries.delete(relayId);
@@ -1252,6 +1696,7 @@ export function detachAllTerminals(close = false): void {
 		for (const dispose of disposers) dispose();
 	}
 	for (const [, entry] of terminalEntries) {
+		clearStickyCommandHistory(entry.container.dataset.terminalId ?? "");
 		entry.terminal.dispose();
 		entry.container.remove();
 	}
@@ -1259,6 +1704,7 @@ export function detachAllTerminals(close = false): void {
 	terminalEntries.clear();
 	terminalDisposers.clear();
 	terminalShells.clear();
+	terminalStickyCommands.clear();
 
 	_activeTerminals = [];
 	_activeTerminalId = null;

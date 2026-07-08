@@ -46,10 +46,21 @@ export interface BatteryInfo {
 type Listener = () => void;
 const PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT = "proxy:binary:http-response-data";
 
+/**
+ * Host identity plus the dynamic CLI update status. `updateAvailable` /
+ * `latestCliVersion` aren't part of `HostInfo` (they change over a session, so
+ * the protocol carries them on SESSION_JOINED rather than host identity); we
+ * fold them into the snapshot here for the UI to read.
+ */
+export type ConnectedHostInfo = HostInfo & {
+	updateAvailable?: boolean;
+	latestCliVersion?: string;
+};
+
 interface ConnectionSnapshot {
 	serverUrl: string;
 	sessionToken: string;
-	hostInfo: HostInfo | null;
+	hostInfo: ConnectedHostInfo | null;
 	connectionStatus: ConnectionStatus;
 	batteryInfo: BatteryInfo | null;
 }
@@ -491,7 +502,9 @@ class ConnectionManager {
 	// The host we're currently meant to be connected to. Retained across
 	// reconnects so app-resume / network-online can re-establish the session.
 	private activeHostId: string | null = null;
-	private onConnected: ((token: string) => void) | null = null;
+	private onConnected:
+		| ((token: string, prevStatus: ConnectionStatus) => void | Promise<void>)
+		| null = null;
 	private onDisconnected: (() => void) | null = null;
 	private onPreDisconnect: (() => void) | null = null;
 
@@ -504,7 +517,9 @@ class ConnectionManager {
 		return this.snapshot;
 	}
 
-	setOnConnectedCallback(fn: (token: string) => void) {
+	setOnConnectedCallback(
+		fn: (token: string, prevStatus: ConnectionStatus) => void | Promise<void>,
+	) {
 		this.onConnected = fn;
 	}
 
@@ -591,6 +606,10 @@ class ConnectionManager {
 							platform: msg.data.platform,
 							machineId: msg.data.machineId,
 							dir: msg.data.dir,
+							cliVersion: msg.data.cliVersion,
+							updateAvailable: msg.data.updateAvailable,
+							latestCliVersion: msg.data.latestCliVersion,
+							canSelfUpdate: msg.data.canSelfUpdate,
 						},
 						connectionStatus: "connected",
 						batteryInfo: null,
@@ -600,7 +619,7 @@ class ConnectionManager {
 						this.setSnapshot({ batteryInfo: msg.data });
 					});
 					this.startPing();
-					this.onConnected?.(hostId);
+					this.onConnected?.(hostId, status);
 					resolve();
 				})
 				.catch((err) => {
@@ -962,7 +981,9 @@ export function getHostInfo() {
 	return getConnectionSnapshot().hostInfo;
 }
 
-export function setOnConnectedCallback(fn: (token: string) => void) {
+export function setOnConnectedCallback(
+	fn: (token: string, prevStatus: ConnectionStatus) => void | Promise<void>,
+) {
 	connectionManager.setOnConnectedCallback(fn);
 }
 

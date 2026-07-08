@@ -8,6 +8,7 @@ interface ModifierState {
 	alt: boolean;
 	ctrl: boolean;
 	meta: boolean;
+	shift: boolean;
 }
 
 interface Props {
@@ -19,6 +20,9 @@ interface Props {
 	onSwipeLeftOpen?: () => void;
 	onSwipeLeftClose?: () => void;
 	keyMap?: Record<keyof typeof KEY_MAP, keyof typeof KEY_MAP>;
+	disabledKeys?: string[];
+	onDisabledKeyPress?: (key: string) => void;
+	rows?: string[][];
 }
 
 interface Key {
@@ -49,6 +53,13 @@ const KEY_MAP: Record<string, Key> = {
 		icon: "icon-redo",
 		key: IS_DARWIN ? "cmd+shift+z" : "ctrl+shift+z",
 	},
+	interrupt: { label: "^C", key: "ctrl+c" },
+	switchTerminal: {
+		label: "Switch terminal",
+		icon: "icon-repeat",
+		key: "SwitchTerminal",
+	},
+	del: { label: "Del", key: "Delete" },
 	home: { label: "Home", key: "Home" },
 	up: { label: "Up", icon: "icon-arrow-up", key: "ArrowUp" },
 	end: { label: "End", key: "End" },
@@ -56,6 +67,7 @@ const KEY_MAP: Record<string, Key> = {
 	tab: { label: "Tab", key: "Tab" },
 	ctrl: { label: "Ctrl", key: "Control" },
 	alt: { label: "Alt", key: "Alt" },
+	shift: { label: "Shift", key: "Shift" },
 	left: { label: "Left", icon: "icon-arrow-left", key: "ArrowLeft" },
 	down: { label: "Down", icon: "icon-arrow-down", key: "ArrowDown" },
 	right: { label: "Right", icon: "icon-arrow-right", key: "ArrowRight" },
@@ -67,7 +79,7 @@ const KEY_MAP: Record<string, Key> = {
 };
 
 export default function KeyboardToolbar({
-	modifiers = { ctrl: false, alt: false, meta: false },
+	modifiers = { ctrl: false, alt: false, meta: false, shift: false },
 	handleKey,
 	onHideKeyboard,
 	swipeLeftPanel,
@@ -75,6 +87,9 @@ export default function KeyboardToolbar({
 	onSwipeLeftClose,
 	swipeLeftOpen = false,
 	keyMap = {},
+	disabledKeys = [],
+	onDisabledKeyPress,
+	rows = KEYS,
 }: Props) {
 	const toolbarRef = useRef<HTMLDivElement>(null);
 	const rowsRef = useRef<HTMLDivElement>(null);
@@ -87,7 +102,9 @@ export default function KeyboardToolbar({
 	const swipeDirection = useRef<"left" | "right" | null>(null);
 	const hideKbTriggered = useRef(false);
 	const isKeyDown = useRef(false);
-	const keydownTimeout = useRef(0);
+	const keydownTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+		new Map(),
+	);
 
 	// Prevent focus loss when clicking buttons
 	const preventFocusLoss = (e: React.MouseEvent | React.TouchEvent) => {
@@ -267,7 +284,7 @@ export default function KeyboardToolbar({
 				aria-label="Keyboard shortcuts"
 				tabIndex={-1}
 			>
-				{KEYS.map((row) => (
+				{rows.map((row) => (
 					<div
 						className="keyboard-toolbar-row"
 						key={row.join("-")}
@@ -277,22 +294,40 @@ export default function KeyboardToolbar({
 							const mappedKey = keyMap[key] || key;
 							const { label, icon } = KEY_MAP[mappedKey] || {};
 							const isActive = modifiers[mappedKey as keyof ModifierState];
+							const isDisabled =
+								disabledKeys.includes(key) || disabledKeys.includes(mappedKey);
 							return (
 								<button
 									type="button"
 									key={key}
 									className={`keyboard-toolbar-key ${
 										isActive ? "active" : ""
-									} ${icon ? "icon-button" : ""}`}
-									onTouchStart={() =>
+									} ${icon ? "icon-button" : ""} ${isDisabled ? "disabled" : ""}`}
+									aria-disabled={isDisabled || undefined}
+									onTouchStart={() => {
+										// Don't use the native `disabled` attribute: it swallows the
+										// touch and drops focus from the terminal, closing the
+										// keyboard. Instead keep the button live and hand disabled
+										// taps to onDisabledKeyPress (which can explain the key via a
+										// toast) while preserving focus.
+										if (isDisabled) {
+											onDisabledKeyPress?.(key);
+											return;
+										}
 										handleKeyDown(
+											key,
 											mappedKey,
 											handleKey,
 											isSwiping,
-											keydownTimeout,
-										)
-									}
-									onTouchCancel={() => clearTimeout(keydownTimeout.current)}
+											keydownTimeouts,
+										);
+									}}
+									onTouchCancel={() => {
+										const t = keydownTimeouts.current.get(key);
+										if (t) clearTimeout(t);
+										keydownTimeouts.current.delete(key);
+									}}
+									aria-label={icon ? label || mappedKey : undefined}
 									aria-pressed={isActive || undefined}
 								>
 									{icon ? (
@@ -311,13 +346,16 @@ export default function KeyboardToolbar({
 }
 
 function handleKeyDown(
+	buttonId: string,
 	key: string,
 	onKeyDown: KeyHandler,
 	isSwiping: React.RefObject<boolean>,
-	keydownTimeout: React.RefObject<number>,
+	keydownTimeouts: React.RefObject<Map<string, ReturnType<typeof setTimeout>>>,
 ) {
-	clearTimeout(keydownTimeout.current);
-	keydownTimeout.current = setTimeout(() => {
+	const existing = keydownTimeouts.current.get(buttonId);
+	if (existing) clearTimeout(existing);
+	const timeout = setTimeout(() => {
+		keydownTimeouts.current.delete(buttonId);
 		if (isSwiping.current) return;
 
 		const modifiers = KEY_MAP[key]?.key.split("+") || [];
@@ -334,6 +372,7 @@ function handleKeyDown(
 		triggerHaptic();
 		onKeyDown(event);
 	}, 100);
+	keydownTimeouts.current.set(buttonId, timeout);
 }
 
 function triggerHaptic() {

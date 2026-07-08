@@ -38,7 +38,9 @@ export default function TerminalTab() {
 		setShowPasteView(true);
 		actionStack.push({
 			id: "terminal-pasteview",
-			action: () => setShowPasteView(false),
+			action: () => {
+				setShowPasteView(false);
+			},
 		});
 	}, []);
 
@@ -125,6 +127,7 @@ export default function TerminalTab() {
 				) : (
 					<EmptyState
 						message="No active terminals"
+						description="Open a terminal to run a live shell on the connected device, right from your phone."
 						mascot="idle"
 						action={
 							<button type="button" onClick={handleCreate}>

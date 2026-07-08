@@ -14,6 +14,8 @@ const SavedHostSchema = z.object({
 	platform: z.string(),
 	lastConnected: z.number(),
 	alias: z.string().optional(),
+	/** Last-seen CLI version reported by this host on connect. */
+	cliVersion: z.string().optional(),
 });
 
 export type SavedHost = z.infer<typeof SavedHostSchema>;

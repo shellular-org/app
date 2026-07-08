@@ -2,6 +2,7 @@ package io.foxbiz.shellular.webView;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -20,6 +21,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.FileProvider;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Set;
 
@@ -46,6 +48,53 @@ public class ChromeClient extends WebChromeClient {
         Uri capturedUri = this.capturedUri;
         this.capturedUri = null; // Clear the captured URI after retrieval
         return capturedUri;
+    }
+
+    public Uri[] parseFileChooserResult(int resultCode, Intent data) {
+        if (resultCode != Activity.RESULT_OK) {
+            getCapturedUri();
+            return null;
+        }
+
+        Uri resultUri = getCapturedUri();
+        if (resultUri != null && data == null) {
+            return new Uri[]{resultUri};
+        }
+
+        Uri[] parsedResult = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+        if (parsedResult != null && parsedResult.length > 0) {
+            return parsedResult;
+        }
+
+        return getUrisFromIntent(data);
+    }
+
+    public static Uri[] getUrisFromIntent(Intent data) {
+        if (data == null) {
+            return null;
+        }
+
+        ClipData clipData = data.getClipData();
+        if (clipData != null && clipData.getItemCount() > 0) {
+            ArrayList<Uri> uris = new ArrayList<>();
+            for (int i = 0; i < clipData.getItemCount(); i++) {
+                Uri uri = clipData.getItemAt(i).getUri();
+                if (uri != null) {
+                    uris.add(uri);
+                }
+            }
+
+            if (!uris.isEmpty()) {
+                return uris.toArray(new Uri[0]);
+            }
+        }
+
+        Uri uri = data.getData();
+        if (uri != null) {
+            return new Uri[]{uri};
+        }
+
+        return null;
     }
 
     @Override
