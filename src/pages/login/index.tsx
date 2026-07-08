@@ -62,7 +62,11 @@ export default function LoginPage() {
 								<span
 									className={clsx(
 										PROVIDER_ICONS[provider.id],
-										"text-[21px] text-primary-text",
+										// Provider glyphs are a multi-color icon font: some (e.g.
+										// icon-google) hardcode `color` on ::before, others inherit.
+										// Force the ::before to the parent color so all render as an
+										// adaptive black/white monochrome mark.
+										"text-[21px] text-primary-text before:!text-current",
 									)}
 									aria-hidden="true"
 								/>
