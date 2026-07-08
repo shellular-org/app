@@ -14,7 +14,7 @@ import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
 import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
-import { getOnlineStatus } from "lib/utils";
+import { getInitials, getOnlineStatus } from "lib/utils";
 import AccountPage from "pages/account";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
@@ -109,56 +109,31 @@ export default function HomeTab() {
 					<h1>Shellular</h1>
 					<span className="home-hero-beta-badge">Beta</span>
 				</div>
-				{isOnline && !hostInfo && compact && (
-					<motion.button
+				{user && (
+					<button
 						type="button"
-						className="home-hero-scanner-btn"
-						onClick={() => setShowScanner(true)}
-						aria-label="Scan QR code"
-						animate={{
-							opacity: showScanner ? 0 : 1,
-							scale: showScanner ? 0.9 : 1,
-						}}
-						transition={{ duration: 0.2, ease: "easeOut" }}
-						style={{ pointerEvents: showScanner ? "none" : "auto" }}
+						className="haptic-trigger grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-card-border bg-surface-strong text-accent transition-transform duration-150 active:scale-95"
+						onClick={openAccountPage}
+						aria-label="Account"
 					>
-						<span className="icon-qr_code_scanner" aria-hidden="true" />
-						<span>Scan</span>
-					</motion.button>
+						{user.avatarUrl ? (
+							<img
+								src={user.avatarUrl}
+								alt=""
+								className="h-full w-full object-cover"
+							/>
+						) : (
+							<span className="text-[13px] font-bold leading-none uppercase tracking-tight">
+								{getInitials(user.name || user.email)}
+							</span>
+						)}
+					</button>
 				)}
 			</div>
 
 			<div className={clsx("px-4", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
-			{user && (
-				<section className="home-account-section">
-					<button
-						type="button"
-						className="home-account-card haptic-trigger"
-						onClick={openAccountPage}
-					>
-						<span className="home-account-avatar" aria-hidden="true">
-							{user.avatarUrl ? (
-								<img src={user.avatarUrl} alt="" />
-							) : (
-								<span className="icon-user" />
-							)}
-						</span>
-						<span className="home-account-text">
-							<span className="home-account-name">
-								{user.name || user.email}
-							</span>
-							<span className="home-account-email">{user.email}</span>
-							<span className="home-account-status">Signed in</span>
-						</span>
-						<span
-							className="icon-chevron-right home-account-chevron"
-							aria-hidden="true"
-						/>
-					</button>
-				</section>
-			)}
 			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
 				<div className="home-active-sessions">
@@ -274,7 +249,20 @@ export default function HomeTab() {
 
 			{savedHosts.length > 0 && !showScanner && !isLive && (
 				<div className="saved-machines-section">
-					<h2 className="saved-machines-title">Recent Hosts</h2>
+					<div className="mb-2.5 ml-1 flex items-center justify-between">
+						<h2 className="saved-machines-title !m-0">Recent Hosts</h2>
+						{isOnline && !hostInfo && (
+							<button
+								type="button"
+								className="home-hero-scanner-btn"
+								onClick={() => setShowScanner(true)}
+								aria-label="Scan QR code to connect a new host"
+							>
+								<span className="icon-qr_code_scanner" aria-hidden="true" />
+								<span>Add</span>
+							</button>
+						)}
+					</div>
 					<div className="saved-machines-list">
 						<AnimatePresence mode="popLayout">
 							{savedHosts.map((host) => (
