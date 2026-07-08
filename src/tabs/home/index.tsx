@@ -136,30 +136,33 @@ export default function HomeTab() {
 			</div>
 			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
-				<div className="home-active-sessions">
-					<h2 className="home-section-title">Active Sessions</h2>
-					<ul className="home-active-sessions-list">
+				<div className="px-[18px] pt-0.5 pb-[18px]">
+					<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
+						Active Sessions
+					</h2>
+					<ul className="m-0 flex list-none flex-col gap-2 p-0">
 						{visibleActiveSessions.map((session) => {
 							const agent = agents[session.agentId];
 							const dismissible = isDismissible(session);
 							return (
 								<li
 									key={`${session.agentId}:${session.sessionId}`}
-									className="home-active-session-row"
+									className="flex items-center rounded-xl border border-card-border bg-popup-background shadow-[var(--shadow)] transition-colors duration-150 active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)]"
 								>
-									<div
-										className="home-active-session haptic-trigger"
+									<button
+										type="button"
+										className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-0 text-left"
 										onClick={() => openSession(session, agent)}
 									>
 										<span
-											className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
+											className={`shrink-0 text-[22px] ${getAgentIcon(session.agentId)}`}
 											aria-hidden="true"
 										/>
-										<span className="home-active-session-text">
-											<span className="home-active-session-title">
+										<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+											<span className="truncate text-[14px] font-[650] text-primary-text">
 												{sessionDisplayTitle(session)}
 											</span>
-											<span className="home-active-session-meta">
+											<span className="truncate text-[11px] text-secondary-text opacity-[0.58]">
 												{[
 													agent?.title ?? session.agentId,
 													basename(session.workspacePath),
@@ -168,60 +171,41 @@ export default function HomeTab() {
 													.join(" · ")}
 											</span>
 										</span>
-										<div
-											className="home-active-session-status"
-											data-status={session.status}
+										<span
+											className={clsx(
+												"ml-2 shrink-0 truncate text-[11px] font-bold",
+												statusColor(session.status),
+												!dismissible && "pr-3.5",
+											)}
 										>
-											<span
-												className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
-												aria-hidden="true"
-											/>
-											<span className="home-active-session-text">
-												<span className="home-active-session-title">
-													{sessionDisplayTitle(session)}
-												</span>
-												<span className="home-active-session-meta">
-													{[
-														agent?.title ?? session.agentId,
-														basename(session.workspacePath),
-													]
-														.filter(Boolean)
-														.join(" · ")}
-												</span>
-											</span>
-											<span
-												className="home-active-session-status"
-												data-status={session.status}
-											>
-												{statusLabel(session)}
-											</span>
-										</div>
-										{dismissible && (
-											<AppMenu
-												ariaLabel="Session options"
-												buttonClassName="home-active-session-menu"
-												placement="bottom end"
-												items={[
-													{
-														key: "copy-id",
-														icon: "icon-copy",
-														label: "Copy Session ID",
-														onClick: () => copySessionId(session.sessionId),
-													},
-													{
-														key: "dismiss",
-														icon: "icon-eye-off",
-														label: "Dismiss",
-														onClick: () =>
-															dismissSessionActivity(
-																session.agentId,
-																session.sessionId,
-															),
-													},
-												]}
-											/>
-										)}
-									</div>
+											{statusLabel(session)}
+										</span>
+									</button>
+									{dismissible && (
+										<AppMenu
+											ariaLabel="Session options"
+											buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
+											placement="bottom end"
+											items={[
+												{
+													key: "copy-id",
+													icon: "icon-copy",
+													label: "Copy Session ID",
+													onClick: () => copySessionId(session.sessionId),
+												},
+												{
+													key: "dismiss",
+													icon: "icon-eye-off",
+													label: "Dismiss",
+													onClick: () =>
+														dismissSessionActivity(
+															session.agentId,
+															session.sessionId,
+														),
+												},
+											]}
+										/>
+									)}
 								</li>
 							);
 						})}
@@ -352,6 +336,22 @@ function isDismissible(session: SessionActivity): boolean {
 			return false;
 		default:
 			return true;
+	}
+}
+
+function statusColor(status: SessionActivity["status"]): string {
+	switch (status) {
+		case "starting":
+		case "running":
+			return "text-info";
+		case "waiting_for_permission":
+			return "text-warning";
+		case "error":
+			return "text-danger";
+		case "finished":
+			return "text-success";
+		default:
+			return "text-secondary-text opacity-70";
 	}
 }
 
