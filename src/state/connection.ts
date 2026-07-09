@@ -934,7 +934,7 @@ async function requestWebSocketToken(
 	clientInfo: ClientInfo,
 ): Promise<WebSocketTokenResponse> {
 	const url = new URL(toHttpUrl(wsUrl));
-	url.pathname = "/auth/ws-token";
+	url.pathname = "/auth/ws-app-token";
 	url.search = "";
 
 	const headers = new Headers({ "Content-Type": "application/json" });
