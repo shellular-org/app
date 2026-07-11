@@ -3,6 +3,7 @@ import clsx from "clsx";
 import BottomSheet from "components/BottomSheet";
 import OfflineBanner from "components/OfflineBanner";
 import { useAuth } from "lib/auth";
+import { getOnlineStatus } from "lib/utils";
 import { REACH_OUT_LINKS, type ReachOutLink } from "pages/reach-out";
 import { useState } from "react";
 
@@ -27,13 +28,12 @@ const PROVIDER_ICONS = {
 
 export default function LoginPage() {
 	const { providers, error, signingInProvider, signIn } = useAuth();
-	const [online, setOnline] = useState(true);
+	const [online, setOnline] = useState(getOnlineStatus);
 	const [helpOpen, setHelpOpen] = useState(false);
 	const enabledProviders = providers.filter((provider) => provider.enabled);
 
 	return (
 		<div className="fixed inset-0 flex flex-col overflow-hidden bg-primary text-primary-text pt-[calc(var(--sat,0px)+18px)] pb-[calc(var(--sab,0px)+32px)] px-5">
-			<OfflineBanner onChange={setOnline} />
 			<div className="mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center gap-9">
 				<div
 					className="flex flex-col items-center text-center"
@@ -52,69 +52,75 @@ export default function LoginPage() {
 					</p>
 				</div>
 
-				<div className="flex flex-col gap-2.5">
-					{enabledProviders.map((provider, i) => {
-						const loading = signingInProvider === provider.id;
-						return (
-							<button
-								key={provider.id}
-								type="button"
-								style={{
-									animation: `rise-in 0.45s cubic-bezier(0.4,0,0.2,1) both`,
-									animationDelay: `${0.08 + i * 0.06}s`,
-								}}
-								className={clsx(
-									"haptic-trigger relative flex min-h-[54px] w-full items-center justify-center gap-3 rounded-2xl border border-card-border bg-popup-background px-4 text-[15px] font-bold text-primary-text shadow-[var(--shadow)] transition-[background,border-color,transform] duration-150 active:scale-[0.98] active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)] disabled:cursor-default disabled:opacity-45",
-									{ "opacity-70": loading },
-								)}
-								disabled={!online || signingInProvider !== null}
-								onClick={() => signIn(provider.id)}
-							>
+				<OfflineBanner onChange={setOnline} />
+
+				{online && (
+					<>
+						<div className="flex flex-col gap-2.5">
+							{enabledProviders.map((provider, i) => {
+								const loading = signingInProvider === provider.id;
+								return (
+									<button
+										key={provider.id}
+										type="button"
+										style={{
+											animation: `rise-in 0.45s cubic-bezier(0.4,0,0.2,1) both`,
+											animationDelay: `${0.08 + i * 0.06}s`,
+										}}
+										className={clsx(
+											"haptic-trigger relative flex min-h-[54px] w-full items-center justify-center gap-3 rounded-2xl border border-card-border bg-popup-background px-4 text-[15px] font-bold text-primary-text shadow-[var(--shadow)] transition-[background,border-color,transform] duration-150 active:scale-[0.98] active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)] disabled:cursor-default disabled:opacity-45",
+											{ "opacity-70": loading },
+										)}
+										disabled={signingInProvider !== null}
+										onClick={() => signIn(provider.id)}
+									>
+										<span
+											className={clsx(
+												PROVIDER_ICONS[provider.id],
+												// Provider glyphs are a multi-color icon font: some (e.g.
+												// icon-google) hardcode `color` on ::before, others inherit.
+												// Force the ::before to the parent color so all render as an
+												// adaptive black/white monochrome mark.
+												"text-[21px] text-primary-text before:!text-current",
+											)}
+											aria-hidden="true"
+										/>
+										<span>{PROVIDER_LABELS[provider.id]}</span>
+										{loading && (
+											<span
+												className="absolute right-4 h-4 w-4 rounded-full border-2 border-line-soft border-t-primary-text [animation:spin_0.8s_linear_infinite]"
+												aria-hidden="true"
+											/>
+										)}
+									</button>
+								);
+							})}
+						</div>
+
+						{enabledProviders.length === 0 && (
+							<div className="flex items-start gap-2.5 rounded-xl border border-[color-mix(in_srgb,var(--warning)_22%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] px-3.5 py-3">
 								<span
-									className={clsx(
-										PROVIDER_ICONS[provider.id],
-										// Provider glyphs are a multi-color icon font: some (e.g.
-										// icon-google) hardcode `color` on ::before, others inherit.
-										// Force the ::before to the parent color so all render as an
-										// adaptive black/white monochrome mark.
-										"text-[21px] text-primary-text before:!text-current",
-									)}
+									className="icon-alert-triangle mt-px shrink-0 text-[15px] text-warning"
 									aria-hidden="true"
 								/>
-								<span>{PROVIDER_LABELS[provider.id]}</span>
-								{loading && (
-									<span
-										className="absolute right-4 h-4 w-4 rounded-full border-2 border-line-soft border-t-primary-text [animation:spin_0.8s_linear_infinite]"
-										aria-hidden="true"
-									/>
-								)}
-							</button>
-						);
-					})}
-				</div>
+								<p className="text-[13px] leading-normal text-secondary-text">
+									Sign-in is not configured on this server yet.
+								</p>
+							</div>
+						)}
 
-				{enabledProviders.length === 0 && (
-					<div className="flex items-start gap-2.5 rounded-xl border border-[color-mix(in_srgb,var(--warning)_22%,transparent)] bg-[color-mix(in_srgb,var(--warning)_8%,transparent)] px-3.5 py-3">
-						<span
-							className="icon-alert-triangle mt-px shrink-0 text-[15px] text-warning"
-							aria-hidden="true"
-						/>
-						<p className="text-[13px] leading-normal text-secondary-text">
-							Sign-in is not configured on this server yet.
-						</p>
-					</div>
-				)}
-
-				{error && (
-					<div className="flex items-start gap-2.5 rounded-xl border border-[color-mix(in_srgb,var(--danger)_22%,transparent)] bg-[color-mix(in_srgb,var(--danger)_7%,transparent)] px-3.5 py-3">
-						<span
-							className="icon-alert-triangle mt-px shrink-0 text-[15px] text-danger"
-							aria-hidden="true"
-						/>
-						<p className="text-[13px] leading-normal text-primary-text">
-							{error}
-						</p>
-					</div>
+						{error && (
+							<div className="flex items-start gap-2.5 rounded-xl border border-[color-mix(in_srgb,var(--danger)_22%,transparent)] bg-[color-mix(in_srgb,var(--danger)_7%,transparent)] px-3.5 py-3">
+								<span
+									className="icon-alert-triangle mt-px shrink-0 text-[15px] text-danger"
+									aria-hidden="true"
+								/>
+								<p className="text-[13px] leading-normal text-primary-text">
+									{error}
+								</p>
+							</div>
+						)}
+					</>
 				)}
 
 				<button
