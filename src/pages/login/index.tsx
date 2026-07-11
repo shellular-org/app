@@ -3,10 +3,7 @@ import clsx from "clsx";
 import BottomSheet from "components/BottomSheet";
 import OfflineBanner from "components/OfflineBanner";
 import { useAuth } from "lib/auth";
-import {
-	REACH_OUT_LINKS,
-	type ReachOutLink,
-} from "pages/reach-out";
+import { REACH_OUT_LINKS, type ReachOutLink } from "pages/reach-out";
 import { useState } from "react";
 
 const HELP_LINKS: ReachOutLink[] = [
