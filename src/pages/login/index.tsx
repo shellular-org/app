@@ -30,6 +30,7 @@ export default function LoginPage() {
 	const { providers, error, signingInProvider, signIn } = useAuth();
 	const [online, setOnline] = useState(getOnlineStatus);
 	const [helpOpen, setHelpOpen] = useState(false);
+	const [whyOpen, setWhyOpen] = useState(false);
 	const enabledProviders = providers.filter((provider) => provider.enabled);
 
 	return (
@@ -46,9 +47,9 @@ export default function LoginPage() {
 					<h1 className="text-[32px] font-extrabold leading-[1.15] tracking-[-0.8px] text-primary-text">
 						Welcome to Shellular
 					</h1>
-					<p className="mt-3 max-w-[300px] text-[15px] leading-relaxed text-secondary-text opacity-75">
+					<p className="mt-3 max-w-[280px] text-[15px] leading-relaxed text-secondary-text opacity-75">
 						Sign in to reach your dev machine, agents, terminals, files, and
-						ports — from your phone.
+						ports — from anywhere.
 					</p>
 				</div>
 
@@ -123,14 +124,58 @@ export default function LoginPage() {
 					</>
 				)}
 
-				<button
-					type="button"
-					className="haptic-trigger mx-auto text-[13px] font-medium text-secondary-text underline decoration-line-soft underline-offset-4 transition-colors active:text-primary-text"
-					onClick={() => setHelpOpen(true)}
-				>
-					Unable to log in?
-				</button>
+				<div className="flex items-center justify-center gap-3 text-[13px] font-medium text-secondary-text">
+					<button
+						type="button"
+						className="haptic-trigger transition-colors active:text-primary-text"
+						onClick={() => setWhyOpen(true)}
+					>
+						Why sign in?
+					</button>
+					<span className="h-3 w-px bg-line-soft" aria-hidden="true" />
+					<button
+						type="button"
+						className="haptic-trigger transition-colors active:text-primary-text"
+						onClick={() => setHelpOpen(true)}
+					>
+						Unable to log in?
+					</button>
+				</div>
 			</div>
+
+			<BottomSheet
+				open={whyOpen}
+				onClose={() => setWhyOpen(false)}
+				title="Why sign in?"
+			>
+				<div className="flex flex-col gap-4">
+					<p className="text-[14px] leading-relaxed text-primary-text">
+						Signing in adds a layer of security to how you reach your machines.
+					</p>
+					<ul className="flex flex-col gap-3">
+						<li className="flex gap-2.5 text-[13px] leading-relaxed text-secondary-text">
+							<span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
+							<span>
+								In the Shellular CLI, you can allow only specific accounts —
+								like just yourself — to connect.
+							</span>
+						</li>
+						<li className="flex gap-2.5 text-[13px] leading-relaxed text-secondary-text">
+							<span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
+							<span>
+								Your machines were never open to just anyone. This just makes
+								that control explicit.
+							</span>
+						</li>
+						<li className="flex gap-2.5 text-[13px] leading-relaxed text-secondary-text">
+							<span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-accent" />
+							<span>
+								Already used Shellular on this device? Nothing has been reset.
+							</span>
+						</li>
+					</ul>
+				</div>
+			</BottomSheet>
 
 			<BottomSheet
 				open={helpOpen}
