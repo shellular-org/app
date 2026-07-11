@@ -3,7 +3,7 @@ import {
 	ClientHandshakeRespMsgSchema,
 	type ClientIncomingMsg,
 	ClientIncomingMsgSchema,
-	type ClientInfo,
+	type ClientInfoRequest,
 	type ClientToHostMsg,
 	type ClientToServerMsg,
 	type HostInfo,
@@ -237,7 +237,9 @@ export class Connection extends EventTarget {
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
-		const clientInfo: ClientInfo = {
+		// Deliberately a request-shaped payload: the server derives `user` from the
+		// authenticated session, so the app never asserts its own identity here.
+		const clientInfo: ClientInfoRequest = {
 			hostId,
 			clientId,
 			appVersion,
@@ -931,7 +933,7 @@ function toHttpUrl(wsUrl: string): string {
 async function requestWebSocketToken(
 	wsUrl: string,
 	accessToken: string | null,
-	clientInfo: ClientInfo,
+	clientInfo: ClientInfoRequest,
 ): Promise<WebSocketTokenResponse> {
 	const url = new URL(toHttpUrl(wsUrl));
 	url.pathname = "/auth/ws-app-token";

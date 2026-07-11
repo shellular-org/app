@@ -2,7 +2,9 @@ import { pushPage } from "App";
 import clsx from "clsx";
 import Page from "components/Page";
 import { type AuthProviderId, useAuth } from "lib/auth";
+import { copyToClipboard } from "lib/clipboard";
 import AccountHistoryPage from "pages/account-history";
+import { useEffect, useRef, useState } from "react";
 
 const PROVIDERS: AuthProviderId[] = ["google", "github", "apple"];
 
@@ -37,6 +39,72 @@ const SECTION_TITLE =
 	"ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45";
 const PILL =
 	"inline-flex min-h-[30px] max-w-[96px] shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-card-border px-2.5 text-[12px] font-[750]";
+// Square tap target for the inline copy affordance. 36px keeps it comfortably
+// tappable without making the row taller than the 58px ROW minimum.
+const COPY_BUTTON =
+	"haptic-trigger grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[16px] active:opacity-65";
+
+const COPIED_RESET_MS = 1400;
+
+/**
+ * A profile row whose value can be copied. The icon flips to a check for a
+ * moment after a successful copy: `copyToClipboard` suppresses its toast on
+ * Android (the platform shows its own), so without this the tap would give no
+ * feedback there at all.
+ */
+function CopyRow({
+	icon,
+	label,
+	value,
+	copyLabel,
+}: {
+	icon: string;
+	label: string;
+	value: string;
+	copyLabel: string;
+}) {
+	const [copied, setCopied] = useState(false);
+	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// A copy landing just before unmount would otherwise setState on a gone
+	// component, and a rapid second tap would let the first timer clear the
+	// second's checkmark early.
+	useEffect(() => {
+		return () => {
+			if (timeoutRef.current) clearTimeout(timeoutRef.current);
+		};
+	}, []);
+
+	const onCopy = async () => {
+		await copyToClipboard({ text: value, successMessage: `${label} copied` });
+		setCopied(true);
+		if (timeoutRef.current) clearTimeout(timeoutRef.current);
+		timeoutRef.current = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+	};
+
+	return (
+		<div className={ROW}>
+			<span className={`${icon} ${ROW_ICON}`} aria-hidden="true" />
+			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+				<span className={ROW_LABEL}>{label}</span>
+				<span className={ROW_VALUE}>{value}</span>
+			</span>
+			<button
+				type="button"
+				className={clsx(COPY_BUTTON, copied ? "text-success" : "text-accent")}
+				aria-label={copyLabel}
+				onClick={() => {
+					onCopy().catch(console.error);
+				}}
+			>
+				<span
+					className={copied ? "icon-check" : "icon-copy"}
+					aria-hidden="true"
+				/>
+			</button>
+		</div>
+	);
+}
 
 export default function AccountPage() {
 	const {
@@ -84,13 +152,18 @@ export default function AccountPage() {
 					<section className="flex flex-col gap-2.5">
 						<h3 className={SECTION_TITLE}>Profile</h3>
 						<div className={CARD}>
-							<div className={ROW}>
-								<span className={`icon-mail ${ROW_ICON}`} aria-hidden="true" />
-								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-									<span className={ROW_LABEL}>Primary email</span>
-									<span className={ROW_VALUE}>{user.email}</span>
-								</span>
-							</div>
+							<CopyRow
+								icon="icon-mail"
+								label="Primary email"
+								value={user.email}
+								copyLabel="Copy primary email"
+							/>
+							<CopyRow
+								icon="icon-hash"
+								label="User ID"
+								value={user.id}
+								copyLabel="Copy user ID"
+							/>
 						</div>
 					</section>
 
@@ -207,7 +280,10 @@ export default function AccountPage() {
 				</div>
 			) : (
 				<div className="m-auto flex flex-col items-center gap-3 text-secondary-text">
-					<span className="icon-user text-[30px] text-accent" aria-hidden="true" />
+					<span
+						className="icon-user text-[30px] text-accent"
+						aria-hidden="true"
+					/>
 					<p className="m-0 text-[14px]">No signed-in account is available.</p>
 				</div>
 			)}

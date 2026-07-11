@@ -1,7 +1,20 @@
+import native from "bridge/native";
 import clsx from "clsx";
+import BottomSheet from "components/BottomSheet";
 import OfflineBanner from "components/OfflineBanner";
 import { useAuth } from "lib/auth";
+import {
+	REACH_OUT_LINKS,
+	type ReachOutLink,
+} from "pages/reach-out";
 import { useState } from "react";
+
+const HELP_LINKS: ReachOutLink[] = [
+	{ ...REACH_OUT_LINKS.discord, label: "Join Discord" },
+	{ ...REACH_OUT_LINKS.email, label: "Email us" },
+	{ ...REACH_OUT_LINKS.x, label: "DM us on X" },
+	{ ...REACH_OUT_LINKS.linkedin, label: "LinkedIn" },
+];
 
 const PROVIDER_LABELS = {
 	google: "Continue with Google",
@@ -18,6 +31,7 @@ const PROVIDER_ICONS = {
 export default function LoginPage() {
 	const { providers, error, signingInProvider, signIn } = useAuth();
 	const [online, setOnline] = useState(true);
+	const [helpOpen, setHelpOpen] = useState(false);
 	const enabledProviders = providers.filter((provider) => provider.enabled);
 
 	return (
@@ -105,7 +119,50 @@ export default function LoginPage() {
 						</p>
 					</div>
 				)}
+
+				<button
+					type="button"
+					className="haptic-trigger mx-auto text-[13px] font-medium text-secondary-text underline decoration-line-soft underline-offset-4 transition-colors active:text-primary-text"
+					onClick={() => setHelpOpen(true)}
+				>
+					Unable to log in?
+				</button>
 			</div>
+
+			<BottomSheet
+				open={helpOpen}
+				onClose={() => setHelpOpen(false)}
+				title="Unable to log in?"
+			>
+				<p className="mb-4 text-[13px] leading-relaxed text-secondary-text opacity-80">
+					Having trouble signing in? Reach out and we'll get you sorted.
+				</p>
+				<div className="flex flex-col gap-2">
+					{HELP_LINKS.map((link) => (
+						<button
+							key={link.href}
+							type="button"
+							className="haptic-trigger flex min-h-[52px] items-center gap-3 rounded-2xl border border-card-border bg-primary px-4 text-left transition-[background,transform] duration-150 active:scale-[0.98] active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)]"
+							onClick={() => native.openInBrowser(link.href)}
+						>
+							<span
+								className={clsx(
+									link.icon,
+									"text-[19px] text-accent before:!text-current",
+								)}
+								aria-hidden="true"
+							/>
+							<span className="flex-1 text-[15px] font-bold text-primary-text">
+								{link.label}
+							</span>
+							<span
+								className="icon-chevron-right text-[15px] text-secondary-text opacity-60"
+								aria-hidden="true"
+							/>
+						</button>
+					))}
+				</div>
+			</BottomSheet>
 		</div>
 	);
 }
