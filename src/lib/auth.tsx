@@ -259,7 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				if (
 					isBrowserCookieAuth() &&
 					isAuthCancellation(message) &&
-					(await refresh())
+					(await refreshBrowserSessionAfterCallback(refresh))
 				) {
 					return;
 				}
@@ -567,7 +567,20 @@ function errorMessage(error: unknown): string {
 }
 
 function isAuthCancellation(message: string): boolean {
-	return message.includes("Authentication was cancelled.");
+	return (
+		message.includes("Authentication was cancelled.") ||
+		message.includes("Auth cancelled")
+	);
+}
+
+async function refreshBrowserSessionAfterCallback(
+	refresh: () => Promise<boolean>,
+): Promise<boolean> {
+	for (const delay of [250, 500, 1000]) {
+		await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+		if (await refresh()) return true;
+	}
+	return false;
 }
 
 function logAuthError(action: string, error: unknown): void {
