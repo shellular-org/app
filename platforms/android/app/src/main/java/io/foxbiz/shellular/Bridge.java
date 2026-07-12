@@ -21,6 +21,7 @@ import io.foxbiz.shellular.lib.Encryption;
 import io.foxbiz.shellular.lib.FileHandler;
 import io.foxbiz.shellular.lib.Native;
 import io.foxbiz.shellular.lib.Notification;
+import io.foxbiz.shellular.lib.SecureStore;
 import io.foxbiz.shellular.scanner.Scanner;
 
 public class Bridge {
@@ -79,6 +80,8 @@ public class Bridge {
                 return new FileHandler(context, webview);
             case "Notification":
                 return new Notification(context, webview);
+            case "SecureStore":
+                return new SecureStore(context, webview);
             case "Scanner":
                 return new Scanner(context, webview);
             case "Browser":

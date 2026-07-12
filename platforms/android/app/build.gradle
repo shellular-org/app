@@ -11,6 +11,7 @@ android {
     targetSdk = 35
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    manifestPlaceholders = [authCallbackScheme: "shellular"]
 
         externalNativeBuild {
             // For ndk-build, instead use the ndkBuild block.
@@ -40,6 +41,7 @@ android {
         debug {
             debuggable = true
             applicationIdSuffix ".dev"
+            manifestPlaceholders.authCallbackScheme = "shellular-dev"
             def xml = new groovy.xml.XmlParser().parse(file('src/main/res/values/strings.xml'))
             def appName = xml.string.find { it.@name == 'app_name' }?.text() ?: 'App'
             resValue "string", "launcher_name", "${appName} Dev"
@@ -67,6 +69,7 @@ dependencies {
     implementation libs.androidx.camera.lifecycle
     implementation libs.androidx.camera.view
     implementation libs.androidx.core.splashscreen
+    implementation libs.androidx.security.crypto
     implementation libs.androidx.browser
     testImplementation libs.junit
     androidTestImplementation libs.ext.junit

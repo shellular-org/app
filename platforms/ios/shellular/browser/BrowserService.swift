@@ -1,10 +1,11 @@
+import AuthenticationServices
 import UIKit
-import SafariServices
 import WebKit
 
-final class BrowserService: BaseService {
+final class BrowserService: BaseService, ASWebAuthenticationPresentationContextProviding {
 
     static weak var activeBrowser: BrowserViewController?
+    private var authSession: ASWebAuthenticationSession?
 
     // MARK: - Helper to dispatch events to JavaScript
 
@@ -122,111 +123,94 @@ final class BrowserService: BaseService {
             return
         }
         let callbackScheme = args[safe: 1] as? String
-        let useSafari = (args[safe: 2] as? Bool) ?? true
 
         DispatchQueue.main.async { [weak self] in
-            guard let vc = self?.bridge?.viewController else {
-                callback.error("No view controller")
-                return
-            }
-
-            if useSafari {
-                self?.openWithSafari(url: url, callbackScheme: callbackScheme, from: vc, callback: callback)
-            } else {
-                self?.openWithBrowserVC(url: url, callbackScheme: callbackScheme, from: vc, callback: callback)
-            }
+            self?.openWithAuthenticationSession(url: url, callbackScheme: callbackScheme, callback: callback)
         }
     }
 
-    private func openWithSafari(url: String, callbackScheme: String?, from vc: UIViewController, callback: Callback) {
-        guard let safariURL = URL(string: url) else {
+    private func openWithAuthenticationSession(url: String, callbackScheme: String?, callback: Callback) {
+        guard let authURL = URL(string: url) else {
             callback.error("Invalid URL")
             return
         }
-        
-        // Notify JavaScript that browser is about to open
+
         dispatchEvent("browserwillopen")
-        
-        let safari = SFSafariViewController(url: safariURL)
-        safari.modalPresentationStyle = .fullScreen
 
-        // Listen for auth callback via deep link
-        AppDelegate.shared?.intentHandler = { [weak safari, weak self] deepURL in
-            let scheme = deepURL.scheme ?? ""
-            let host = deepURL.host ?? ""
+        authSession?.cancel()
+        let session = ASWebAuthenticationSession(
+            url: authURL,
+            callbackURLScheme: callbackScheme ?? "shellular"
+        ) { [weak self] callbackURL, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.authSession = nil
+                self.dispatchEvent("browserdidclose")
 
-            // Match shellular://auth-callback or custom scheme
-            let isAuthCallback = (scheme == "shellular" && host == "auth-callback")
-                || (callbackScheme != nil && scheme == callbackScheme)
-                || (scheme == "foxbiz" && host == "auth-callback")
-
-            if isAuthCallback {
-                safari?.dismiss(animated: true) {
-                    // Notify JavaScript that browser closed
-                    self?.dispatchEvent("browserdidclose")
-                    
-                    var params: [String: String] = [:]
-                    if let components = URLComponents(url: deepURL, resolvingAgainstBaseURL: false),
-                       let items = components.queryItems {
-                        for item in items {
-                            params[item.name] = item.value ?? ""
-                        }
+                if let callbackURL {
+                    guard self.isAuthCallbackURL(callbackURL, callbackScheme: callbackScheme) else {
+                        callback.error("Authentication returned an invalid callback URL")
+                        return
                     }
-
-                    if let json = try? JSONSerialization.data(withJSONObject: [
-                        "url": deepURL.absoluteString,
-                        "params": params
-                    ]),
-                       let jsonStr = String(data: json, encoding: .utf8) {
-                        callback.success(jsonStr)
-                    } else {
-                        callback.success(deepURL.absoluteString)
-                    }
+                    self.completeAuthCallback(callback: callback, deepURL: callbackURL)
+                    return
                 }
-                AppDelegate.shared?.intentHandler = nil
+
+                if let authError = error as? ASWebAuthenticationSessionError,
+                   authError.code == .canceledLogin {
+                    callback.error("Authentication was cancelled.")
+                } else {
+                    callback.error(error?.localizedDescription ?? "Authentication failed.")
+                }
             }
         }
 
-        vc.present(safari, animated: true)
+        session.presentationContextProvider = self
+        authSession = session
+        if !session.start() {
+            authSession = nil
+            dispatchEvent("browserdidclose")
+            callback.error("Unable to start authentication session")
+        }
     }
 
-    private func openWithBrowserVC(url: String, callbackScheme: String?, from vc: UIViewController, callback: Callback) {
-        // Notify JavaScript that browser is about to open
-        dispatchEvent("browserwillopen")
-        
-        let theme: [String: String] = [:]
-        let browser = BrowserViewController()
-        browser.config = BrowserViewController.Config(
-            url: url,
-            theme: theme,
-            mode: "auth",
-            callbackScheme: callbackScheme,
-            htmlContent: nil
-        )
-        browser.mainWebView = bridge?.webView
+    private func isAuthCallbackURL(_ url: URL, callbackScheme: String?) -> Bool {
+        let scheme = url.scheme ?? ""
+        let host = url.host ?? ""
+        return host == "auth-callback"
+            && (scheme == "shellular"
+                || scheme == "foxbiz"
+                || (callbackScheme != nil && scheme == callbackScheme))
+    }
 
-        browser.onAuthResult = { resultURL in
-            var params: [String: String] = [:]
-            if let components = URLComponents(string: resultURL),
-               let items = components.queryItems {
-                for item in items {
-                    params[item.name] = item.value ?? ""
-                }
-            }
-
-            if let json = try? JSONSerialization.data(withJSONObject: [
-                "url": resultURL,
-                "params": params
-            ]),
-               let jsonStr = String(data: json, encoding: .utf8) {
-                callback.success(jsonStr)
-            } else {
-                callback.success(resultURL)
+    private func completeAuthCallback(callback: Callback, deepURL: URL) {
+        var params: [String: String] = [:]
+        if let components = URLComponents(url: deepURL, resolvingAgainstBaseURL: false),
+           let items = components.queryItems {
+            for item in items {
+                params[item.name] = item.value ?? ""
             }
         }
 
-        vc.addChild(browser)
-        browser.didMove(toParent: vc)
-        browser.present(animated: true)
+        if let json = try? JSONSerialization.data(withJSONObject: [
+            "url": deepURL.absoluteString,
+            "params": params
+        ]),
+           let jsonStr = String(data: json, encoding: .utf8) {
+            callback.success(jsonStr)
+        } else {
+            callback.success(deepURL.absoluteString)
+        }
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        if let window = bridge?.viewController?.view.window {
+            return window
+        }
+
+        return UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
     }
 }

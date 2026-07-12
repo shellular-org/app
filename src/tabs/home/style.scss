@@ -144,131 +144,14 @@
     }
   }
 
-  .home-active-sessions {
-    padding: 2px 18px 18px;
-
-    .home-section-title {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.9px;
-      color: var(--secondary-text);
-      opacity: 0.45;
-      margin: 0 0 10px 4px;
-    }
-
-    .home-active-sessions-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .home-active-session-row {
-      display: flex;
-    }
-
-    .home-active-session {
-      width: 100%;
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 14px;
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      background: var(--popup-background);
-      color: inherit;
-      text-align: left;
-      cursor: pointer;
-      box-shadow: var(--shadow);
-      -webkit-tap-highlight-color: transparent;
-      transition:
-        background 0.15s,
-        border-color 0.15s;
-
-      &:active {
-        background: color-mix(in srgb, var(--info) 8%, transparent);
-      }
-
-      .home-active-session-menu {
-        flex-shrink: 0;
-        margin-left: auto;
-        opacity: 0.5;
-        transition: opacity 0.15s;
-
-        &:hover {
-          opacity: 1;
-        }
-      }
-    }
-
-    .home-active-session-icon {
-      flex-shrink: 0;
-      font-size: 22px;
-    }
-
-    .home-active-session-text {
-      min-width: 0;
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .home-active-session-title {
-      font-size: 14px;
-      font-weight: 650;
-      color: var(--primary-text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .home-active-session-meta {
-      font-size: 11px;
-      color: var(--secondary-text);
-      opacity: 0.58;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .home-active-session-status {
-      flex-shrink: 0;
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--secondary-text);
-      opacity: 0.72;
-      max-width: 82px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-
-      &[data-status="running"],
-      &[data-status="starting"] {
-        color: var(--info);
-        opacity: 1;
-      }
-
-      &[data-status="waiting_for_permission"] {
-        color: var(--warning);
-        opacity: 1;
-      }
-
-      &[data-status="error"] {
-        color: var(--danger);
-        opacity: 1;
-      }
-
-      &[data-status="finished"] {
-        color: var(--success);
-        opacity: 1;
-      }
-    }
+  .home-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.9px;
+    color: var(--secondary-text);
+    opacity: 0.45;
+    margin: 0 0 10px 4px;
   }
 
   .saved-machines-section {

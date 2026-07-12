@@ -10,7 +10,14 @@ import UserNotifications
 
 class AppDelegate: NSObject, UIApplicationDelegate {
     static weak var shared: AppDelegate?
-    var intentHandler: ((URL) -> Void)?
+    private var pendingURL: URL?
+    var intentHandler: ((URL) -> Void)? {
+        didSet {
+            guard let url = pendingURL, let intentHandler else { return }
+            pendingURL = nil
+            intentHandler(url)
+        }
+    }
 
     func application(
         _ application: UIApplication,
@@ -27,8 +34,16 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         open url: URL,
         options: [UIApplication.OpenURLOptionsKey: Any] = [:]
     ) -> Bool {
-        intentHandler?(url)
+        handleOpenURL(url)
         return true
+    }
+
+    func handleOpenURL(_ url: URL) {
+        if let intentHandler {
+            intentHandler(url)
+        } else {
+            pendingURL = url
+        }
     }
 
     func application(
@@ -47,6 +62,9 @@ struct shellularApp: App {
         WindowGroup {
             ContentView()
                 .ignoresSafeArea()
+                .onOpenURL { url in
+                    appDelegate.handleOpenURL(url)
+                }
         }
     }
 }

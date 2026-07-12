@@ -8,6 +8,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.webkit.WebView;
 
+import androidx.browser.customtabs.CustomTabColorSchemeParams;
+import androidx.browser.customtabs.CustomTabsIntent;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -16,12 +19,16 @@ import io.foxbiz.shellular.Service;
 import io.foxbiz.shellular.webView.ChromeClient;
 
 public class BrowserService extends Service {
+    private static final long AUTH_CANCEL_DELAY_MS = 250;
 
     /// Dialog saved when browser is minimized — restored on next open().
     public static BrowserDialog minimizedDialog;
     public static String savedWebViewUrl;
 
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Callback pendingAuthCallback;
+    private String pendingAuthCallbackScheme;
+    private boolean authCustomTabOpen;
     private BrowserDialog activeDialog;
 
     public BrowserService(Context context, WebView webView) {
@@ -103,65 +110,111 @@ public class BrowserService extends Service {
     /**
      * Open browser in auth mode — waits for callback scheme redirect.
      * args[0] = url (String)
-     * args[1] = theme (JSONObject)
-     * args[2] = callbackScheme (String, optional, e.g. "npm")
+     * args[1] = callbackScheme (String, optional, e.g. "shellular")
+     * args[2] = useSafari (Boolean, ignored on Android)
      */
     @SuppressWarnings("unused")
     public void openForAuth(JSONArray args, Callback callback) {
         try {
             String url = args.getString(0);
-            JSONObject themeJson = args.optJSONObject(1);
-            String callbackScheme = args.optString(2, null);
-            BrowserTheme theme = new BrowserTheme(themeJson);
+            String callbackScheme = args.optString(1, null);
 
             pendingAuthCallback = callback;
+            pendingAuthCallbackScheme = callbackScheme;
+            authCustomTabOpen = false;
 
-            new Handler(Looper.getMainLooper()).post(() -> {
+            mainHandler.post(() -> {
                 try {
-                    dismissActiveDialog();
-                    activeDialog = new BrowserDialog((Activity) context, theme, true, callbackScheme);
-                    activeDialog.setAuthCallback(authUrl -> {
-                        if (pendingAuthCallback == null) return;
-                        Callback cb = pendingAuthCallback;
-                        pendingAuthCallback = null;
-                        // Dismiss triggers the dismiss listener which cleans up the dialog
-                        activeDialog.dismiss();
-                        try {
-                            JSONObject result = new JSONObject();
-                            result.put("url", authUrl);
-                            if (authUrl != null) {
-                                Uri uri = Uri.parse(authUrl);
-                                JSONObject params = new JSONObject();
-                                for (String key : uri.getQueryParameterNames()) {
-                                    params.put(key, uri.getQueryParameter(key));
-                                }
-                                result.put("params", params);
-                            }
-                            cb.success(result);
-                        } catch (Exception e) {
-                            cb.error(e.toString());
-                        }
-                    });
-                    // Override dismiss listener to handle auth cancellation
-                    activeDialog.setOnDismissListener(d -> {
-                        if (pendingAuthCallback != null) {
-                            pendingAuthCallback.error("Auth cancelled");
-                            pendingAuthCallback = null;
-                        }
-                        activeDialog = null;
-                    });
-                    activeDialog.setUrl(url);
-                    activeDialog.showAnimated(null);
+                    openAuthCustomTab(url);
                 } catch (Exception e) {
                     if (pendingAuthCallback != null) {
                         pendingAuthCallback.error(e.toString());
                         pendingAuthCallback = null;
+                        pendingAuthCallbackScheme = null;
+                        authCustomTabOpen = false;
                     }
                 }
             });
         } catch (Exception e) {
             callback.error(e.toString());
         }
+    }
+
+    private void openAuthCustomTab(String url) {
+        BrowserTheme theme = new BrowserTheme(null);
+        CustomTabColorSchemeParams params = new CustomTabColorSchemeParams.Builder()
+                .setToolbarColor(theme.get("primary"))
+                .setNavigationBarColor(theme.get("primary"))
+                .build();
+
+        CustomTabsIntent customTabsIntent = new CustomTabsIntent.Builder()
+                .setDefaultColorSchemeParams(params)
+                .setShowTitle(true)
+                .build();
+        customTabsIntent.intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        authCustomTabOpen = true;
+        customTabsIntent.launchUrl((Activity) context, Uri.parse(url));
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+        if (pendingAuthCallback == null || intent == null || intent.getData() == null) {
+            return;
+        }
+
+        Uri uri = intent.getData();
+        if (!isAuthCallbackUri(uri)) {
+            return;
+        }
+
+        Callback cb = pendingAuthCallback;
+        pendingAuthCallback = null;
+        pendingAuthCallbackScheme = null;
+        authCustomTabOpen = false;
+        try {
+            cb.success(authResult(uri));
+        } catch (Exception e) {
+            cb.error(e.toString());
+        }
+    }
+
+    private boolean isAuthCallbackUri(Uri uri) {
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (!"auth-callback".equals(host)) return false;
+        return "shellular".equals(scheme)
+                || "foxbiz".equals(scheme)
+                || (pendingAuthCallbackScheme != null && pendingAuthCallbackScheme.equals(scheme));
+    }
+
+    private JSONObject authResult(Uri uri) throws Exception {
+        JSONObject result = new JSONObject();
+        result.put("url", uri.toString());
+        JSONObject params = new JSONObject();
+        for (String key : uri.getQueryParameterNames()) {
+            params.put(key, uri.getQueryParameter(key));
+        }
+        result.put("params", params);
+        return result;
+    }
+
+    @Override
+    public void onResume() {
+        if (pendingAuthCallback == null || !authCustomTabOpen) {
+            return;
+        }
+
+        mainHandler.postDelayed(() -> {
+            if (pendingAuthCallback == null || !authCustomTabOpen) {
+                return;
+            }
+
+            Callback cb = pendingAuthCallback;
+            pendingAuthCallback = null;
+            pendingAuthCallbackScheme = null;
+            authCustomTabOpen = false;
+            cb.error("Authentication was cancelled.");
+        }, AUTH_CANCEL_DELAY_MS);
     }
 
     @Override
@@ -194,5 +247,7 @@ public class BrowserService extends Service {
     public void destroy() {
         dismissActiveDialog();
         pendingAuthCallback = null;
+        pendingAuthCallbackScheme = null;
+        authCustomTabOpen = false;
     }
 }

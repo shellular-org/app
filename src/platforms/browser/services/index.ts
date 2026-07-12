@@ -5,6 +5,7 @@ import file from "./file";
 import native from "./native";
 import notification from "./notification";
 import scanner from "./scanner";
+import secureStore from "./secureStore";
 
 export default {
 	FileHandler: file,
@@ -14,4 +15,5 @@ export default {
 	Scanner: scanner,
 	Notification: notification,
 	Browser: browser,
+	SecureStore: secureStore,
 };

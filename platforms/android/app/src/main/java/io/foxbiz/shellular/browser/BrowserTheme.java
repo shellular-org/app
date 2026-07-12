@@ -30,15 +30,21 @@ public class BrowserTheme {
 
     public int get(String key, String fallback) {
         String hex = theme.optString(key, fallback);
+        if (hex == null || hex.isEmpty()) {
+            hex = fallback;
+        }
         try {
             return Color.parseColor(hex);
-        } catch (IllegalArgumentException e) {
+        } catch (IllegalArgumentException | NullPointerException e) {
             return Color.parseColor(fallback);
         }
     }
 
     public int get(String key, int fallback) {
         String hex = theme.optString(key, null);
+        if (hex == null || hex.isEmpty()) {
+            return fallback;
+        }
         try {
             return Color.parseColor(hex);
         } catch (IllegalArgumentException e) {

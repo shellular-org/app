@@ -21,15 +21,25 @@ export default {
 		return browser("openHTML", [html, t]) as Promise<void>;
 	},
 
-	openForAuth(
+	async openForAuth(
 		url: string,
 		callbackScheme?: string,
 		useSafari = true,
+		requestId?: string,
 	): Promise<AuthResult> {
-		return browser("openForAuth", [
+		const result = await browser("openForAuth", [
 			url,
 			callbackScheme,
 			useSafari,
-		]) as Promise<AuthResult>;
+			requestId,
+		]);
+		if (typeof result === "string") {
+			try {
+				return JSON.parse(result) as AuthResult;
+			} catch {
+				return { url: result, params: {} };
+			}
+		}
+		return result as AuthResult;
 	},
 };

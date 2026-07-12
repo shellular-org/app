@@ -1,6 +1,5 @@
 //# allFunctionsCalledOnLoad
 
-import "./tailwind.css";
 import { initHapticDelegation } from "lib/haptics";
 
 (async () => {

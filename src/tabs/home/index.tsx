@@ -9,11 +9,13 @@ import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
+import { useAuth } from "lib/auth";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
 import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
-import { getOnlineStatus } from "lib/utils";
+import { getInitials, getOnlineStatus } from "lib/utils";
+import AccountPage from "pages/account";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
 import { getHostInfo } from "state/connection";
@@ -28,6 +30,7 @@ import SavedHostItem from "./SavedHostItem";
 
 export default function HomeTab() {
 	const { savedHosts, connectionStatus, isSwitching, agents } = useShellular();
+	const { user } = useAuth();
 	// Treat an in-flight reconnect as "still connected" for display purposes, so
 	// a dropped CLI doesn't visually reset the home view to the host picker while
 	// we're transparently retrying. The reconnect overlay communicates the state.
@@ -106,22 +109,25 @@ export default function HomeTab() {
 					<h1>Shellular</h1>
 					<span className="home-hero-beta-badge">Beta</span>
 				</div>
-				{isOnline && !hostInfo && compact && (
-					<motion.button
+				{user && (
+					<button
 						type="button"
-						className="home-hero-scanner-btn"
-						onClick={() => setShowScanner(true)}
-						aria-label="Scan QR code"
-						animate={{
-							opacity: showScanner ? 0 : 1,
-							scale: showScanner ? 0.9 : 1,
-						}}
-						transition={{ duration: 0.2, ease: "easeOut" }}
-						style={{ pointerEvents: showScanner ? "none" : "auto" }}
+						className="haptic-trigger grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-card-border bg-surface-strong text-accent transition-transform duration-150 active:scale-95"
+						onClick={openAccountPage}
+						aria-label="Account"
 					>
-						<span className="icon-qr_code_scanner" aria-hidden="true" />
-						<span>Scan</span>
-					</motion.button>
+						{user.avatarUrl ? (
+							<img
+								src={user.avatarUrl}
+								alt=""
+								className="h-full w-full object-cover"
+							/>
+						) : (
+							<span className="text-[13px] font-bold leading-none uppercase tracking-tight">
+								{getInitials(user.name || user.email)}
+							</span>
+						)}
+					</button>
 				)}
 			</div>
 
@@ -130,30 +136,33 @@ export default function HomeTab() {
 			</div>
 			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
-				<div className="home-active-sessions">
-					<h2 className="home-section-title">Active Sessions</h2>
-					<ul className="home-active-sessions-list">
+				<div className="px-[18px] pt-0.5 pb-[18px]">
+					<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
+						Active Sessions
+					</h2>
+					<ul className="m-0 flex list-none flex-col gap-2 p-0">
 						{visibleActiveSessions.map((session) => {
 							const agent = agents[session.agentId];
 							const dismissible = isDismissible(session);
 							return (
 								<li
 									key={`${session.agentId}:${session.sessionId}`}
-									className="home-active-session-row"
+									className="flex items-center rounded-xl border border-card-border bg-popup-background shadow-[var(--shadow)] transition-colors duration-150 active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)]"
 								>
-									<div
-										className="home-active-session haptic-trigger"
+									<button
+										type="button"
+										className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-0 text-left"
 										onClick={() => openSession(session, agent)}
 									>
 										<span
-											className={`home-active-session-icon ${getAgentIcon(session.agentId)}`}
+											className={`shrink-0 text-[22px] ${getAgentIcon(session.agentId)}`}
 											aria-hidden="true"
 										/>
-										<span className="home-active-session-text">
-											<span className="home-active-session-title">
+										<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+											<span className="truncate text-[14px] font-[650] text-primary-text">
 												{sessionDisplayTitle(session)}
 											</span>
-											<span className="home-active-session-meta">
+											<span className="truncate text-[11px] text-secondary-text opacity-[0.58]">
 												{[
 													agent?.title ?? session.agentId,
 													basename(session.workspacePath),
@@ -163,39 +172,40 @@ export default function HomeTab() {
 											</span>
 										</span>
 										<span
-											className="home-active-session-status"
-											data-status={session.status}
+											className={clsx(
+												"ml-2 shrink-0 truncate text-[11px] font-bold",
+												statusColor(session.status),
+												!dismissible && "pr-3.5",
+											)}
 										>
 											{statusLabel(session)}
 										</span>
-										{dismissible && (
-											<div onClick={(e) => e.stopPropagation()}>
-												<AppMenu
-													ariaLabel="Session options"
-													buttonClassName="home-active-session-menu"
-													placement="bottom end"
-													items={[
-														{
-															key: "copy-id",
-															icon: "icon-copy",
-															label: "Copy Session ID",
-															onClick: () => copySessionId(session.sessionId),
-														},
-														{
-															key: "dismiss",
-															icon: "icon-eye-off",
-															label: "Dismiss",
-															onClick: () =>
-																dismissSessionActivity(
-																	session.agentId,
-																	session.sessionId,
-																),
-														},
-													]}
-												/>
-											</div>
-										)}
-									</div>
+									</button>
+									{dismissible && (
+										<AppMenu
+											ariaLabel="Session options"
+											buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
+											placement="bottom end"
+											items={[
+												{
+													key: "copy-id",
+													icon: "icon-copy",
+													label: "Copy Session ID",
+													onClick: () => copySessionId(session.sessionId),
+												},
+												{
+													key: "dismiss",
+													icon: "icon-eye-off",
+													label: "Dismiss",
+													onClick: () =>
+														dismissSessionActivity(
+															session.agentId,
+															session.sessionId,
+														),
+												},
+											]}
+										/>
+									)}
 								</li>
 							);
 						})}
@@ -223,7 +233,20 @@ export default function HomeTab() {
 
 			{savedHosts.length > 0 && !showScanner && !isLive && (
 				<div className="saved-machines-section">
-					<h2 className="saved-machines-title">Recent Hosts</h2>
+					<div className="mb-2.5 ml-1 flex items-center justify-between">
+						<h2 className="saved-machines-title !m-0">Recent Hosts</h2>
+						{isOnline && !hostInfo && (
+							<button
+								type="button"
+								className="home-hero-scanner-btn"
+								onClick={() => setShowScanner(true)}
+								aria-label="Scan QR code to connect a new host"
+							>
+								<span className="icon-qr_code_scanner" aria-hidden="true" />
+								<span>Add</span>
+							</button>
+						)}
+					</div>
 					<div className="saved-machines-list">
 						<AnimatePresence mode="popLayout">
 							{savedHosts.map((host) => (
@@ -257,6 +280,10 @@ export default function HomeTab() {
 			/>
 		</div>
 	);
+}
+
+function openAccountPage() {
+	pushPage("account", <AccountPage />, { showConnectionBanner: false });
 }
 
 async function openSession(
@@ -309,6 +336,22 @@ function isDismissible(session: SessionActivity): boolean {
 			return false;
 		default:
 			return true;
+	}
+}
+
+function statusColor(status: SessionActivity["status"]): string {
+	switch (status) {
+		case "starting":
+		case "running":
+			return "text-info";
+		case "waiting_for_permission":
+			return "text-warning";
+		case "error":
+			return "text-danger";
+		case "finished":
+			return "text-success";
+		default:
+			return "text-secondary-text opacity-70";
 	}
 }
 
