@@ -1,6 +1,7 @@
 import browser from "bridge/browser";
 import native from "bridge/native";
 import secureStore from "bridge/secureStore";
+import { BROWSER_AUTH_REQUEST_ID_PARAM } from "lib/browserAuthCallback";
 import { getBaseServerUrl } from "lib/settings";
 import {
 	createContext,
@@ -65,6 +66,7 @@ let accessTokenExpiresAt = 0;
 let refreshTokenValue: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 let authCallbackSchemeInFlight: Promise<string> | null = null;
+let activeBrowserAuthRequestId: string | null = null;
 
 function isBrowserCookieAuth(): boolean {
 	return process.env.PLATFORM === "browser";
@@ -218,6 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	const signIn = useCallback(
 		async (provider: AuthProviderId) => {
+			const authRequestId = createAuthRequestId();
+			if (authRequestId) activeBrowserAuthRequestId = authRequestId;
 			setSigningInProvider(provider);
 			setError(null);
 			try {
@@ -226,7 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 					{
 						method: "POST",
 						body: JSON.stringify({
-							callbackUrl: await getAuthCallbackUrl(),
+							callbackUrl: await getAuthCallbackUrl(authRequestId),
 						}),
 					},
 				);
@@ -234,6 +238,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				const result = await browser.openForAuth(
 					start.authorizationUrl,
 					callbackTarget,
+					true,
+					authRequestId,
 				);
 				const params = result.params ?? callbackParams(result.url);
 				if (params.error) {
@@ -256,19 +262,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				await applyTokenResponse(data);
 			} catch (err) {
 				const message = errorMessage(err);
-				if (
-					isBrowserCookieAuth() &&
-					isAuthCancellation(message) &&
-					(await refreshBrowserSessionAfterCallback(refresh))
-				) {
-					return;
-				}
-				if (!isAuthCancellation(message)) {
+				if (!isAuthSuperseded(message)) {
 					logAuthError(`sign in with ${provider}`, err);
 					setError("We couldn't sign you in. Please try again.");
 				}
 			} finally {
-				setSigningInProvider(null);
+				if (
+					!isBrowserCookieAuth() ||
+					activeBrowserAuthRequestId === authRequestId
+				) {
+					activeBrowserAuthRequestId = null;
+					setSigningInProvider(null);
+				}
 			}
 		},
 		[applyTokenResponse, refresh],
@@ -292,6 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
 	const linkAccount = useCallback(
 		async (provider: AuthProviderId) => {
+			const authRequestId = createAuthRequestId();
 			setAccountAction({ type: "link", provider });
 			setAccountError(null);
 			try {
@@ -302,7 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 						method: "POST",
 						headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 						body: JSON.stringify({
-							callbackUrl: await getAuthCallbackUrl(),
+							callbackUrl: await getAuthCallbackUrl(authRequestId),
 						}),
 					},
 				);
@@ -310,6 +316,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				const result = await browser.openForAuth(
 					start.authorizationUrl,
 					callbackTarget,
+					true,
+					authRequestId,
 				);
 				const params = result.params ?? callbackParams(result.url);
 				if (params.error) {
@@ -337,11 +345,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				setUser(data.user);
 			} catch (err) {
 				const message = errorMessage(err);
-				if (isBrowserCookieAuth() && isAuthCancellation(message)) {
-					await refreshMe().catch(() => {});
-					return;
-				}
-				if (!isAuthCancellation(message)) {
+				if (!isAuthSuperseded(message)) {
 					logAuthError(`link ${provider} account`, err);
 					setAccountError("We couldn't link this account. Please try again.");
 				}
@@ -566,21 +570,8 @@ function errorMessage(error: unknown): string {
 	return String(error);
 }
 
-function isAuthCancellation(message: string): boolean {
-	return (
-		message.includes("Authentication was cancelled.") ||
-		message.includes("Auth cancelled")
-	);
-}
-
-async function refreshBrowserSessionAfterCallback(
-	refresh: () => Promise<boolean>,
-): Promise<boolean> {
-	for (const delay of [250, 500, 1000]) {
-		await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
-		if (await refresh()) return true;
-	}
-	return false;
+function isAuthSuperseded(message: string): boolean {
+	return message.includes("Auth superseded");
 }
 
 function logAuthError(action: string, error: unknown): void {
@@ -604,13 +595,20 @@ async function getAuthCallbackScheme(): Promise<string> {
 	return authCallbackSchemeInFlight;
 }
 
-async function getAuthCallbackUrl(): Promise<string> {
+async function getAuthCallbackUrl(authRequestId?: string): Promise<string> {
 	if (process.env.PLATFORM === "browser") {
 		const url = new URL(window.location.origin);
 		url.searchParams.set("shellularAuthCallback", "1");
+		if (authRequestId) {
+			url.searchParams.set(BROWSER_AUTH_REQUEST_ID_PARAM, authRequestId);
+		}
 		return url.toString();
 	}
 	return `${await getAuthCallbackScheme()}://auth-callback`;
+}
+
+function createAuthRequestId(): string | undefined {
+	return isBrowserCookieAuth() ? crypto.randomUUID() : undefined;
 }
 
 async function getAuthCallbackTarget(): Promise<string> {

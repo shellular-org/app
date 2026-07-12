@@ -25,11 +25,13 @@ export default {
 		url: string,
 		callbackScheme?: string,
 		useSafari = true,
+		requestId?: string,
 	): Promise<AuthResult> {
 		const result = await browser("openForAuth", [
 			url,
 			callbackScheme,
 			useSafari,
+			requestId,
 		]);
 		if (typeof result === "string") {
 			try {

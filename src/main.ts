@@ -21,6 +21,7 @@ import themes from "themes";
 import App from "./App";
 import actionStack from "./lib/actionStack";
 import appConfig from "./lib/appConfig";
+import { createBrowserAuthCallbackMessage } from "./lib/browserAuthCallback";
 import { initSodium } from "./lib/e2ee";
 import keyboard from "./lib/keyboard";
 import { loadSettings } from "./lib/settings";
@@ -28,10 +29,6 @@ import * as store from "./lib/store";
 import windowResize from "./lib/windowResize";
 import externalLinks from "./listeners/externalLinks";
 import intent from "./listeners/intent";
-
-const AUTH_CALLBACK_MESSAGE_TYPE = "shellular-auth-callback";
-const AUTH_CHANNEL_NAME = "shellular-auth";
-const AUTH_STORAGE_KEY = "shellular:auth-callback";
 
 if (isBrowserAuthCallback()) {
 	if (document.readyState === "loading") {
@@ -61,30 +58,18 @@ function completeBrowserAuthCallback() {
 	document.body.classList.add("done");
 	document.body.textContent = "Completing sign-in...";
 
-	const payload = {
-		type: AUTH_CALLBACK_MESSAGE_TYPE,
-		url: window.location.href,
-	};
-
-	if (window.opener && !window.opener.closed) {
-		window.opener.postMessage(payload, window.location.origin);
+	const payload = createBrowserAuthCallbackMessage(window.location.href);
+	if (!payload) {
+		document.body.textContent =
+			"Invalid sign-in callback. You can close this window.";
+		return;
 	}
-
-	try {
-		const channel = new BroadcastChannel(AUTH_CHANNEL_NAME);
-		channel.postMessage(payload);
-		channel.close();
-	} catch {}
-
-	try {
-		localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(payload));
-		window.setTimeout(() => localStorage.removeItem(AUTH_STORAGE_KEY), 1000);
-	} catch {}
-
-	window.setTimeout(() => {
-		window.close();
-		document.body.textContent = "Sign-in complete. You can close this window.";
-	}, 100);
+	if (!window.opener) {
+		document.body.textContent =
+			"Sign-in window lost its parent. Please try again.";
+		return;
+	}
+	window.opener.postMessage(payload, window.location.origin);
 }
 
 async function load() {
