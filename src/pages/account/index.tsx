@@ -1,9 +1,7 @@
-import { pushPage } from "App";
 import clsx from "clsx";
 import Page from "components/Page";
 import { type AuthProviderId, useAuth } from "lib/auth";
 import { copyToClipboard } from "lib/clipboard";
-import AccountHistoryPage from "pages/account-history";
 import { useEffect, useRef, useState } from "react";
 
 const PROVIDERS: AuthProviderId[] = ["google", "github", "apple"];
@@ -245,27 +243,6 @@ export default function AccountPage() {
 						)}
 					</section>
 
-					<section className="flex flex-col gap-2.5">
-						<h3 className={SECTION_TITLE}>History</h3>
-						<div className={CARD}>
-							<button
-								type="button"
-								className={`${ROW} haptic-trigger active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)]`}
-								onClick={openHistoryPage}
-							>
-								<span className={`icon-clock ${ROW_ICON}`} aria-hidden="true" />
-								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-									<span className={ROW_LABEL}>Hosts and devices</span>
-									<span className={ROW_VALUE}>View connection history</span>
-								</span>
-								<span
-									className="icon-chevron-right shrink-0 text-secondary-text opacity-[0.42]"
-									aria-hidden="true"
-								/>
-							</button>
-						</div>
-					</section>
-
 					<button
 						type="button"
 						className="haptic-trigger flex min-h-12 items-center justify-center gap-2 rounded-xl border border-card-border bg-surface-soft text-[14px] font-[750] text-primary-text active:opacity-70"
@@ -289,10 +266,4 @@ export default function AccountPage() {
 			)}
 		</Page>
 	);
-}
-
-function openHistoryPage() {
-	pushPage("account-history", <AccountHistoryPage />, {
-		showConnectionBanner: false,
-	});
 }
