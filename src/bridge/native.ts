@@ -1,4 +1,5 @@
 import type Theme from "classes/theme";
+import type { TerminalKeyboardMode } from "lib/settings";
 import permissions from "lib/permissions";
 import bridge from "./bridge";
 
@@ -119,7 +120,7 @@ export default {
 	haptic(): Promise<void> {
 		return native("haptic") as Promise<void>;
 	},
-	setKeyboardSuggestionsEnabled(enabled: boolean): Promise<void> {
-		return native("setKeyboardSuggestionsEnabled", [enabled]) as Promise<void>;
+	setTerminalKeyboardMode(mode: TerminalKeyboardMode): Promise<void> {
+		return native("setTerminalKeyboardMode", [mode]) as Promise<void>;
 	},
 };
