@@ -139,9 +139,19 @@ export default (_, { env = {}, mode = "development" }) => {
 						...(platform === "browser"
 							? {
 									server: "https",
-									headers: {
-										"Cross-Origin-Opener-Policy": "same-origin",
-										"Cross-Origin-Embedder-Policy": "require-corp",
+									headers: (request) => {
+										const isAuthCallback =
+											new URL(
+												request.url ?? "/",
+												"https://shellular.local",
+											).searchParams.get("shellularAuthCallback") === "1";
+										return isAuthCallback
+											? { "Cross-Origin-Opener-Policy": "unsafe-none" }
+											: {
+													"Cross-Origin-Opener-Policy":
+														"same-origin-allow-popups",
+													"Cross-Origin-Embedder-Policy": "require-corp",
+												};
 									},
 								}
 							: {}),

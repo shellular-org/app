@@ -274,10 +274,6 @@ export async function saveSettings(
 }
 
 export async function getBaseServerUrl(): Promise<string> {
-	if (!process.env.DEV_MODE) {
-		return `https://${DEFAULT_DEV_SERVER_SETTINGS.domain}`;
-	}
-
 	const settings = await loadSettings();
 	const domain = normalizeDomain(settings.devServer.domain);
 	return `${settings.devServer.protocol}://${domain || DEFAULT_DEV_SERVER_SETTINGS.domain}`;

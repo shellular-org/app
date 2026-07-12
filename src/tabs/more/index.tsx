@@ -7,8 +7,6 @@ import ReachOutPage from "pages/reach-out";
 import SettingsPage from "pages/settings";
 import { useState } from "react";
 
-import "./style.scss";
-
 interface AppTile {
 	id: string;
 	label: string;
@@ -75,19 +73,30 @@ export default function MoreTab() {
 	];
 
 	return (
-		<div className="more-tab">
+		<div className="flex min-h-full flex-col">
 			<TabPageHeader title="More" />
-			<ul className="more-tab-list">
+			<ul className="m-0 flex list-none flex-col gap-0.5 px-2 py-2">
 				{tiles.map(({ id, label, description, icon, onTap }) => (
 					<li key={id}>
-						<button type="button" className="more-tab-tile" onClick={onTap}>
-							<span className={icon} aria-hidden="true" />
-							<div className="more-tab-tile-text">
-								<span className="more-tab-tile-label">{label}</span>
-								<span className="more-tab-tile-desc">{description}</span>
+						<button
+							type="button"
+							className="haptic-trigger flex w-full items-center gap-4 rounded-2xl px-3 py-3.5 text-left text-primary-text transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--info)_6%,transparent)] active:bg-[color-mix(in_srgb,var(--info)_10%,transparent)]"
+							onClick={onTap}
+						>
+							<span
+								className={`${icon} shrink-0 text-[20px] text-primary-text`}
+								aria-hidden="true"
+							/>
+							<div className="flex flex-1 flex-col gap-0.5">
+								<span className="text-[15px] font-semibold text-primary-text">
+									{label}
+								</span>
+								<span className="text-[12px] text-secondary-text opacity-60">
+									{description}
+								</span>
 							</div>
 							<span
-								className="icon-chevron-right more-tab-tile-chevron"
+								className="icon-chevron-right shrink-0 text-[16px] text-secondary-text opacity-40"
 								aria-hidden="true"
 							/>
 						</button>

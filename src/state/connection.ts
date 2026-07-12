@@ -3,6 +3,7 @@ import {
 	ClientHandshakeRespMsgSchema,
 	type ClientIncomingMsg,
 	ClientIncomingMsgSchema,
+	type ClientInfoRequest,
 	type ClientToHostMsg,
 	type ClientToServerMsg,
 	type HostInfo,
@@ -11,6 +12,7 @@ import {
 	type SessionJoinedMsg,
 } from "@shellular/protocol";
 import native from "bridge/native";
+import { getAccessTokenForAuth } from "lib/auth";
 import {
 	decryptMessage,
 	decryptProxyBinaryFrame,
@@ -69,6 +71,17 @@ type HandshakeError = Error & {
 	userMessage?: string;
 };
 
+type ConnectionCloseDetail = {
+	code: number;
+	reason: string;
+};
+
+type WebSocketTokenResponse = {
+	wsToken: string;
+	clientId: string;
+	expiresIn: number;
+};
+
 const RECV_TIMEOUT = 40_000;
 const PING_INTERVAL_MS = 25_000;
 // If no inbound frame (pong or anything else) arrives within this window, the
@@ -87,6 +100,7 @@ const HANDSHAKE_CLOSE_CODE = {
 	APPROVAL_DENIED: 4003,
 	SESSION_ERROR: 4004,
 	HOST_DISCONNECTED: 4005,
+	CLIENT_REPLACED: 4006,
 } as const;
 
 class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
@@ -215,21 +229,36 @@ export class Connection extends EventTarget {
 	}
 
 	async open(hostId: string): Promise<SessionJoinedMsg> {
+		const accessToken =
+			process.env.PLATFORM === "browser" ? null : await getAccessTokenForAuth();
+		if (process.env.PLATFORM !== "browser" && !accessToken) {
+			throw new Error("Sign in again to connect to this host.");
+		}
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
-		const platform = process.env.PLATFORM;
+		// Deliberately a request-shaped payload: the server derives `user` from the
+		// authenticated session, so the app never asserts its own identity here.
+		const clientInfo: ClientInfoRequest = {
+			hostId,
+			clientId,
+			appVersion,
+			platform: process.env.PLATFORM,
+			deviceModel: deviceInfo.model,
+			deviceIsEmulator: deviceInfo.isEmulator,
+			deviceManufacturer: deviceInfo.manufacturer,
+		};
+		const wsToken = await requestWebSocketToken(
+			this.serverUrl,
+			accessToken,
+			clientInfo,
+		);
 
 		const wsUrl = new URL(this.serverUrl);
-		wsUrl.searchParams.set("hostId", hostId);
-		wsUrl.searchParams.set("clientId", clientId);
-		wsUrl.searchParams.set("appVersion", appVersion);
-		wsUrl.searchParams.set("platform", platform);
-		wsUrl.searchParams.set("deviceModel", deviceInfo.model);
-		wsUrl.searchParams.set("deviceIsEmulator", String(deviceInfo.isEmulator));
-		wsUrl.searchParams.set("deviceManufacturer", deviceInfo.manufacturer);
+		wsUrl.search = "";
+		wsUrl.searchParams.set("wsToken", wsToken.wsToken);
 
-		this.clientId = clientId;
+		this.clientId = wsToken.clientId;
 		this.ws = new WebSocket(wsUrl.toString());
 		const ws = this.ws;
 		ws.binaryType = "arraybuffer";
@@ -321,8 +350,12 @@ export class Connection extends EventTarget {
 						ws.addEventListener("message", (nextEvent) => {
 							void this.handleIncomingWebSocketData(nextEvent.data);
 						});
-						ws.addEventListener("close", () => {
-							this.dispatchEvent(new Event("disconnected"));
+						ws.addEventListener("close", (event) => {
+							this.dispatchEvent(
+								new CustomEvent<ConnectionCloseDetail>("disconnected", {
+									detail: { code: event.code, reason: event.reason },
+								}),
+							);
 						});
 						resolveOnce(msg);
 						return;
@@ -602,8 +635,9 @@ class ConnectionManager {
 					reject(err);
 				});
 
-			nextConnection.on("disconnected", () => {
+			nextConnection.on("disconnected", (event) => {
 				if (attemptId !== this.activeConnectAttempt) return;
+				const closeDetail = connectionCloseDetail(event);
 				if (!handshakeCompleted) {
 					this.pendingSocket = null;
 					if (status !== "reconnecting") {
@@ -612,8 +646,29 @@ class ConnectionManager {
 						});
 					}
 					reject(
-						new Error("WebSocket closed before session handshake completed"),
+						createHandshakeError({
+							message: getHandshakeCloseMessage(
+								closeDetail?.code ?? 0,
+								closeDetail?.reason ?? "",
+							),
+							code: closeDetail?.code,
+							reason: closeDetail?.reason,
+						}),
 					);
+					return;
+				}
+				if (isClientReplacedClose(closeDetail)) {
+					this.stopPing();
+					if (this.connection === nextConnection) {
+						this.connection = null;
+					}
+					this.activeHostId = null;
+					this.setSnapshot({
+						hostInfo: null,
+						connectionStatus: "disconnected",
+						batteryInfo: null,
+					});
+					this.onDisconnected?.();
 					return;
 				}
 				if (this.snapshot.connectionStatus === "connected") {
@@ -814,6 +869,8 @@ function getHandshakeCloseMessage(code: number, reason: string): string {
 			return "We couldn't attach this client to the session. Please try again.";
 		case HANDSHAKE_CLOSE_CODE.HOST_DISCONNECTED:
 			return "The host is offline. Please check your dev machine and try again.";
+		case HANDSHAKE_CLOSE_CODE.CLIENT_REPLACED:
+			return "This browser session was replaced by a newer Shellular window.";
 		default:
 			break;
 	}
@@ -834,13 +891,84 @@ function getHandshakeCloseMessage(code: number, reason: string): string {
 		return "We couldn't attach this client to the session. Please try again.";
 	}
 
+	if (reason === "client_replaced") {
+		return "This browser session was replaced by a newer Shellular window.";
+	}
+
 	return "WebSocket closed before session handshake completed";
+}
+
+function connectionCloseDetail(
+	event: Event | unknown,
+): ConnectionCloseDetail | null {
+	if (!(event instanceof CustomEvent)) return null;
+	const detail = event.detail as Partial<ConnectionCloseDetail> | null;
+	if (
+		!detail ||
+		typeof detail.code !== "number" ||
+		typeof detail.reason !== "string"
+	) {
+		return null;
+	}
+	return { code: detail.code, reason: detail.reason };
+}
+
+function isClientReplacedClose(detail: ConnectionCloseDetail | null): boolean {
+	return (
+		detail?.code === HANDSHAKE_CLOSE_CODE.CLIENT_REPLACED ||
+		detail?.reason === "client_replaced"
+	);
 }
 
 function toWsUrl(httpUrl: string): string {
 	return httpUrl
 		.replace(/^https:\/\//, "wss://")
 		.replace(/^http:\/\//, "ws://");
+}
+
+function toHttpUrl(wsUrl: string): string {
+	return wsUrl.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
+}
+
+async function requestWebSocketToken(
+	wsUrl: string,
+	accessToken: string | null,
+	clientInfo: ClientInfoRequest,
+): Promise<WebSocketTokenResponse> {
+	const url = new URL(toHttpUrl(wsUrl));
+	url.pathname = "/auth/ws-app-token";
+	url.search = "";
+
+	const headers = new Headers({ "Content-Type": "application/json" });
+	if (accessToken) {
+		headers.set("Authorization", `Bearer ${accessToken}`);
+	}
+
+	const response = await fetch(url.toString(), {
+		method: "POST",
+		credentials: "include",
+		headers,
+		body: JSON.stringify(clientInfo),
+	});
+	const json = (await response.json().catch(() => ({}))) as {
+		success?: boolean;
+		data?: WebSocketTokenResponse;
+		error?: string;
+		message?: string;
+	};
+
+	if (
+		!response.ok ||
+		json.success === false ||
+		!json.data?.wsToken ||
+		!json.data.clientId
+	) {
+		throw new Error(
+			json.error || json.message || "Failed to authorize WebSocket connection.",
+		);
+	}
+
+	return json.data;
 }
 
 export function subscribeState(listener: Listener): () => void {

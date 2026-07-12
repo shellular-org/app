@@ -275,6 +275,19 @@ public class MainActivity extends AppCompatActivity {
 
             appView.evaluateJavascript("document.dispatchEvent(new Event('resume'));", null);
         }
+
+        if (bridge == null) {
+            Log.e(TAG, "Bridge is not initialized.");
+            return;
+        }
+
+        bridge.getServices().forEach((key, service) -> {
+            if (service == null) {
+                Log.e(TAG, "Service not found: " + key);
+                return;
+            }
+            service.onResume();
+        });
     }
 
     private void setupScreenStateReceiver() {

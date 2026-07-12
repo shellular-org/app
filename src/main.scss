@@ -1,6 +1,54 @@
 @use "tailwindcss";
 @use "./keyframes.scss";
 
+// ── Tailwind foundation ─────────────────────────────────────────────
+// Platform / keyboard variants mirror the SCSS mixins in src/mixins.scss so
+// `ios:`, `android:`, `browser:`, `kbd:` (+ composites) are usable as idiomatic
+// Tailwind variants during the SCSS→Tailwind migration. `md:` (768px) and `lg:`
+// (1024px) already cover the old `tablet`/`desktop` mixins.
+@custom-variant ios (body[platform="ios"] &);
+@custom-variant android (body[platform="android"] &);
+@custom-variant browser (body[platform="browser"] &);
+@custom-variant kbd (body.keyboard-visible &);
+@custom-variant ios-kbd (body[platform="ios"].keyboard-visible &);
+@custom-variant android-kbd (body[platform="android"].keyboard-visible &);
+@custom-variant browser-kbd (body[platform="browser"].keyboard-visible &);
+@custom-variant big-phone (@media (max-width: 520px));
+
+// Bridge the runtime theme tokens (emitted as :root { --accent; ... } by
+// src/classes/theme.ts `get css()` into <style id="theme-data">) into Tailwind's
+// theme so idiomatic utilities like `bg-accent` / `text-primary-text` work AND
+// keep tracking theme switches (the underlying :root vars are what change).
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-text: var(--primary-text);
+  --color-secondary: var(--secondary);
+  --color-secondary-text: var(--secondary-text);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent2);
+  --color-link: var(--link);
+  --color-info: var(--info);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-button-background: var(--button-background);
+  --color-button-background-active: var(--button-background-active);
+  --color-button-text: var(--button-text);
+  --color-card-bg: var(--card-bg);
+  --color-card-border: var(--card-border);
+  --color-line-soft: var(--line-soft);
+  --color-border-color: var(--border-color);
+  --color-surface-soft: var(--surface-soft);
+  --color-surface-strong: var(--surface-strong);
+  --color-popup-background: var(--popup-background);
+  --color-popup-border-color: var(--popup-border-color);
+  --color-popup-active-background: var(--popup-active-background);
+  --color-popup-active-text: var(--popup-active-text);
+  --color-shadow-color: var(--shadow-color);
+}
+// ────────────────────────────────────────────────────────────────────
+
 @font-face {
   font-family: 'JetBrainsMono Nerd Font';
   src: url('./res/JetBrainsMonoNerdFont-Regular.ttf') format('truetype');

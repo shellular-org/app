@@ -21,6 +21,7 @@ import themes from "themes";
 import App from "./App";
 import actionStack from "./lib/actionStack";
 import appConfig from "./lib/appConfig";
+import { createBrowserAuthCallbackMessage } from "./lib/browserAuthCallback";
 import { initSodium } from "./lib/e2ee";
 import keyboard from "./lib/keyboard";
 import { loadSettings } from "./lib/settings";
@@ -29,10 +30,46 @@ import windowResize from "./lib/windowResize";
 import externalLinks from "./listeners/externalLinks";
 import intent from "./listeners/intent";
 
-if (document.readyState === "complete") {
+if (isBrowserAuthCallback()) {
+	if (document.readyState === "loading") {
+		document.addEventListener("DOMContentLoaded", completeBrowserAuthCallback);
+	} else {
+		completeBrowserAuthCallback();
+	}
+} else if (document.readyState === "complete") {
 	load().catch(console.error);
 } else {
 	window.addEventListener("load", load);
+}
+
+function isBrowserAuthCallback(): boolean {
+	if (process.env.PLATFORM !== "browser") return false;
+	try {
+		const url = new URL(window.location.href);
+		return url.searchParams.get("shellularAuthCallback") === "1";
+	} catch {
+		return false;
+	}
+}
+
+function completeBrowserAuthCallback() {
+	if (!document.body) return;
+	document.body.classList.remove("loading");
+	document.body.classList.add("done");
+	document.body.textContent = "Completing sign-in...";
+
+	const payload = createBrowserAuthCallbackMessage(window.location.href);
+	if (!payload) {
+		document.body.textContent =
+			"Invalid sign-in callback. You can close this window.";
+		return;
+	}
+	if (!window.opener) {
+		document.body.textContent =
+			"Sign-in window lost its parent. Please try again.";
+		return;
+	}
+	window.opener.postMessage(payload, window.location.origin);
 }
 
 async function load() {

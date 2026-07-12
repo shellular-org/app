@@ -60,6 +60,7 @@ public abstract class Service {
         }
     }
     public void onNewIntent(Intent intent) {}
+    public void onResume() {}
     public void onDestroy() {
         // Cleanup resources if needed
     }

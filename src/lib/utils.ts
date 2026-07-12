@@ -77,3 +77,19 @@ export function getOnlineStatus() {
 
 	return navigator.onLine;
 }
+
+/**
+ * Returns the initials of a given string. For example, "John Doe" would return "JD".
+ *
+ * @param value
+ * @returns
+ */
+export function getInitials(value: string): string {
+	const parts = value
+		.trim()
+		.split(/[\s@._-]+/)
+		.filter(Boolean);
+	if (parts.length === 0) return "?";
+	if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+	return (parts[0][0] + parts[1][0]).toUpperCase();
+}

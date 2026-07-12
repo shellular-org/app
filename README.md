@@ -12,6 +12,8 @@ Use your dev machine from your phone. Connect to your Mac, PC, or VPS and ship f
 - **Port forwarding** — expose services from your dev machine
 - **End-to-end encryption** — libsodium-powered key exchange
 - **QR pairing** — scan to connect, no manual IP entry
+- **OAuth account login** — sign in with supported providers and refresh access tokens automatically
+- **Connection history** — view read-only host and device history from Account
 - **Themes** — Light, Dark, and OLED
 
 ## Prerequisites
@@ -38,6 +40,12 @@ pnpm dev browser
 ```
 
 This starts webpack-dev-server with HMR and launches the app on the target platform.
+
+## Authentication and Connections
+
+The app refreshes its OAuth access token before connecting to a host. It then sends the host/client/device metadata to the server with an authenticated `POST /auth/ws-app-token` request. The app WebSocket opens with only a short-lived `wsToken` query parameter, so long-lived access tokens and device metadata are not placed in the WebSocket URL.
+
+Successful app joins are shown as read-only host and device history from the Account page. This history is for visibility only; saved hosts, E2EE keys, reconnects, and QR/manual connection behavior remain local to the app.
 
 ## Building
 
