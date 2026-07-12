@@ -158,7 +158,7 @@ async function load() {
 		const versionCode = Number.parseInt(platform.versionCode, 10);
 		if (versionCode > Number.parseInt(process.env.VERSION_CODE, 10)) {
 			const confirmation = await dialog.confirm(
-				`New version ${platform.version} available on ${process.env.IS_IOS ? "App Store" : "Play Store"}, update?`,
+				`New version ${platform.version} available on ${process.env.IS_IOS || process.env.IS_MACOS ? "App Store" : "Play Store"}, update?`,
 				"New version available",
 			);
 

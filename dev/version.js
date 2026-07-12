@@ -10,6 +10,7 @@ const INCREMENT = revert ? -1 : 1;
 const packageJsonFile = resolve(process.cwd(), "package.json");
 const manifestXmlFile = resolve(process.cwd(), "platforms/android/app/src/main/AndroidManifest.xml");
 const pbxprojFile = resolve(process.cwd(), "platforms/ios/shellular.xcodeproj/project.pbxproj");
+const macPbxprojFile = resolve(process.cwd(), "platforms/macos/shellular.xcodeproj/project.pbxproj");
 
 main();
 
@@ -17,6 +18,7 @@ async function main() {
   const packageContent = readFileSync(packageJsonFile, "utf8");
   const manifestContent = readFileSync(manifestXmlFile, "utf8");
   const pbxprojContent = readFileSync(pbxprojFile, "utf8");
+  const macPbxprojContent = readFileSync(macPbxprojFile, "utf8");
   const packageJson = JSON.parse(packageContent);
 
   if (!version) {
@@ -50,6 +52,10 @@ async function main() {
   let newPbxprojContent = pbxprojContent.replace(/MARKETING_VERSION = [\d.]+;/g, `MARKETING_VERSION = ${version};`);
   newPbxprojContent = newPbxprojContent.replace(/CURRENT_PROJECT_VERSION = \d+;/g, `CURRENT_PROJECT_VERSION = ${versionCode};`);
   writeFileSync(pbxprojFile, newPbxprojContent, "utf8");
+
+  let newMacPbxprojContent = macPbxprojContent.replace(/MARKETING_VERSION = [\d.]+;/g, `MARKETING_VERSION = ${version};`);
+  newMacPbxprojContent = newMacPbxprojContent.replace(/CURRENT_PROJECT_VERSION = \d+;/g, `CURRENT_PROJECT_VERSION = ${versionCode};`);
+  writeFileSync(macPbxprojFile, newMacPbxprojContent, "utf8");
 
   writeFileSync(packageJsonFile, JSON.stringify({ ...packageJson, version, versionCode }, undefined, 2), "utf8");
 

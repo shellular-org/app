@@ -243,7 +243,9 @@ export class Connection extends EventTarget {
 			hostId,
 			clientId,
 			appVersion,
-			platform: process.env.PLATFORM,
+			// The sibling protocol package adds macOS in this change. Keep this cast
+			// until the newly published protocol declaration is installed here.
+			platform: process.env.PLATFORM as ClientInfoRequest["platform"],
 			deviceModel: deviceInfo.model,
 			deviceIsEmulator: deviceInfo.isEmulator,
 			deviceManufacturer: deviceInfo.manufacturer,

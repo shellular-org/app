@@ -1,4 +1,4 @@
-type PLATFORM = "android" | "browser" | "ios";
+type PLATFORM = "android" | "browser" | "ios" | "macos";
 
 interface Bridge {
 	exec(
@@ -15,6 +15,7 @@ declare namespace NodeJS {
 		env: {
 			ID: string;
 			IS_IOS: boolean;
+			IS_MACOS: boolean;
 			IS_ANDROID: boolean;
 			IS_BROWSER: boolean;
 			DEV_MODE: boolean;
