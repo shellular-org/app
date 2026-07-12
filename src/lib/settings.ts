@@ -18,6 +18,34 @@ export type EditorSettings = {
 
 export type TerminalCursorStyle = "block" | "underline" | "bar";
 
+export type TerminalKeyboardMode = "terminal" | "text" | "numeric";
+
+export const TERMINAL_TOOLBAR_KEY_IDS = [
+	"esc",
+	"tab",
+	"ctrl",
+	"alt",
+	"shift",
+	"home",
+	"end",
+	"up",
+	"down",
+	"left",
+	"right",
+	"pageup",
+	"pagedown",
+	"interrupt",
+	"switchTerminal",
+	"del",
+] as const;
+
+export type TerminalToolbarKeyId = (typeof TERMINAL_TOOLBAR_KEY_IDS)[number];
+
+export const DEFAULT_TERMINAL_TOOLBAR_ROWS: TerminalToolbarKeyId[][] = [
+	["esc", "shift", "home", "end", "up", "switchTerminal", "pageup"],
+	["tab", "ctrl", "alt", "left", "down", "right", "pagedown"],
+];
+
 export type TerminalSettings = {
 	fontSize: number;
 	fontFamily: string;
@@ -26,6 +54,8 @@ export type TerminalSettings = {
 	cursorBlink: boolean;
 	scrollback: number;
 	letterSpacing: number;
+	keyboardMode: TerminalKeyboardMode;
+	toolbarRows: string[][];
 };
 
 export type AppSettings = {
@@ -101,6 +131,8 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
 	cursorBlink: true,
 	scrollback: 500,
 	letterSpacing: 1,
+	keyboardMode: "terminal",
+	toolbarRows: DEFAULT_TERMINAL_TOOLBAR_ROWS.map((row) => [...row]),
 };
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -177,6 +209,50 @@ function normalizeTerminalCursorInactiveStyle(
 		: fallback;
 }
 
+
+function normalizeTerminalToolbarRows(value: unknown): string[][] {
+	if (!Array.isArray(value)) {
+		return DEFAULT_TERMINAL_TOOLBAR_ROWS.map((row) => [...row]);
+	}
+	const seen = new Set<string>();
+	const normalized = [0, 1].map((rowIndex) => {
+		const row = Array.isArray(value[rowIndex])
+			? value[rowIndex]
+			: DEFAULT_TERMINAL_TOOLBAR_ROWS[rowIndex];
+		return row.filter((id): id is TerminalToolbarKeyId => {
+			if (
+				typeof id !== "string" ||
+				!TERMINAL_TOOLBAR_KEY_IDS.includes(id as TerminalToolbarKeyId) ||
+				seen.has(id)
+			) {
+				return false;
+			}
+			seen.add(id);
+			return true;
+		});
+	});
+
+	for (let rowIndex = 0; rowIndex < normalized.length; rowIndex += 1) {
+		if (normalized[rowIndex].length > 0) continue;
+		const fallback =
+			DEFAULT_TERMINAL_TOOLBAR_ROWS[rowIndex].find((id) => !seen.has(id)) ??
+			TERMINAL_TOOLBAR_KEY_IDS.find((id) => !seen.has(id));
+		if (fallback) {
+			normalized[rowIndex].push(fallback);
+			seen.add(fallback);
+		} else {
+			const donorRow = normalized[rowIndex === 0 ? 1 : 0];
+			const preferredId = DEFAULT_TERMINAL_TOOLBAR_ROWS[rowIndex].find((id) =>
+				donorRow.includes(id),
+			);
+			const donorIndex = preferredId ? donorRow.indexOf(preferredId) : 0;
+			normalized[rowIndex].push(donorRow.splice(donorIndex, 1)[0]);
+		}
+	}
+
+	return normalized;
+}
+
 function normalizeTerminalSettings(
 	settings?: Partial<TerminalSettings> | null,
 ): TerminalSettings {
@@ -206,6 +282,13 @@ function normalizeTerminalSettings(
 			typeof settings?.letterSpacing === "number"
 				? Math.min(8, Math.max(-2, Math.round(settings.letterSpacing)))
 				: DEFAULT_TERMINAL_SETTINGS.letterSpacing,
+		keyboardMode:
+			settings?.keyboardMode === "text" ||
+			settings?.keyboardMode === "numeric" ||
+			settings?.keyboardMode === "terminal"
+				? settings.keyboardMode
+				: DEFAULT_TERMINAL_SETTINGS.keyboardMode,
+		toolbarRows: normalizeTerminalToolbarRows(settings?.toolbarRows),
 	};
 }
 
@@ -231,19 +314,21 @@ function normalizeSettings(
 export async function loadSettings(): Promise<AppSettings> {
 	try {
 		const exists = await file.exists(SETTINGS_PATH);
-		if (!exists) return { ...DEFAULT_SETTINGS };
+		if (!exists) return normalizeSettings(undefined);
 		const text = (await file.read(SETTINGS_PATH, "text")) as string;
 		return normalizeSettings(JSON.parse(text) as Partial<AppSettings>);
 	} catch {
-		return { ...DEFAULT_SETTINGS };
+		return normalizeSettings(undefined);
 	}
 }
 
-type DeepPartial<T> = T extends object
-	? {
-			[P in keyof T]?: DeepPartial<T[P]>;
-		}
-	: T;
+type DeepPartial<T> = T extends readonly unknown[]
+	? T
+	: T extends object
+		? {
+				[P in keyof T]?: DeepPartial<T[P]>;
+			}
+		: T;
 
 export async function saveSettings(
 	settings: DeepPartial<AppSettings>,

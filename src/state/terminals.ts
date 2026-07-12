@@ -10,6 +10,7 @@ import {
 import type { FitAddon } from "@xterm/addon-fit";
 import type { WebLinksAddon } from "@xterm/addon-web-links";
 import type { ITheme, Terminal } from "@xterm/xterm";
+import native from "bridge/native";
 import { textifyEmoji } from "lib/emoji";
 import {
 	type AppSettings,
@@ -907,7 +908,15 @@ function attachTouchScroll(
 		const touch = e.touches[0];
 
 		if (longTapTimeout !== null) window.clearTimeout(longTapTimeout);
-		updateAndroidKeyboardSuggestionsForTerminalFocus(true);
+		const textarea = container.querySelector(
+			"textarea.xterm-helper-textarea",
+		) as HTMLTextAreaElement | null;
+		setAndroidTerminalKeyboardMode(
+			textarea?.dataset.keyboardMode === "text" ||
+				textarea?.dataset.keyboardMode === "numeric"
+				? textarea.dataset.keyboardMode
+				: "terminal",
+		);
 		overlay.style.pointerEvents = "";
 		cancelInertia();
 		lastX = touch.clientX;
@@ -1038,7 +1047,7 @@ function attachTouchScroll(
 		}
 
 		if (!container.contains(document.activeElement)) {
-			setAndroidKeyboardSuggestionsEnabled(true);
+			setAndroidTerminalKeyboardMode("text");
 		}
 
 		if (samples.length > 0) {
@@ -1054,7 +1063,7 @@ function attachTouchScroll(
 			longTapTimeout = null;
 		}
 		if (!container.contains(document.activeElement)) {
-			setAndroidKeyboardSuggestionsEnabled(true);
+			setAndroidTerminalKeyboardMode("text");
 		}
 	}
 
@@ -1120,32 +1129,40 @@ const DEFAULT_XTERM_THEME: ITheme = {
 };
 let stopThemeSync: (() => void) | null = null;
 
-function setAndroidKeyboardSuggestionsEnabled(enabled: boolean) {
-	if (!process.env.IS_ANDROID) {
-		return;
+function setAndroidTerminalKeyboardMode(
+	mode: TerminalSettings["keyboardMode"],
+) {
+	if (!process.env.IS_ANDROID) return;
+
+	native.setTerminalKeyboardMode(mode).catch((error) => {
+		console.warn("Failed to update Android terminal keyboard mode:", error);
+	});
+}
+
+function applyTerminalKeyboardAttributes(
+	textarea: HTMLTextAreaElement,
+	mode: TerminalSettings["keyboardMode"],
+): boolean {
+	const inputMode = mode === "numeric" ? "numeric" : "text";
+	const keyboardModeChanged = textarea.dataset.keyboardMode !== mode;
+	textarea.inputMode = inputMode;
+
+	if (mode === "text") {
+		textarea.setAttribute("autocomplete", "on");
+		textarea.setAttribute("autocorrect", "on");
+		textarea.setAttribute("autocapitalize", "sentences");
+		textarea.spellcheck = true;
+		textarea.removeAttribute("data-form-type");
+	} else {
+		textarea.setAttribute("autocomplete", "off");
+		textarea.setAttribute("autocorrect", "off");
+		textarea.setAttribute("autocapitalize", "none");
+		textarea.spellcheck = false;
+		textarea.setAttribute("data-form-type", "other");
 	}
 
-	import("bridge/native")
-		.then(({ default: native }) =>
-			native.setKeyboardSuggestionsEnabled(enabled),
-		)
-		.catch((error) => {
-			console.warn("Failed to update Android keyboard suggestions:", error);
-		});
-}
-
-function updateAndroidKeyboardSuggestionsForTerminalFocus(focused: boolean) {
-	setAndroidKeyboardSuggestionsEnabled(!focused);
-}
-
-function applyTerminalKeyboardSuggestionAttributes(
-	textarea: HTMLTextAreaElement,
-) {
-	textarea.setAttribute("autocomplete", "off");
-	textarea.setAttribute("autocorrect", "off");
-	textarea.setAttribute("autocapitalize", "none");
-	textarea.setAttribute("spellcheck", "false");
-	textarea.setAttribute("data-form-type", "other");
+	textarea.dataset.keyboardMode = mode;
+	return keyboardModeChanged;
 }
 
 function ensureTerminalThemeSync() {
@@ -1180,25 +1197,29 @@ window.addEventListener(SETTINGS_CHANGED_EVENT, (event) => {
 			"textarea.xterm-helper-textarea",
 		) as HTMLTextAreaElement | null;
 		if (textarea) {
-			applyTerminalKeyboardSuggestionAttributes(textarea);
+			const keyboardModeChanged = applyTerminalKeyboardAttributes(
+				textarea,
+				settings.keyboardMode,
+			);
+			if (document.activeElement === textarea) {
+				if (process.env.IS_ANDROID) {
+					setAndroidTerminalKeyboardMode(settings.keyboardMode);
+				} else if (keyboardModeChanged) {
+					textarea.blur();
+					requestAnimationFrame(() => terminal.focus());
+				}
+			}
 		}
 		container.fit?.();
 		const terminalId = container.dataset.terminalId;
 		if (terminalId) queueStickyCommandRefresh(terminalId);
-	}
-
-	if (
-		process.env.IS_ANDROID &&
-		document.activeElement instanceof HTMLTextAreaElement &&
-		document.activeElement.classList.contains("xterm-helper-textarea")
-	) {
-		updateAndroidKeyboardSuggestionsForTerminalFocus(true);
 	}
 });
 
 function configureTerminalInput(
 	container: TerminalHTMLElement,
 	xterm: Terminal,
+	keyboardMode: TerminalSettings["keyboardMode"],
 ) {
 	const textarea = container.querySelector(
 		"textarea.xterm-helper-textarea",
@@ -1207,20 +1228,24 @@ function configureTerminalInput(
 		return;
 	}
 
-	applyTerminalKeyboardSuggestionAttributes(textarea);
+	applyTerminalKeyboardAttributes(textarea, keyboardMode);
 	textarea.style.setProperty("-webkit-user-select", "text");
 	textarea.style.setProperty("-webkit-touch-callout", "none");
 
 	if (process.env.IS_ANDROID) {
-		const onBeforeFocus = () =>
-			updateAndroidKeyboardSuggestionsForTerminalFocus(true);
-		const onFocus = () =>
-			updateAndroidKeyboardSuggestionsForTerminalFocus(true);
-		const onBlur = () => setAndroidKeyboardSuggestionsEnabled(true);
+		const applyFocusedKeyboardMode = () => {
+			const mode =
+				(textarea.dataset.keyboardMode as TerminalSettings["keyboardMode"]) ||
+				"terminal";
+			setAndroidTerminalKeyboardMode(mode);
+		};
+		const onBlur = () => setAndroidTerminalKeyboardMode("text");
 
-		textarea.addEventListener("touchstart", onBeforeFocus, { passive: true });
-		textarea.addEventListener("mousedown", onBeforeFocus);
-		textarea.addEventListener("focus", onFocus);
+		textarea.addEventListener("touchstart", applyFocusedKeyboardMode, {
+			passive: true,
+		});
+		textarea.addEventListener("mousedown", applyFocusedKeyboardMode);
+		textarea.addEventListener("focus", applyFocusedKeyboardMode);
 		textarea.addEventListener("blur", onBlur);
 	}
 
@@ -1291,7 +1316,7 @@ async function createXtermInstance(
 		}),
 	);
 	xterm.open(container);
-	configureTerminalInput(container, xterm);
+	configureTerminalInput(container, xterm, settings.keyboardMode);
 
 	return { xterm, fitAddon };
 }
@@ -1639,7 +1664,7 @@ function cleanupTerminal(relayId: string) {
 			process.env.IS_ANDROID &&
 			entry.container.contains(document.activeElement)
 		) {
-			setAndroidKeyboardSuggestionsEnabled(true);
+			setAndroidTerminalKeyboardMode("text");
 		}
 		clearStickyCommandHistory(relayId);
 		entry.terminal.dispose();

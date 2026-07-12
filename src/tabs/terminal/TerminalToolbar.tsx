@@ -1,5 +1,11 @@
 import KeyboardToolbar, { type KeyHandler } from "components/KeyboardToolbar";
 import { textifyEmoji } from "lib/emoji";
+import {
+	type AppSettings,
+	DEFAULT_TERMINAL_SETTINGS,
+	loadSettings,
+	SETTINGS_CHANGED_EVENT,
+} from "lib/settings";
 import toast from "lib/toast";
 import { useEffect, useRef, useState } from "react";
 import { useShellular } from "state";
@@ -21,6 +27,7 @@ interface Props {
 const SEQUENCES: Record<string, string> = {
 	Escape: "\x1b",
 	Tab: "\t",
+	Delete: "\x1b[3~",
 	Home: "\x1b[H",
 	End: "\x1b[F",
 	PageUp: "\x1b[5~",
@@ -30,11 +37,6 @@ const SEQUENCES: Record<string, string> = {
 	ArrowRight: "\x1b[C",
 	ArrowLeft: "\x1b[D",
 };
-
-const TERMINAL_TOOLBAR_ROWS = [
-	["esc", "shift", "home", "end", "up", "switchTerminal", "pageup"],
-	["tab", "ctrl", "alt", "left", "down", "right", "pagedown"],
-];
 
 // Shown as a toast when a greyed-out toolbar key is tapped, so it's clear what
 // the key does and why it's currently unavailable.
@@ -59,6 +61,34 @@ export default function TerminalToolbar({
 	const [alt, setAlt] = useState(false);
 	const [shift, setShift] = useState(false);
 	const pasteTextareaRef = useRef<HTMLTextAreaElement>(null);
+	const [toolbarRows, setToolbarRows] = useState(
+		DEFAULT_TERMINAL_SETTINGS.toolbarRows,
+	);
+
+	useEffect(() => {
+		let active = true;
+		let settingsChanged = false;
+		const onSettingsChanged = (event: Event) => {
+			settingsChanged = true;
+			const settings = (event as CustomEvent<AppSettings>).detail;
+			setToolbarRows(
+				settings?.terminal.toolbarRows ??
+					DEFAULT_TERMINAL_SETTINGS.toolbarRows,
+			);
+		};
+
+		window.addEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+		loadSettings().then((settings) => {
+			if (active && !settingsChanged) {
+				setToolbarRows(settings.terminal.toolbarRows);
+			}
+		});
+
+		return () => {
+			active = false;
+			window.removeEventListener(SETTINGS_CHANGED_EVENT, onSettingsChanged);
+		};
+	}, []);
 
 	useEffect(() => {
 		if (!activeTerminalId) return;
@@ -211,7 +241,7 @@ export default function TerminalToolbar({
 			disabledKeys={activeTerminals.length <= 1 ? ["switchTerminal"] : []}
 			onDisabledKeyPress={handleDisabledKeyPress}
 			onHideKeyboard={handleHideKeyboard}
-			rows={TERMINAL_TOOLBAR_ROWS}
+			rows={toolbarRows}
 			swipeLeftPanel={
 				<textarea
 					ref={pasteTextareaRef}

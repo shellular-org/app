@@ -119,19 +119,31 @@ public class Native extends Service {
             return true;
         }
 
-        if (Objects.equals(action, "setKeyboardSuggestionsEnabled")) {
-            activity.runOnUiThread(() -> setKeyboardSuggestionsEnabled(args, callback));
+        if (Objects.equals(action, "setTerminalKeyboardMode")) {
+            activity.runOnUiThread(() -> setTerminalKeyboardMode(args, callback));
             return true;
         }
 
         return super.exec(action, args, callback);
     }
 
-    public void setKeyboardSuggestionsEnabled(@NonNull JSONArray args, @NonNull Callback callback) {
-        boolean enabled = args.optBoolean(0, true);
+    public void setTerminalKeyboardMode(@NonNull JSONArray args, @NonNull Callback callback) {
+        String mode = args.optString(0, "terminal");
         if (webview instanceof AppView) {
-            ((AppView) webview).setInputType(
-                    enabled ? AppView.SUGGESTIONS_DEFAULT : AppView.NO_SUGGESTIONS_AGGRESSIVE);
+            int inputType;
+            switch (mode) {
+                case "text":
+                    inputType = AppView.SUGGESTIONS_DEFAULT;
+                    break;
+                case "numeric":
+                    inputType = AppView.NO_SUGGESTIONS;
+                    break;
+                case "terminal":
+                default:
+                    inputType = AppView.NO_SUGGESTIONS_AGGRESSIVE;
+                    break;
+            }
+            ((AppView) webview).setInputType(inputType);
 
             InputMethodManager imm = (InputMethodManager) activity.getSystemService(Context.INPUT_METHOD_SERVICE);
             if (imm != null) {

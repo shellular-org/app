@@ -42,7 +42,7 @@ final class NativeService: BaseService {
             case "exitApp":                 exit(0)
             case "restartApp":              exit(0)
             case "requestIgnoreBatteryOptimization": callback.success(1)
-            case "setKeyboardSuggestionsEnabled" : callback.success(1)
+            case "setTerminalKeyboardMode": callback.success()
             default:                        callback.error("Unknown action: \(action)")
         }
     }

@@ -5,15 +5,19 @@ import {
 	DEFAULT_EDITOR_SETTINGS,
 	DEFAULT_SERVER_SETTINGS,
 	DEFAULT_TERMINAL_SETTINGS,
+	DEFAULT_TERMINAL_TOOLBAR_ROWS,
 	loadSettings,
 	MONOSPACE_FONT_FAMILY_OPTIONS,
 	type ServerProtocol,
 	saveSettings,
+	TERMINAL_TOOLBAR_KEY_IDS,
+	type TerminalKeyboardMode,
+	type TerminalToolbarKeyId,
 	type TerminalCursorStyle,
 } from "lib/settings";
 import * as store from "lib/store";
 import toast from "lib/toast";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import themes from "themes";
 import "./style.scss";
 
@@ -189,6 +193,150 @@ function SettingsItem({
 	);
 }
 
+const KEYBOARD_MODE_OPTIONS: Array<{
+	value: TerminalKeyboardMode;
+	label: string;
+	description: string;
+}> = [
+	{
+		value: "terminal",
+		label: "Terminal",
+		description: "Disables suggestions for precise command entry.",
+	},
+	{
+		value: "text",
+		label: "Standard text",
+		description: "Enables swipe typing and predictive suggestions.",
+	},
+	{
+		value: "numeric",
+		label: "Numeric",
+		description: "Shows a number-focused keyboard layout.",
+	},
+];
+
+const TOOLBAR_KEY_LABELS: Record<TerminalToolbarKeyId, string> = {
+	esc: "Esc",
+	tab: "Tab",
+	ctrl: "Ctrl",
+	alt: "Alt",
+	shift: "Shift",
+	home: "Home",
+	end: "End",
+	up: "Up",
+	down: "Down",
+	left: "Left",
+	right: "Right",
+	pageup: "Page Up",
+	pagedown: "Page Down",
+	interrupt: "Interrupt",
+	switchTerminal: "Switch Terminal",
+	del: "Delete",
+};
+
+function ToolbarOrganizer({
+	rows,
+	onChange,
+}: {
+	rows: string[][];
+	onChange: (rows: string[][]) => void;
+}) {
+	const [addKey, setAddKey] = useState<string>("");
+	const selectedIds = rows.flat();
+	const availableIds = TERMINAL_TOOLBAR_KEY_IDS.filter(
+		(id) => !selectedIds.includes(id),
+	);
+	const selectedAddKey = availableIds.includes(addKey as TerminalToolbarKeyId)
+		? addKey
+		: (availableIds[0] ?? "");
+
+	function moveKey(rowIndex: number, keyIndex: number, direction: string) {
+		const next = rows.map((row) => [...row]);
+		if (direction === "left" || direction === "right") {
+			const targetIndex = keyIndex + (direction === "left" ? -1 : 1);
+			[next[rowIndex][keyIndex], next[rowIndex][targetIndex]] = [
+				next[rowIndex][targetIndex],
+				next[rowIndex][keyIndex],
+			];
+		} else {
+			const targetRow = direction === "up" ? rowIndex - 1 : rowIndex + 1;
+			const [id] = next[rowIndex].splice(keyIndex, 1);
+			next[targetRow].splice(Math.min(keyIndex, next[targetRow].length), 0, id);
+		}
+		onChange(next);
+	}
+
+	function removeKey(rowIndex: number, keyIndex: number) {
+		const next = rows.map((row) => [...row]);
+		next[rowIndex].splice(keyIndex, 1);
+		onChange(next);
+	}
+
+	function addKeyToRow(rowIndex: number) {
+		if (!selectedAddKey) return;
+		const next = rows.map((row) => [...row]);
+		next[rowIndex].push(selectedAddKey);
+		onChange(next);
+	}
+
+	return (
+		<div className="toolbar-organizer">
+			<div className="toolbar-rows" aria-label="Accessory control row order">
+				{rows.map((row, rowIndex) => (
+					<div className="toolbar-row-editor" key={`toolbar-row-${rowIndex + 1}`}>
+						<div className="toolbar-row-heading">
+							<span>Row {rowIndex + 1}</span>
+							<span>{row.length} controls</span>
+						</div>
+						<ol className="toolbar-key-list" aria-label={`Row ${rowIndex + 1} controls`}>
+							{row.map((id, keyIndex) => {
+								const label = TOOLBAR_KEY_LABELS[id as TerminalToolbarKeyId] ?? id;
+								return (
+									<li className="toolbar-key-card" key={id}>
+										<span className="toolbar-key-position" aria-hidden="true">
+											{keyIndex + 1}
+										</span>
+										<span className="toolbar-key-name">{label}</span>
+										<div className="toolbar-key-actions">
+											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "left")} disabled={keyIndex === 0} aria-label={`Move ${label} left`} title="Move left">←</button>
+											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "right")} disabled={keyIndex === row.length - 1} aria-label={`Move ${label} right`} title="Move right">→</button>
+											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "up")} disabled={rowIndex === 0 || row.length === 1} aria-label={`Move ${label} to row 1`} title="Move up">↑</button>
+											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "down")} disabled={rowIndex === 1 || row.length === 1} aria-label={`Move ${label} to row 2`} title="Move down">↓</button>
+											<button className="toolbar-remove-key" type="button" onClick={() => removeKey(rowIndex, keyIndex)} disabled={row.length === 1} aria-label={`Remove ${label}`} title="Remove">×</button>
+										</div>
+									</li>
+								);
+							})}
+						</ol>
+					</div>
+				))}
+			</div>
+			<div className="toolbar-add-controls">
+				<label htmlFor="toolbar-add-key">Add a control</label>
+				<div>
+					<select id="toolbar-add-key" value={selectedAddKey} onChange={(event) => setAddKey(event.target.value)} disabled={availableIds.length === 0}>
+						{availableIds.length === 0 ? (
+							<option value="">All controls are added</option>
+						) : (
+							availableIds.map((id) => <option value={id} key={id}>{TOOLBAR_KEY_LABELS[id]}</option>)
+						)}
+					</select>
+					<button type="button" onClick={() => addKeyToRow(0)} disabled={!selectedAddKey}>Add to row 1</button>
+					<button type="button" onClick={() => addKeyToRow(1)} disabled={!selectedAddKey}>Add to row 2</button>
+				</div>
+			</div>
+			<button
+				className="toolbar-reset-button"
+				type="button"
+				onClick={() => onChange(DEFAULT_TERMINAL_TOOLBAR_ROWS.map((row) => [...row]))}
+				disabled={JSON.stringify(rows) === JSON.stringify(DEFAULT_TERMINAL_TOOLBAR_ROWS)}
+			>
+				Restore default controls
+			</button>
+		</div>
+	);
+}
+
 type SettingSearchEntry = {
 	title: string;
 	description?: string;
@@ -259,10 +407,16 @@ export default function SettingsPage() {
 	const [terminalLetterSpacing, setTerminalLetterSpacing] = useState(
 		DEFAULT_TERMINAL_SETTINGS.letterSpacing,
 	);
+	const [terminalKeyboardMode, setTerminalKeyboardMode] =
+		useState<TerminalKeyboardMode>(DEFAULT_TERMINAL_SETTINGS.keyboardMode);
+	const [terminalToolbarRows, setTerminalToolbarRows] = useState<string[][]>(
+		DEFAULT_TERMINAL_SETTINGS.toolbarRows,
+	);
 
 	const [hapticFeedback, setHapticFeedback] = useState(true);
 	const [isSavingServer, setIsSavingServer] = useState(false);
 	const [testOnboarding, setTestOnboarding] = useState(false);
+	const settingsSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
 	useEffect(() => {
 		if (!process.env.DEV_MODE) {
@@ -293,6 +447,8 @@ export default function SettingsPage() {
 			setTerminalCursorBlink(s.terminal.cursorBlink);
 			setTerminalScrollback(s.terminal.scrollback);
 			setTerminalLetterSpacing(s.terminal.letterSpacing);
+			setTerminalKeyboardMode(s.terminal.keyboardMode);
+			setTerminalToolbarRows(s.terminal.toolbarRows);
 			setHapticFeedback(s.hapticFeedback);
 		});
 	}, []);
@@ -300,17 +456,21 @@ export default function SettingsPage() {
 	// Settings save instantly on change, so a success toast per change would be
 	// noisy. But a failed write must not pass silently — surface it so the user
 	// knows the change didn't stick. Returns whether the save succeeded.
-	async function persistSettings(
+	function persistSettings(
 		settings: Parameters<typeof saveSettings>[0],
 	): Promise<boolean> {
-		try {
-			await saveSettings(settings);
-			return true;
-		} catch (err) {
-			console.error("Failed to save settings:", err);
-			toast("Couldn't save setting", 2600);
-			return false;
-		}
+		const result = settingsSaveQueue.current.then(async () => {
+			try {
+				await saveSettings(settings);
+				return true;
+			} catch (err) {
+				console.error("Failed to save settings:", err);
+				toast("Couldn't save setting", 2600);
+				return false;
+			}
+		});
+		settingsSaveQueue.current = result.then(() => undefined);
+		return result;
 	}
 
 	async function handleThemeChange(name: string) {
@@ -382,6 +542,18 @@ export default function SettingsPage() {
 	async function handleTerminalLetterSpacingChange(value: number) {
 		setTerminalLetterSpacing(value);
 		await persistSettings({ terminal: { letterSpacing: value } });
+	}
+
+	async function handleTerminalKeyboardModeChange(
+		keyboardMode: TerminalKeyboardMode,
+	) {
+		setTerminalKeyboardMode(keyboardMode);
+		await persistSettings({ terminal: { keyboardMode } });
+	}
+
+	async function handleTerminalToolbarRowsChange(toolbarRows: string[][]) {
+		setTerminalToolbarRows(toolbarRows);
+		await persistSettings({ terminal: { toolbarRows } });
 	}
 
 	function normalizeDomain(domain: string) {
@@ -492,6 +664,14 @@ export default function SettingsPage() {
 		{
 			title: "Scrollback",
 			description: "Controls how many terminal rows are retained.",
+		},
+		{
+			title: "Keyboard Mode",
+			description: "Choose the on-screen keyboard layout and typing assistance.",
+		},
+		{
+			title: "Accessory Controls",
+			description: "Choose and arrange the controls shown above the keyboard.",
 		},
 	]);
 	const showNetworkSettings = matchesSettingsSearch(searchQuery, [
@@ -763,6 +943,33 @@ export default function SettingsPage() {
 												max={10000}
 											/>
 										}
+									/>
+								</SettingsGroup>
+								<SettingsGroup title="Keyboard" searchQuery={searchQuery}>
+									<SettingsItem
+										title="Keyboard Mode"
+										description="Choose the on-screen keyboard layout and typing assistance."
+										vertical
+										control={
+											<fieldset className="keyboard-mode-selector">
+												<legend className="sr-only">Keyboard mode</legend>
+												{KEYBOARD_MODE_OPTIONS.map((option) => (
+													<label className={terminalKeyboardMode === option.value ? "is-selected" : ""} key={option.value}>
+														<input type="radio" name="terminal-keyboard-mode" value={option.value} checked={terminalKeyboardMode === option.value} onChange={() => handleTerminalKeyboardModeChange(option.value)} />
+														<span>
+															<strong>{option.label}</strong>
+															<small>{option.description}</small>
+														</span>
+													</label>
+												))}
+											</fieldset>
+										}
+									/>
+									<SettingsItem
+										title="Accessory Controls"
+										description="Choose and arrange the controls shown above the keyboard. Changes apply immediately."
+										vertical
+										control={<ToolbarOrganizer rows={terminalToolbarRows} onChange={handleTerminalToolbarRowsChange} />}
 									/>
 								</SettingsGroup>
 							</div>
