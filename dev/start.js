@@ -4,7 +4,7 @@ import config from "./config.js";
 import getIp from "./getIp.js";
 
 const args = process.argv.slice(2);
-const platform = args.find((arg) => /(android|ios|browser)/i.test(arg)) || "android";
+const platform = args.find((arg) => /(android|ios|macos|browser)/i.test(arg)) || "android";
 const isRelease = args.includes("--release") || args.includes("-r") || false;
 
 const { default: start } = await import(`./${platform}/start.js`);
@@ -64,7 +64,7 @@ async function main() {
     // For android/ios, wait until the first successful compilation so the
     // bundle with the current port is on disk before installing the APK.
     // For browser, any output is fine — the browser will wait for the page.
-    const needsBundle = platform === "android" || platform === "ios";
+    const needsBundle = platform === "android" || platform === "ios" || platform === "macos";
     if (needsBundle && !chunk.includes("compiled successfully")) {
       return;
     }

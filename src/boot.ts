@@ -42,6 +42,8 @@ import { initHapticDelegation } from "lib/haptics";
 		setup = await import("./platforms/android");
 	} else if (process.env.IS_IOS) {
 		setup = await import("./platforms/ios");
+	} else if (process.env.IS_MACOS) {
+		setup = await import("./platforms/macos");
 	} else if (process.env.IS_BROWSER) {
 		setup = await import("./platforms/browser");
 	}

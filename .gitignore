@@ -26,9 +26,7 @@ local.properties
 
 # Platform-specific files
 .gradle
-platforms/android/app/src/main/assets/bundle
-platforms/ios/shellular/bundle
-platforms/browser/bundle
+platforms/**/*/bundle
 platforms/android/app/release
 platforms/android/build
 keystore.jks

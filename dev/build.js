@@ -5,10 +5,10 @@ import config from "./config.js";
 config("production");
 
 const args = process.argv.slice(2);
-const platform = args.find((arg) => /(android|ios|browser)/i.test(arg));
+const platform = args.find((arg) => /(android|ios|macos|browser)/i.test(arg));
 
 if (!platform) {
-  console.error("Please specify a platform: android, ios, or browser");
+  console.error("Please specify a platform: android, ios, macos, or browser");
   process.exit(1);
 }
 
