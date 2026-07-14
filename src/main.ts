@@ -132,6 +132,10 @@ async function load() {
 	document.body.dataset.message = bootMessage;
 	document.body.classList.remove("icon-empty");
 	document.body.setAttribute("platform", process.env.PLATFORM);
+	document.body.setAttribute(
+		"ui-platform",
+		process.env.IS_DESKTOP_UI ? "desktop" : "mobile",
+	);
 	document.addEventListener("backbutton", actionStack.pop);
 	window.addEventListener("resize", windowResize);
 	keyboard.on("show", whenKeyboardShow);

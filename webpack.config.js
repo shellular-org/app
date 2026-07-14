@@ -16,6 +16,7 @@ const BROWSER_BUNDLE = join(PLATFORMS, "browser/bundle");
 const IOS_BUNDLE = join(PLATFORMS, "ios/shellular/bundle");
 const MACOS_BUNDLE = join(PLATFORMS, "macos/shellular/bundle");
 const MIXINS = `@use "${join(process.cwd(), "src/mixins.scss")}" as *;`;
+const DESKTOP_UI_PLATFORMS = new Set(["browser", "macos", "windows", "linux"]);
 
 if (!existsSync(ANDROID_BUNDLE)) {
 	mkdirSync(ANDROID_BUNDLE, { recursive: true });
@@ -40,6 +41,7 @@ export default (_, { env = {}, mode = "development" }) => {
 		port,
 		console: compileConsole = false,
 	} = env;
+	const isDesktopUI = DESKTOP_UI_PLATFORMS.has(platform);
 	const outputPath =
 		platform === "browser"
 			? BROWSER_BUNDLE
@@ -258,6 +260,7 @@ export default (_, { env = {}, mode = "development" }) => {
 				IS_MACOS: platform === "macos",
 				IS_BROWSER: platform === "browser",
 				IS_ANDROID: platform === "android",
+				IS_DESKTOP_UI: isDesktopUI,
 				VERSION_CODE: packageJson.versionCode,
 				DISPLAY_NAME: packageJson.displayName,
 				HOST: isDev && host ? host : null,

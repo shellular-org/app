@@ -57,6 +57,8 @@ import {
 	setSessionStreaming,
 	subscribeSessionActivities,
 } from "state/sessions";
+import { openInWorkbench } from "workbench/navigation";
+import { updateWorkbenchSurface } from "workbench/store";
 import {
 	ChatComposer,
 	type ComposerAttachment,
@@ -1007,6 +1009,12 @@ export default function ChatConversationPage({
 			sessionId: activeSessionId || sessionId,
 			title: displayTitle,
 		});
+		if (process.env.IS_DESKTOP_UI) {
+			updateWorkbenchSurface(chatTabId, {
+				sessionId: activeSessionId || sessionId,
+				title: displayTitle,
+			});
+		}
 	}, [
 		chatTabId,
 		workspacePath,
@@ -1994,6 +2002,19 @@ function openEditorPath(
 ) {
 	const target = normalizeEditorPath(rawPath, workspacePath);
 	const pageKey = target.line ? `${target.path}:${target.line}` : target.path;
+	if (
+		openInWorkbench({
+			kind: "editor",
+			id: pageKey,
+			title: target.path.split("/").pop() || target.path,
+			icon: "icon-file",
+			readOnly,
+			filePath: target.path,
+			initialLine: target.line,
+			initialColumn: target.column,
+		})
+	)
+		return;
 	pushPage(
 		pageKey,
 		<EditorPage

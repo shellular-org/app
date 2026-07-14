@@ -921,7 +921,7 @@ function attachTouchScroll(
 
 		if (isAndroidSystemGestureEdge(touch.clientX)) return;
 
-		if (!process.env.IS_BROWSER) {
+		if (!process.env.IS_DESKTOP_UI) {
 			longTapTimeout = window.setTimeout(() => {
 				longTapTimeout = null;
 				const parent = container.closest(".terminal-container");

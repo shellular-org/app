@@ -1,3 +1,4 @@
+import "./TerminalContainer.scss";
 import native from "bridge/native";
 import type { AppMenuItem } from "components/AppMenu";
 import keyboard from "lib/keyboard";
@@ -16,11 +17,13 @@ interface ContextMenu {
 interface Props {
 	activeTerminalId: string | null;
 	menuItems: AppMenuItem[];
+	terminalIds?: string[];
 }
 
 export default function TerminalContainer({
 	activeTerminalId,
 	menuItems,
+	terminalIds,
 }: Props) {
 	const { activeTerminals, getTerminalContainer, getXterm } = useShellular();
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -119,20 +122,14 @@ export default function TerminalContainer({
 	useEffect(() => {
 		const container = containerRef.current;
 		if (!container) return;
-		const ro = new ResizeObserver(() => {
-			const id = activeIdRef.current;
-			if (!id) return;
-			fitActive();
-		});
-		ro.observe(container);
-		return () => ro.disconnect();
-	}, [fitActive]);
 
-	useEffect(() => {
-		const container = containerRef.current;
-		if (!container) return;
+		const scopedTerminals = terminalIds
+			? activeTerminals.filter((terminal) =>
+					terminalIds.includes(terminal.terminalId),
+				)
+			: activeTerminals;
 
-		for (const t of activeTerminals) {
+		for (const t of scopedTerminals) {
 			const termContainer = getTerminalContainer(
 				t.terminalId,
 			) as TerminalHTMLElement | null;
@@ -143,7 +140,7 @@ export default function TerminalContainer({
 			}
 		}
 
-		const activeIds = new Set(activeTerminals.map((t) => t.terminalId));
+		const activeIds = new Set(scopedTerminals.map((t) => t.terminalId));
 		for (const id of mountedRef.current) {
 			if (!activeIds.has(id)) {
 				const termContainer = getTerminalContainer(
@@ -181,6 +178,7 @@ export default function TerminalContainer({
 	}, [
 		activeTerminals,
 		activeTerminalId,
+		terminalIds,
 		getTerminalContainer,
 		fitActive,
 		scrollTerminalToBottom,
@@ -213,14 +211,16 @@ export default function TerminalContainer({
 
 		if (!menu || !showContextMenu) return;
 
-		const tabBar = document.querySelector(".tab-bar") as HTMLElement;
+		const tabBar = document.querySelector(".tab-bar") as HTMLElement | null;
 		const menuW = menu.offsetWidth;
 		const menuH = menu.offsetHeight;
 		const vw = window.innerWidth;
 		const vh = window.innerHeight;
 		const pad = 8;
-		const offset = tabBar.getBoundingClientRect();
-		const offsetTop = offset.height + (window.innerHeight - offset.bottom);
+		const offset = tabBar?.getBoundingClientRect();
+		const offsetTop = offset
+			? offset.height + (window.innerHeight - offset.bottom)
+			: 0;
 
 		let { top, right } = contextMenuPosition;
 

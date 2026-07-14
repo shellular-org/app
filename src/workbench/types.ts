@@ -1,0 +1,79 @@
+import type { AiBackend } from "@shellular/protocol";
+import type { GitFileStatus } from "state";
+
+interface SurfaceBase {
+	id: string;
+	title: string;
+	icon: string;
+	showConnectionBanner?: boolean;
+}
+
+export interface ChatSurface extends SurfaceBase {
+	kind: "chat";
+	agentId: AiBackend;
+	sessionId: string;
+	workspacePath: string;
+	createOnFirstMessage?: boolean;
+}
+
+export interface TerminalSurface extends SurfaceBase {
+	kind: "terminal";
+	terminalId: string;
+}
+
+export type UtilityPage =
+	| "settings"
+	| "ports"
+	| "about"
+	| "reach-out"
+	| "account"
+	| "system-monitor";
+
+export interface UtilitySurface extends SurfaceBase {
+	kind: "utility";
+	page: UtilityPage;
+}
+
+export interface FilesSurface extends SurfaceBase {
+	kind: "files";
+	initialPath: string;
+	mode: "project";
+}
+
+export interface GitSurface extends SurfaceBase {
+	kind: "git";
+	projectPath: string;
+	projectName: string;
+}
+
+export interface EditorSurface extends SurfaceBase {
+	kind: "editor";
+	filePath: string;
+	gitStatus?: GitFileStatus;
+	initialLine?: number;
+	initialColumn?: number;
+	readOnly?: boolean;
+}
+
+export interface AgentSessionsSurface extends SurfaceBase {
+	kind: "agent-sessions";
+	agentId: AiBackend;
+	workspacePath?: string;
+}
+
+export type WorkbenchSurface =
+	| ChatSurface
+	| TerminalSurface
+	| UtilitySurface
+	| FilesSurface
+	| GitSurface
+	| EditorSurface
+	| AgentSessionsSurface;
+
+export type CloseGuard = () => boolean | Promise<boolean>;
+
+export interface WorkbenchSnapshot {
+	tabs: WorkbenchSurface[];
+	activeId: string | null;
+	hostId: string;
+}

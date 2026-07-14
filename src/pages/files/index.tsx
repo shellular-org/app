@@ -18,6 +18,7 @@ import AppMenu from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
 import EditorPage from "pages/editor";
+import { openInWorkbench } from "workbench/navigation";
 
 export interface FileBrowserPageProps {
 	title?: string;
@@ -196,6 +197,18 @@ export default function FileBrowserPage({
 			}
 
 			const pageId = `file-${entry.name}-${Date.now()}`;
+			if (
+				openInWorkbench({
+					kind: "editor",
+					id: pageId,
+					title: entry.name,
+					icon: "icon-file",
+					filePath: targetPath,
+					gitStatus: entry.gitStatus,
+				})
+			) {
+				return;
+			}
 			pushPage(
 				pageId,
 				<EditorPage
@@ -394,6 +407,17 @@ export default function FileBrowserPage({
 
 	const openGitHistory = useCallback(async () => {
 		const projectPath = initialPath ?? ".";
+		if (
+			openInWorkbench({
+				kind: "git",
+				id: `git:${projectPath}`,
+				title: `${title} · Git`,
+				icon: "icon-git-branch",
+				projectPath,
+				projectName: title,
+			})
+		)
+			return;
 		const GitClientPage = await import("pages/git-client");
 		pushPage(
 			`git-client-${projectPath}`,

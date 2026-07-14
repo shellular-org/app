@@ -78,6 +78,13 @@
     -webkit-user-select: text;
     -webkit-touch-callout: default;
 
+    @include desktop-ui {
+      max-width: 1120px;
+      margin-inline: auto;
+      padding-inline: 28px;
+      box-sizing: border-box;
+    }
+
     .chat-bottom-anchor {
       height: 1px;
       flex: 0 0 auto;

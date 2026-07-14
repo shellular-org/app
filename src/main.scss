@@ -3,16 +3,16 @@
 
 // ── Tailwind foundation ─────────────────────────────────────────────
 // Platform / keyboard variants mirror the SCSS mixins in src/mixins.scss so
-// `ios:`, `android:`, `browser:`, `kbd:` (+ composites) are usable as idiomatic
+// `ios:`, `android:`, `desktop-ui:`, `kbd:` (+ composites) are usable as idiomatic
 // Tailwind variants during the SCSS→Tailwind migration. `md:` (768px) and `lg:`
 // (1024px) already cover the old `tablet`/`desktop` mixins.
 @custom-variant ios (body[platform="ios"] &);
 @custom-variant android (body[platform="android"] &);
-@custom-variant browser (body[platform="browser"] &);
+@custom-variant desktop-ui (body[ui-platform="desktop"] &);
 @custom-variant kbd (body.keyboard-visible &);
 @custom-variant ios-kbd (body[platform="ios"].keyboard-visible &);
 @custom-variant android-kbd (body[platform="android"].keyboard-visible &);
-@custom-variant browser-kbd (body[platform="browser"].keyboard-visible &);
+@custom-variant desktop-ui-kbd (body[ui-platform="desktop"].keyboard-visible &);
 @custom-variant big-phone (@media (max-width: 520px));
 
 // Bridge the runtime theme tokens (emitted as :root { --accent; ... } by
@@ -106,7 +106,7 @@ body {
   font-size: 18px;
   -webkit-tap-highlight-color: transparent;
 
-  @include browser {
+  @include desktop-ui {
     ::-webkit-scrollbar {
       display: none;
     }

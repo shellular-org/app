@@ -10,6 +10,7 @@ import {
 	getSessionStreaming,
 	listenToSessionStreamingEvent,
 } from "state/sessions";
+import { tryOpenChatSurface } from "workbench/openers";
 
 /**
  * Slide-in sidebar (from the right) listing the chats opened in this chat's
@@ -240,6 +241,17 @@ function pushChat({
 	agent: AcpAgentInfo | undefined;
 }) {
 	const agentName = agent?.name ?? agentId;
+	if (
+		tryOpenChatSurface({
+			id: tabId,
+			agentId,
+			sessionId,
+			title,
+			workspacePath,
+			createOnFirstMessage: !sessionId,
+		})
+	)
+		return;
 	import("pages/chat").then((mod) => {
 		const ChatConversationPage = mod.default;
 		pushPage(

@@ -18,6 +18,7 @@ import {
 	onMessage,
 	sendMessage,
 } from "state/connection";
+import { tryOpenUtilitySurface } from "workbench/openers";
 
 const COLLAPSED_AGENT_COUNT = 5;
 
@@ -41,6 +42,15 @@ export default function ConnectionInfo({
 	const hiddenAgentCount = availableAgents.length - visibleAgents.length;
 
 	const openSysmon = useCallback(async () => {
+		if (
+			tryOpenUtilitySurface(
+				"system-monitor",
+				"System Monitor",
+				"icon-activity",
+				true,
+			)
+		)
+			return;
 		const SysmonPage = await import("pages/sysmon");
 		pushPage("system-monitor", <SysmonPage.default />);
 	}, []);

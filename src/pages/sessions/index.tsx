@@ -21,6 +21,7 @@ import {
 	getStreamingSessions,
 	listenToSessionStreamingEvent,
 } from "state/sessions";
+import { tryOpenChatSurface } from "workbench/openers";
 
 export default function ChatSessionsPage({
 	backend,
@@ -200,6 +201,17 @@ export default function ChatSessionsPage({
 			workspacePath: string;
 		}) => {
 			const tabId = chatTabId(backend, opts.sessionId);
+			if (
+				tryOpenChatSurface({
+					id: tabId,
+					agentId: backend,
+					sessionId: opts.sessionId,
+					title: opts.title,
+					workspacePath: opts.workspacePath,
+					createOnFirstMessage: !opts.sessionId,
+				})
+			)
+				return;
 			const ChatConversationPage = await import("pages/chat");
 			pushPage(
 				tabId,

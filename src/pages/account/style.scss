@@ -1,0 +1,49 @@
+.account-page {
+  @include desktop-ui {
+    > .page-content {
+      width: 100%;
+      max-width: 1040px;
+      padding: 24px clamp(24px, 4vw, 56px) 40px;
+      container-type: inline-size;
+      container-name: account-content;
+    }
+  }
+}
+
+.account-content {
+  @include desktop-ui {
+    width: 100%;
+    max-width: 720px;
+    margin-inline: auto;
+  }
+}
+
+@container account-content (min-width: 820px) {
+  .account-content {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.82fr) minmax(400px, 1.18fr);
+    grid-template-areas:
+      "summary linked"
+      "profile linked"
+      "logout linked";
+    align-items: start;
+    gap: 20px 24px;
+    max-width: 960px;
+  }
+
+  .account-summary {
+    grid-area: summary;
+  }
+
+  .account-profile-section {
+    grid-area: profile;
+  }
+
+  .account-linked-section {
+    grid-area: linked;
+  }
+
+  .account-logout {
+    grid-area: logout;
+  }
+}

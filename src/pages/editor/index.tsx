@@ -32,6 +32,7 @@ import {
 } from "react";
 import { useShellular } from "state";
 import type { GitFileStatus } from "state/filesystem";
+import { registerWorkbenchCloseGuard } from "workbench/store";
 import EditorFindReplace from "./EditorFindReplace";
 import EditorToolbar from "./EditorToolbar";
 
@@ -588,6 +589,12 @@ export default function EditorPage({
 
 	useEffect(() => {
 		if (!pageId) return;
+		if (process.env.IS_DESKTOP_UI) {
+			return registerWorkbenchCloseGuard(pageId, async () => {
+				if (!dirty || readOnly) return true;
+				return dialog.confirm("Discard unsaved changes?", "Unsaved Changes");
+			});
+		}
 		actionStack.replace({
 			id: pageId,
 			action: async () => {

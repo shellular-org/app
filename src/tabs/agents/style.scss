@@ -201,7 +201,7 @@
 }
 
 // Header action buttons live in TabPageHeader, outside .agents-page.
-.tab-page-header-right .agents-header-btn {
+:is(.tab-page-header-right, .agents-sidebar-actions) .agents-header-btn {
   width: 32px;
   height: 32px;
   border-radius: 8px;

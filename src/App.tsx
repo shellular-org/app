@@ -18,12 +18,15 @@ import {
 	useEffect,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import { ShellularProvider } from "state";
 import {
 	getHasAnyStreaming,
 	listenToSessionStreamingEvent,
 } from "state/sessions";
+import DesktopShell from "workbench/DesktopShell";
+import { getWorkbenchSnapshot, subscribeWorkbench } from "workbench/store";
 
 type TabId = "home" | "terminals" | "projects" | "agents" | "more" | "browser";
 
@@ -63,7 +66,7 @@ const TABS: Tab[] = [
 		id: "browser",
 		label: "Browser",
 		icon: "globe",
-		disabled: process.env.IS_BROWSER,
+		disabled: process.env.IS_DESKTOP_UI,
 	},
 	{
 		id: "more",
@@ -113,6 +116,10 @@ function AuthenticatedApp() {
 	const [pageStack, setPageStack] = useState<PageStackEntry[]>([]);
 	const [closingIds, setClosingIds] = useState<Set<string>>(new Set());
 	const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+	const workbench = useSyncExternalStore(
+		subscribeWorkbench,
+		getWorkbenchSnapshot,
+	);
 
 	useEffect(() => {
 		store.get<boolean>(ONBOARDING_KEY).then((val) => {
@@ -175,13 +182,19 @@ function AuthenticatedApp() {
 	// tabs and pushed pages alike. A pushed page can opt out (e.g. flows that
 	// manage their own connection UI) via showConnectionBanner: false, which
 	// only applies while that page is the top-most one.
+	const activeWorkbenchSurface = workbench.tabs.find(
+		(surface) => surface.id === workbench.activeId,
+	);
+	const shellShowsConnectionOverlay = process.env.IS_DESKTOP_UI
+		? activeWorkbenchSurface?.showConnectionBanner !== false
+		: true;
 	const showConnectionOverlay = topNonClosingPage
 		? topNonClosingPage.showConnectionBanner
-		: true;
+		: shellShowsConnectionOverlay;
 
 	return (
 		<ShellularProvider>
-			<TabView />
+			{process.env.IS_DESKTOP_UI ? <DesktopShell /> : <MobileShell />}
 			<AppDialogHost />
 			{pageStack.map(({ id, element }) => {
 				const isClosing = closingIds.has(id);
@@ -201,7 +214,7 @@ function AuthenticatedApp() {
 	);
 }
 
-function TabView() {
+function MobileShell() {
 	const [activeTab, setActiveTab] = useState<TabId>(currentTab);
 	const prevTabRef = useRef<TabId>(currentTab);
 	const TabContent = TABS_MAP[activeTab];

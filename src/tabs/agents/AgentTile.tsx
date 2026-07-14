@@ -1,7 +1,7 @@
 import { pushPage, toToTab } from "App";
 import AgentIcon from "components/AgentIcon";
 import AppMenu from "components/AppMenu";
-import { getInstallationOptions } from "lib/agents";
+import { getAgentIcon, getInstallationOptions } from "lib/agents";
 import ChatSessionsPage from "pages/sessions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcpAgentInfo } from "state/acp";
@@ -11,6 +11,7 @@ import {
 	listenToSessionStreamingEvent,
 } from "state/sessions";
 import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
+import { openInWorkbench } from "workbench/navigation";
 
 interface AgentTileProps {
 	agent: AcpAgentInfo;
@@ -40,6 +41,20 @@ export default function AgentTile({ agent }: AgentTileProps) {
 		try {
 			const terminalId = await createTerminal();
 			if (!terminalId) return;
+			if (
+				openInWorkbench({
+					kind: "terminal",
+					id: `terminal:${terminalId}`,
+					title: "Terminal",
+					icon: "icon-terminal",
+					terminalId,
+				})
+			) {
+				await waitForXterm(terminalId, 5000);
+				await new Promise((r) => setTimeout(r, 500));
+				sendTerminalInput(terminalId, `${command}\r`);
+				return;
+			}
 			toToTab("terminals");
 			await waitForXterm(terminalId, 5000);
 			await new Promise((r) => setTimeout(r, 500));
@@ -110,13 +125,23 @@ export default function AgentTile({ agent }: AgentTileProps) {
 			<button
 				type="button"
 				className="agent-tile haptic-trigger"
-				onClick={() =>
-					agent.id &&
+				onClick={() => {
+					if (!agent.id) return;
+					if (
+						openInWorkbench({
+							kind: "agent-sessions",
+							id: `agent-sessions:${agent.id}`,
+							title: agent.title || agent.name,
+							icon: getAgentIcon(agent.id),
+							agentId: agent.id,
+						})
+					)
+						return;
 					pushPage(
 						`agent-${agent.id}`,
 						<ChatSessionsPage backend={agent.id} agent={agent} />,
-					)
-				}
+					);
+				}}
 			>
 				<div className="agent-tile-icon-wrap">
 					<AgentIcon agent={agent} className="agent-tile-icon" />

@@ -18,6 +18,7 @@ declare namespace NodeJS {
 			IS_MACOS: boolean;
 			IS_ANDROID: boolean;
 			IS_BROWSER: boolean;
+			IS_DESKTOP_UI: boolean;
 			DEV_MODE: boolean;
 			PLATFORM: PLATFORM;
 			VERSION: string;

@@ -2,6 +2,7 @@ import "./style.scss";
 import { pushPage } from "App";
 import type { HostInfo } from "@shellular/protocol";
 import clsx from "clsx";
+import AccountAvatarButton from "components/AccountAvatarButton";
 import AppMenu from "components/AppMenu";
 import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
@@ -9,12 +10,11 @@ import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
-import { useAuth } from "lib/auth";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
 import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
-import { getInitials, getOnlineStatus } from "lib/utils";
+import { getOnlineStatus } from "lib/utils";
 import AccountPage from "pages/account";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
@@ -25,12 +25,16 @@ import {
 	type SessionActivity,
 	subscribeSessionActivities,
 } from "state/sessions";
+import { tryOpenChatSurface, tryOpenUtilitySurface } from "workbench/openers";
 import ConnectionInfo from "./ConnectionInfo";
 import SavedHostItem from "./SavedHostItem";
 
-export default function HomeTab() {
+export default function HomeTab({
+	showAccount = true,
+}: {
+	showAccount?: boolean;
+}) {
 	const { savedHosts, connectionStatus, isSwitching, agents } = useShellular();
-	const { user } = useAuth();
 	// Treat an in-flight reconnect as "still connected" for display purposes, so
 	// a dropped CLI doesn't visually reset the home view to the host picker while
 	// we're transparently retrying. The reconnect overlay communicates the state.
@@ -109,26 +113,7 @@ export default function HomeTab() {
 					<h1>Shellular</h1>
 					<span className="home-hero-beta-badge">Beta</span>
 				</div>
-				{user && (
-					<button
-						type="button"
-						className="haptic-trigger grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-card-border bg-surface-strong text-accent transition-transform duration-150 active:scale-95"
-						onClick={openAccountPage}
-						aria-label="Account"
-					>
-						{user.avatarUrl ? (
-							<img
-								src={user.avatarUrl}
-								alt=""
-								className="h-full w-full object-cover"
-							/>
-						) : (
-							<span className="text-[13px] font-bold leading-none uppercase tracking-tight">
-								{getInitials(user.name || user.email)}
-							</span>
-						)}
-					</button>
-				)}
+				{showAccount && <AccountAvatarButton onClick={openAccountPage} />}
 			</div>
 
 			<div className={clsx("px-4", { hidden: isOnline })}>
@@ -283,6 +268,7 @@ export default function HomeTab() {
 }
 
 function openAccountPage() {
+	if (tryOpenUtilitySurface("account", "Account", "icon-user")) return;
 	pushPage("account", <AccountPage />, { showConnectionBanner: false });
 }
 
@@ -292,6 +278,16 @@ async function openSession(
 ) {
 	const agentName = agent?.name ?? session.agentId;
 	const tabId = chatTabId(session.agentId, session.sessionId);
+	if (
+		tryOpenChatSurface({
+			id: tabId,
+			agentId: session.agentId,
+			sessionId: session.sessionId,
+			title: sessionDisplayTitle(session),
+			workspacePath: session.workspacePath ?? "",
+		})
+	)
+		return;
 	const ChatConversationPage = await import("pages/chat");
 	pushPage(
 		tabId,

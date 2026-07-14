@@ -6,6 +6,17 @@
   min-width: 0;
   margin-bottom: 16px;
 
+  @include desktop-ui {
+    &--assistant {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    &--user {
+      max-width: min(680px, 72%);
+    }
+  }
+
   &--user {
     align-self: flex-end;
     align-items: flex-end;
@@ -304,8 +315,10 @@
       }
 
       code {
-        font-family: "Courier New", monospace;
-        font-size: 12px;
+        font-family:
+          ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas,
+          "Liberation Mono", monospace;
+        font-size: 1em;
         padding: 2px 5px;
         border-radius: 4px;
         color: var(--accent);
@@ -338,8 +351,8 @@
         code {
           padding: 0;
           background: none;
-          font-size: 12px;
-          line-height: 1.5;
+          font-size: 1em;
+          line-height: 1.55;
         }
       }
 

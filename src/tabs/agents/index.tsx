@@ -9,7 +9,7 @@ import { useShellular } from "state";
 import { useBookmarkedSessions } from "state/bookmarkSessions";
 import AgentTile from "./AgentTile";
 
-export default function AgentsTab() {
+export default function AgentsTab({ compact = false }: { compact?: boolean }) {
 	const { connectionStatus, loadingAgents, agents, loadAgents } =
 		useShellular();
 	const { bookmarked } = useBookmarkedSessions();
@@ -72,7 +72,11 @@ export default function AgentsTab() {
 
 	return (
 		<div className="agents-page">
-			<TabPageHeader title="Agents" rightSlot={rightSlot} />
+			{compact ? (
+				<div className="agents-sidebar-actions">{rightSlot}</div>
+			) : (
+				<TabPageHeader title="Agents" rightSlot={rightSlot} />
+			)}
 			{loadingAgents && (
 				<EmptyState message="Loading agents..." mascot="loading" />
 			)}

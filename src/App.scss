@@ -43,7 +43,7 @@
         margin-left: calc(var(--sidebar-w) + var(--sat, 0px));
       }
 
-      @include browser {
+      @include desktop-ui {
         margin-left: var(--sidebar-w);
       }
     }
@@ -91,7 +91,7 @@
         padding: calc(var(--sat, 0px) + 16px) 8px calc(var(--sab, 0px) + 16px) calc(8px + var(--sat, 0px));
       }
 
-      @include browser {
+      @include desktop-ui {
         width: var(--sidebar-w);
         padding: 32px 0;
       }

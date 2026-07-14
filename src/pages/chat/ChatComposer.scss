@@ -37,7 +37,7 @@
     bottom: calc(var(--keyboard-height, 8px) + 8px);
   }
 
-  @include browser {
+  @include desktop-ui {
     max-width: 1150px;
     width: calc(100% - 32px);
   }
