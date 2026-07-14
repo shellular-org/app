@@ -406,7 +406,7 @@ export default function SettingsPage() {
 		}
 	}
 
-	async function handleRelayServerSave() {
+	async function handleServerSave() {
 		setIsSavingDevServer(true);
 		try {
 			const domain =
@@ -419,7 +419,7 @@ export default function SettingsPage() {
 					devServer: { protocol: devServerProtocol, domain },
 				})
 			) {
-				toast("Relay server settings saved", 2000);
+				toast("Server settings saved", 2000);
 			}
 		} finally {
 			setIsSavingDevServer(false);
@@ -496,7 +496,10 @@ export default function SettingsPage() {
 	]);
 	const showNetworkSettings = matchesSettingsSearch(searchQuery, [
 		{ title: "Protocol", description: "HTTP uses WS, HTTPS uses WSS." },
-		{ title: "Base domain", description: "The domain of the relay server." },
+		{
+			title: "Base domain",
+			description: "The domain of the Shellular server.",
+		},
 	]);
 	const showDeveloperSettings = matchesSettingsSearch(searchQuery, [
 		{
@@ -773,7 +776,7 @@ export default function SettingsPage() {
 										Network
 									</h2>
 								)}
-								<SettingsGroup title="Relay Server" searchQuery={searchQuery}>
+								<SettingsGroup title="Server" searchQuery={searchQuery}>
 									<SettingsItem
 										title="Protocol"
 										description="HTTP uses WS, HTTPS uses WSS."
@@ -792,19 +795,19 @@ export default function SettingsPage() {
 									/>
 									<SettingsItem
 										title="Base domain"
-										description="The domain of the relay server."
+										description="The domain of the Shellular server."
 										vertical
 										control={
 											<div className="flex flex-col sm:flex-row gap-3 w-full">
 												<TextInput
 													value={devServerDomain}
 													onChange={setDevServerDomain}
-													placeholder="api.shellular.dev"
+													placeholder="server.shellular.dev"
 												/>
 												<button
 													type="button"
 													className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
-													onClick={handleRelayServerSave}
+													onClick={handleServerSave}
 													disabled={isSavingDevServer}
 												>
 													{isSavingDevServer ? "Saving..." : "Save"}

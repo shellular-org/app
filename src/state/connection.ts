@@ -80,6 +80,12 @@ type WebSocketTokenResponse = {
 	wsToken: string;
 	clientId: string;
 	expiresIn: number;
+	/**
+	 * The regional relay to open the WebSocket to (e.g. wss://in.shellular.dev).
+	 * Central returns this from the host's live presence so the app lands on the
+	 * SAME relay its CLI is connected to — in-process relaying can't cross regions.
+	 */
+	relayUrl: string;
 };
 
 const RECV_TIMEOUT = 40_000;
@@ -137,14 +143,16 @@ export class Connection extends EventTarget {
 	private pendingResponses = new Map<string, (msg: unknown) => void>();
 	private encryptionKey: Uint8Array | null = null;
 	private clientId: string | null = null;
-	private readonly serverUrl: string;
+	// The CENTRAL API base (http/https). Used only to request a WebSocket token +
+	// the host's current relayUrl; the socket itself is opened to that relay.
+	private readonly centralBaseUrl: string;
 	// Timestamp of the last inbound frame of any kind. Any traffic from the host
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
 
-	constructor(wsServerUrl: string, encryptionKey?: Uint8Array | null) {
+	constructor(centralBaseUrl: string, encryptionKey?: Uint8Array | null) {
 		super();
-		this.serverUrl = wsServerUrl;
+		this.centralBaseUrl = centralBaseUrl;
 		this.encryptionKey = encryptionKey ?? null;
 	}
 
@@ -248,17 +256,20 @@ export class Connection extends EventTarget {
 			deviceIsEmulator: deviceInfo.isEmulator,
 			deviceManufacturer: deviceInfo.manufacturer,
 		};
-		const wsToken = await requestWebSocketToken(
-			this.serverUrl,
+		// The token request goes to CENTRAL (this.serverUrl); the WebSocket itself
+		// goes to the regional relay central names in `relayUrl` — the same relay the
+		// host's CLI is on. Central's relayUrl is a bare wss:// origin, so we append
+		// the /app path the relay's upgrade handler expects.
+		const wsInfo = await requestWebSocketToken(
+			this.centralBaseUrl,
 			accessToken,
 			clientInfo,
 		);
 
-		const wsUrl = new URL(this.serverUrl);
-		wsUrl.search = "";
-		wsUrl.searchParams.set("wsToken", wsToken.wsToken);
+		const wsUrl = new URL(wsInfo.relayUrl);
+		wsUrl.searchParams.set("wsToken", wsInfo.wsToken);
 
-		this.clientId = wsToken.clientId;
+		this.clientId = wsInfo.clientId;
 		this.ws = new WebSocket(wsUrl.toString());
 		const ws = this.ws;
 		ws.binaryType = "arraybuffer";
@@ -587,8 +598,7 @@ class ConnectionManager {
 		});
 
 		return new Promise<void>((resolve, reject) => {
-			const wsUrl = `${url.endsWith("/") ? url : `${url}/`}app`;
-			const nextConnection = new Connection(toWsUrl(wsUrl), this.encryptionKey);
+			const nextConnection = new Connection(url, this.encryptionKey);
 			let handshakeCompleted = false;
 			this.pendingSocket = nextConnection;
 
@@ -921,9 +931,13 @@ function isClientReplacedClose(detail: ConnectionCloseDetail | null): boolean {
 }
 
 function toWsUrl(httpUrl: string): string {
-	return httpUrl
-		.replace(/^https:\/\//, "wss://")
-		.replace(/^http:\/\//, "ws://");
+	const url = new URL(httpUrl);
+	if (url.protocol === "https:") {
+		url.protocol = "wss:";
+	} else if (url.protocol === "http:") {
+		url.protocol = "ws:";
+	}
+	return url.toString();
 }
 
 function toHttpUrl(wsUrl: string): string {
@@ -931,11 +945,13 @@ function toHttpUrl(wsUrl: string): string {
 }
 
 async function requestWebSocketToken(
-	wsUrl: string,
+	centralBaseUrl: string,
 	accessToken: string | null,
 	clientInfo: ClientInfoRequest,
 ): Promise<WebSocketTokenResponse> {
-	const url = new URL(toHttpUrl(wsUrl));
+	// Defensive: central base is http(s), but normalize in case a ws-scheme
+	// URL is ever passed. The token endpoint always lives on central.
+	const url = new URL(toHttpUrl(centralBaseUrl));
 	url.pathname = "/auth/ws-app-token";
 	url.search = "";
 
@@ -961,12 +977,15 @@ async function requestWebSocketToken(
 		!response.ok ||
 		json.success === false ||
 		!json.data?.wsToken ||
-		!json.data.clientId
+		!json.data.clientId ||
+		!json.data.relayUrl
 	) {
 		throw new Error(
 			json.error || json.message || "Failed to authorize WebSocket connection.",
 		);
 	}
+
+	json.data.relayUrl = toWsUrl(json.data.relayUrl);
 
 	return json.data;
 }
