@@ -3,12 +3,13 @@ import {
 	ClientHandshakeRespMsgSchema,
 	type ClientIncomingMsg,
 	ClientIncomingMsgSchema,
-	type ClientInfoRequest,
+	type ClientInfo,
 	type ClientToHostMsg,
 	type ClientToServerMsg,
 	type HostInfo,
 	MsgType,
 	parseMessage,
+	ServerCloseCodeAndReason,
 	type SessionJoinedMsg,
 } from "@shellular/protocol";
 import native from "bridge/native";
@@ -100,14 +101,6 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 20_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
-const HANDSHAKE_CLOSE_CODE = {
-	HOST_UNAVAILABLE: 4001,
-	INVALID_QUERY: 4002,
-	APPROVAL_DENIED: 4003,
-	SESSION_ERROR: 4004,
-	HOST_DISCONNECTED: 4005,
-	CLIENT_REPLACED: 4006,
-} as const;
 
 class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
 	readonly msg: TMsg;
@@ -247,7 +240,7 @@ export class Connection extends EventTarget {
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
 		// Deliberately a request-shaped payload: the server derives `user` from the
 		// authenticated session, so the app never asserts its own identity here.
-		const clientInfo: ClientInfoRequest = {
+		const clientInfo: ClientInfo = {
 			hostId,
 			clientId,
 			appVersion,
@@ -869,17 +862,17 @@ function createHandshakeError({
 
 function getHandshakeCloseMessage(code: number, reason: string): string {
 	switch (code) {
-		case HANDSHAKE_CLOSE_CODE.HOST_UNAVAILABLE:
+		case ServerCloseCodeAndReason.HOST_UNAVAILABLE.code:
 			return "Your dev machine is unavailable right now. Make sure Shellular CLI is running, then try again.";
-		case HANDSHAKE_CLOSE_CODE.INVALID_QUERY:
+		case ServerCloseCodeAndReason.INVALID_QUERY.code:
 			return "This connection request is invalid. Please scan the QR code again and retry.";
-		case HANDSHAKE_CLOSE_CODE.APPROVAL_DENIED:
+		case ServerCloseCodeAndReason.APPROVAL_DENIED.code:
 			return "This client is not allowed to connect. Please approve it in your dev machine.";
-		case HANDSHAKE_CLOSE_CODE.SESSION_ERROR:
+		case ServerCloseCodeAndReason.SESSION_JOIN_FAILED.code:
 			return "We couldn't attach this client to the session. Please try again.";
-		case HANDSHAKE_CLOSE_CODE.HOST_DISCONNECTED:
+		case ServerCloseCodeAndReason.HOST_DISCONNECTED.code:
 			return "The host is offline. Please check your dev machine and try again.";
-		case HANDSHAKE_CLOSE_CODE.CLIENT_REPLACED:
+		case ServerCloseCodeAndReason.CLIENT_REPLACED.code:
 			return "This browser session was replaced by a newer Shellular window.";
 		default:
 			break;
@@ -925,7 +918,7 @@ function connectionCloseDetail(
 
 function isClientReplacedClose(detail: ConnectionCloseDetail | null): boolean {
 	return (
-		detail?.code === HANDSHAKE_CLOSE_CODE.CLIENT_REPLACED ||
+		detail?.code === ServerCloseCodeAndReason.CLIENT_REPLACED.code ||
 		detail?.reason === "client_replaced"
 	);
 }
@@ -947,7 +940,7 @@ function toHttpUrl(wsUrl: string): string {
 async function requestWebSocketToken(
 	centralBaseUrl: string,
 	accessToken: string | null,
-	clientInfo: ClientInfoRequest,
+	clientInfo: ClientInfo,
 ): Promise<WebSocketTokenResponse> {
 	// Defensive: central base is http(s), but normalize in case a ws-scheme
 	// URL is ever passed. The token endpoint always lives on central.

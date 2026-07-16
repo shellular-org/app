@@ -80,7 +80,7 @@ function normalizeFontFamily(value: unknown): string {
 		: MONOSPACE_FONT_FAMILY_OPTIONS[0].value;
 }
 
-export const DEFAULT_DEV_SERVER_SETTINGS: DevServerSettings = {
+export const DEFAULT_SERVER_SETTINGS: DevServerSettings = {
 	protocol: "https",
 	domain: appConfig.DEFAULT_SERVER,
 };
@@ -105,7 +105,7 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
 
 const DEFAULT_SETTINGS: AppSettings = {
 	theme: "dark",
-	devServer: DEFAULT_DEV_SERVER_SETTINGS,
+	devServer: DEFAULT_SERVER_SETTINGS,
 	editor: DEFAULT_EDITOR_SETTINGS,
 	terminal: DEFAULT_TERMINAL_SETTINGS,
 	showHiddenFiles: false,
@@ -126,10 +126,8 @@ function normalizeDevServerSettings(
 		protocol:
 			settings?.protocol === "http" || settings?.protocol === "https"
 				? settings.protocol
-				: DEFAULT_DEV_SERVER_SETTINGS.protocol,
-		domain: normalizeDomain(
-			settings?.domain || DEFAULT_DEV_SERVER_SETTINGS.domain,
-		),
+				: DEFAULT_SERVER_SETTINGS.protocol,
+		domain: normalizeDomain(settings?.domain || DEFAULT_SERVER_SETTINGS.domain),
 	};
 }
 
@@ -276,5 +274,5 @@ export async function saveSettings(
 export async function getBaseServerUrl(): Promise<string> {
 	const settings = await loadSettings();
 	const domain = normalizeDomain(settings.devServer.domain);
-	return `${settings.devServer.protocol}://${domain || DEFAULT_DEV_SERVER_SETTINGS.domain}`;
+	return `${settings.devServer.protocol}://${domain || DEFAULT_SERVER_SETTINGS.domain}`;
 }

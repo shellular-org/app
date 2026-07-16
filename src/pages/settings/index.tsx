@@ -2,8 +2,8 @@ import { ONBOARDING_KEY } from "App";
 import AppSelect from "components/AppSelect";
 import Page from "components/Page";
 import {
-	DEFAULT_DEV_SERVER_SETTINGS,
 	DEFAULT_EDITOR_SETTINGS,
+	DEFAULT_SERVER_SETTINGS,
 	DEFAULT_TERMINAL_SETTINGS,
 	type DevServerProtocol,
 	loadSettings,
@@ -218,10 +218,10 @@ export default function SettingsPage() {
 		return name ?? "dark";
 	});
 	const [devServerDomain, setDevServerDomain] = useState(
-		DEFAULT_DEV_SERVER_SETTINGS.domain,
+		DEFAULT_SERVER_SETTINGS.domain,
 	);
 	const [devServerProtocol, setDevServerProtocol] = useState<DevServerProtocol>(
-		DEFAULT_DEV_SERVER_SETTINGS.protocol,
+		DEFAULT_SERVER_SETTINGS.protocol,
 	);
 
 	const [editorFontSize, setEditorFontSize] = useState(
@@ -410,7 +410,7 @@ export default function SettingsPage() {
 		setIsSavingDevServer(true);
 		try {
 			const domain =
-				normalizeDomain(devServerDomain) || DEFAULT_DEV_SERVER_SETTINGS.domain;
+				normalizeDomain(devServerDomain) || DEFAULT_SERVER_SETTINGS.domain;
 			setDevServerDomain(domain);
 			// Explicit Save action (unlike the auto-saving controls), so confirm
 			// success with a toast. persistSettings toasts on failure.
@@ -495,7 +495,7 @@ export default function SettingsPage() {
 		},
 	]);
 	const showNetworkSettings = matchesSettingsSearch(searchQuery, [
-		{ title: "Protocol", description: "HTTP uses WS, HTTPS uses WSS." },
+		{ title: "Protocol", description: "http:// or https://" },
 		{
 			title: "Base domain",
 			description: "The domain of the Shellular server.",
@@ -779,7 +779,7 @@ export default function SettingsPage() {
 								<SettingsGroup title="Server" searchQuery={searchQuery}>
 									<SettingsItem
 										title="Protocol"
-										description="HTTP uses WS, HTTPS uses WSS."
+										description="http:// or https://"
 										control={
 											<AppSelect
 												value={devServerProtocol}
