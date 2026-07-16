@@ -138,14 +138,14 @@ export class Connection extends EventTarget {
 	private clientId: string | null = null;
 	// The CENTRAL API base (http/https). Used only to request a WebSocket token +
 	// the host's current relayUrl; the socket itself is opened to that relay.
-	private readonly centralBaseUrl: string;
+	private readonly serverUrl: string;
 	// Timestamp of the last inbound frame of any kind. Any traffic from the host
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
 
-	constructor(centralBaseUrl: string, encryptionKey?: Uint8Array | null) {
+	constructor(serverUrl: string, encryptionKey?: Uint8Array | null) {
 		super();
-		this.centralBaseUrl = centralBaseUrl;
+		this.serverUrl = serverUrl;
 		this.encryptionKey = encryptionKey ?? null;
 	}
 
@@ -254,7 +254,7 @@ export class Connection extends EventTarget {
 		// host's CLI is on. Central's relayUrl is a bare wss:// origin, so we append
 		// the /app path the relay's upgrade handler expects.
 		const wsInfo = await requestWebSocketToken(
-			this.centralBaseUrl,
+			this.serverUrl,
 			accessToken,
 			clientInfo,
 		);
@@ -933,18 +933,14 @@ function toWsUrl(httpUrl: string): string {
 	return url.toString();
 }
 
-function toHttpUrl(wsUrl: string): string {
-	return wsUrl.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
-}
-
 async function requestWebSocketToken(
-	centralBaseUrl: string,
+	serverUrl: string,
 	accessToken: string | null,
 	clientInfo: ClientInfo,
 ): Promise<WebSocketTokenResponse> {
 	// Defensive: central base is http(s), but normalize in case a ws-scheme
 	// URL is ever passed. The token endpoint always lives on central.
-	const url = new URL(toHttpUrl(centralBaseUrl));
+	const url = new URL(serverUrl);
 	url.pathname = "/auth/ws-app-token";
 	url.search = "";
 
