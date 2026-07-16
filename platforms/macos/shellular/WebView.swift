@@ -28,18 +28,15 @@ final class WebViewController: NSViewController, WKNavigationDelegate, WKUIDeleg
         errorLabel.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(errorLabel)
         NSLayoutConstraint.activate([errorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor), errorLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor), errorLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 620)])
         bridge.setup(webView: webView, viewController: self)
-        webView.load(URLRequest(url: URL(string: "shellular://localhost/")!))
-        NotificationCenter.default.addObserver(forName: .reloadWebView, object: nil, queue: .main) { [weak self] _ in self?.webView.reload() }
-        NotificationCenter.default.addObserver(forName: .openFile, object: nil, queue: .main) { [weak self] _ in
-            guard let self, let window = self.view.window else { return }
-            let panel = NSOpenPanel(); panel.allowsMultipleSelection = true
-            panel.beginSheetModal(for: window) { response in
-                guard response == .OK,
-                      let data = try? JSONSerialization.data(withJSONObject: panel.urls.map(\.path)),
-                      let json = String(data: data, encoding: .utf8) else { return }
-                self.webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('macosopenfiles',{detail:\(json)}))")
+        if (LocalCLIManager.shared.capability()["available"] as? Bool) == true {
+            LocalCLIManager.shared.ensureRunning { result in
+                if case .failure(let error) = result {
+                    NSLog("Local CLI bootstrap failed: %@", error.localizedDescription)
+                }
             }
         }
+        webView.load(URLRequest(url: URL(string: "shellular://localhost/")!))
+        NotificationCenter.default.addObserver(forName: .reloadWebView, object: nil, queue: .main) { [weak self] _ in self?.webView.reload() }
         NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.webView.evaluateJavaScript("document.dispatchEvent(new CustomEvent('pause'))") }
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.webView.evaluateJavaScript("document.dispatchEvent(new CustomEvent('resume'))") }
     }

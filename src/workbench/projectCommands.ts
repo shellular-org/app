@@ -28,7 +28,7 @@ export function buildProjectMenuItems(
 			onClick: () => handlers.onNewChat(agent),
 		})),
 		{
-			icon: "icon-folder-open",
+			icon: "icon-folder",
 			label: "Explore",
 			divider: true,
 			onClick: handlers.onExplore,
@@ -57,8 +57,8 @@ export function buildProjectMenuItems(
 					...(capabilities.canReveal
 						? [
 								{
-									icon: "icon-folder-open",
-									label: "Reveal in File Manager",
+									icon: "icon-external-link",
+									label: getRevealLabel(),
 									onClick: handlers.onReveal,
 								},
 							]
@@ -82,4 +82,10 @@ export function buildProjectMenuItems(
 			onClick: handlers.onRemove,
 		},
 	];
+}
+
+function getRevealLabel() {
+	if (process.env.PLATFORM === "macos") return "Reveal in Finder";
+	if (process.env.PLATFORM === "windows") return "Show in Explorer";
+	return "Reveal in File Manager";
 }

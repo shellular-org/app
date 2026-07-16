@@ -12,7 +12,7 @@ import {
 	workspaceIntegration,
 } from "workbench/integration";
 import { openInWorkbench } from "workbench/navigation";
-import { tryOpenChatSurface } from "workbench/openers";
+import { tryOpenChatSurface, tryOpenFileSurface } from "workbench/openers";
 import { buildProjectMenuItems } from "workbench/projectCommands";
 
 interface Props {
@@ -128,11 +128,9 @@ export default function ProjectList({ projects, adding }: Props) {
 			return;
 		}
 		if (
-			openInWorkbench({
-				kind: "files",
+			tryOpenFileSurface({
 				id: `files:${project.path}`,
 				title: project.name,
-				icon: "icon-folder",
 				initialPath: project.path,
 				mode: "project",
 			})

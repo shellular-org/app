@@ -154,6 +154,76 @@
     margin: 0 0 10px 4px;
   }
 
+  .local-connection-card {
+    margin: 0 18px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 13px 14px;
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    background: var(--popup-background);
+    box-shadow: var(--shadow);
+  }
+
+  .local-connection-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 34px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-size: 18px;
+  }
+
+  .local-connection-copy {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--primary-text);
+    }
+
+    small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 11px;
+      color: var(--secondary-text);
+      opacity: 0.55;
+    }
+  }
+
+  .local-connection-exit {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--secondary-text);
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--surface-soft);
+      color: var(--primary-text);
+      outline: none;
+    }
+  }
+
   .saved-machines-section {
     padding: 0 18px calc(24px + var(--sab, 0px));
 

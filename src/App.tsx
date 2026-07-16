@@ -186,7 +186,8 @@ function AuthenticatedApp() {
 		(surface) => surface.id === workbench.activeId,
 	);
 	const shellShowsConnectionOverlay = process.env.IS_DESKTOP_UI
-		? activeWorkbenchSurface?.showConnectionBanner !== false
+		? (workbench.dialog ?? activeWorkbenchSurface)?.showConnectionBanner !==
+			false
 		: true;
 	const showConnectionOverlay = topNonClosingPage
 		? topNonClosingPage.showConnectionBanner
@@ -199,13 +200,23 @@ function AuthenticatedApp() {
 			{pageStack.map(({ id, element }) => {
 				const isClosing = closingIds.has(id);
 				const isVisible = id === topNonClosingPage?.id || isClosing;
+				const overlayClass = `page-overlay${isClosing ? " closing" : ""}${process.env.IS_DESKTOP_UI ? " desktop-page-dialog-overlay" : ""}`;
 				return (
 					<div
 						key={id}
-						className={`page-overlay${isClosing ? " closing" : ""}`}
+						className={overlayClass}
 						style={{ display: isVisible ? undefined : "none" }}
+						onMouseDown={(event) => {
+							if (!process.env.IS_DESKTOP_UI) return;
+							if (event.target !== event.currentTarget) return;
+							closePage(id);
+						}}
 					>
-						{element}
+						{process.env.IS_DESKTOP_UI ? (
+							<div className="desktop-pushed-page-shell">{element}</div>
+						) : (
+							element
+						)}
 					</div>
 				);
 			})}

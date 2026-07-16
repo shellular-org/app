@@ -1,6 +1,8 @@
 import "./desktop.scss";
 import dialog from "bridge/dialog";
+import native, { type DesktopCommand } from "bridge/native";
 import AccountAvatarButton from "components/AccountAvatarButton";
+import LocalCliDashboard from "components/LocalCliDashboard";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
 import { textifyEmoji } from "lib/emoji";
@@ -15,31 +17,68 @@ import appLogo from "res/logo.svg";
 import { useShellular } from "state";
 import { type ChatTab, getChatTabs, subscribeChatTabs } from "state/chatTabs";
 import { getHostInfo } from "state/connection";
+import { getLocalCliSnapshot, subscribeLocalCli } from "state/localCli";
 import AgentsTab from "tabs/agents";
 import HomeTab from "tabs/home";
+import { openBrowserSurface } from "./browserSurface";
+import DesktopDialogHost from "./DesktopDialogHost";
 import { setWorkbenchOpenHandler } from "./navigation";
 import ProjectSidebar from "./ProjectSidebar";
+import {
+	WorkbenchPageChromeProvider,
+	type WorkbenchPageChromeTargets,
+} from "./pageChrome";
 import SurfaceRenderer from "./SurfaceRenderer";
 import {
 	activateWorkbenchSurface,
 	closeWorkbenchSurface,
 	getWorkbenchSnapshot,
+	openWorkbenchDialog,
 	openWorkbenchSurface,
 	pruneWorkbenchTerminals,
 	restoreWorkbench,
 	subscribeWorkbench,
 } from "./store";
+import { createEditorSurface, utilityMetadata } from "./surfaces";
 import type { UtilityPage, WorkbenchSurface } from "./types";
 
-type Activity = "home" | "agents" | "projects" | "more";
+type PrimaryActivity = "home" | "remote" | "agents" | "projects";
+type Activity = PrimaryActivity | UtilityPage;
 const SIDEBAR_WIDTH_KEY = "shellular:desktop-sidebar-width";
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 480;
 
-const ACTIVITIES: Array<{ id: Activity; label: string; icon: string }> = [
-	{ id: "home", label: "Home", icon: "icon-home" },
+const ACTIVITIES: Array<{ id: PrimaryActivity; label: string; icon: string }> = [
+	{
+		id: "home",
+		label: "Home",
+		icon: "icon-home",
+	},
+	{
+		id: "remote",
+		label: "Remote Access",
+		icon: "icon-radio",
+	},
 	{ id: "agents", label: "Agents", icon: "icon-ai-chat" },
 	{ id: "projects", label: "Projects", icon: "icon-code" },
+];
+
+const RAIL_COMMANDS: Array<{
+	page: UtilityPage;
+	label: string;
+	icon: string;
+	footer?: boolean;
+}> = [
+	{ page: "ports", label: "Ports", icon: "icon-power-cord" },
+	{ page: "system-monitor", label: "System Monitor", icon: "icon-activity" },
+	{
+		page: "reach-out",
+		label: "Reach Out",
+		icon: "icon-message-circle",
+		footer: true,
+	},
+	{ page: "about", label: "About", icon: "icon-info", footer: true },
+	{ page: "settings", label: "Settings", icon: "icon-settings", footer: true },
 ];
 
 export default function DesktopShell({
@@ -50,6 +89,10 @@ export default function DesktopShell({
 	const workbench = useSyncExternalStore(
 		subscribeWorkbench,
 		getWorkbenchSnapshot,
+	);
+	const localCliState = useSyncExternalStore(
+		subscribeLocalCli,
+		getLocalCliSnapshot,
 	);
 	const {
 		activeTerminals,
@@ -63,6 +106,12 @@ export default function DesktopShell({
 	const [activity, setActivity] = useState<Activity>("home");
 	const [collapsed, setCollapsed] = useState(false);
 	const [compact, setCompact] = useState(() => window.innerWidth < 900);
+	const [chromeTargets, setChromeTargets] =
+		useState<WorkbenchPageChromeTargets>({
+			title: null,
+			actions: null,
+			navigation: null,
+		});
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
 		return saved >= SIDEBAR_MIN && saved <= SIDEBAR_MAX ? saved : 300;
@@ -73,9 +122,32 @@ export default function DesktopShell({
 	const activeSurface = workbench.tabs.find(
 		(surface) => surface.id === workbench.activeId,
 	);
+	const setChromeTarget = useCallback(
+		(key: keyof WorkbenchPageChromeTargets, element: HTMLElement | null) => {
+			setChromeTargets((current) =>
+				current[key] === element ? current : { ...current, [key]: element },
+			);
+		},
+		[],
+	);
+	const setChromeNavigationTarget = useCallback(
+		(element: HTMLElement | null) => setChromeTarget("navigation", element),
+		[setChromeTarget],
+	);
+	const setChromeTitleTarget = useCallback(
+		(element: HTMLElement | null) => setChromeTarget("title", element),
+		[setChromeTarget],
+	);
+	const setChromeActionsTarget = useCallback(
+		(element: HTMLElement | null) => setChromeTarget("actions", element),
+		[setChromeTarget],
+	);
 
 	useEffect(() => {
-		setWorkbenchOpenHandler(openWorkbenchSurface);
+		setWorkbenchOpenHandler((surface, options) => {
+			if (options?.presentation === "dialog") openWorkbenchDialog(surface);
+			else openWorkbenchSurface(surface);
+		});
 		return () => setWorkbenchOpenHandler(null);
 	}, []);
 
@@ -159,7 +231,7 @@ export default function DesktopShell({
 		setCollapsed(false);
 	};
 
-	const newTerminal = async () => {
+	const newTerminal = useCallback(async () => {
 		const terminalId = await createTerminal();
 		if (!terminalId) return;
 		openWorkbenchSurface({
@@ -169,7 +241,42 @@ export default function DesktopShell({
 			icon: "icon-terminal",
 			terminalId,
 		});
-	};
+	}, [createTerminal]);
+
+	useEffect(() => {
+		if (!process.env.IS_DESKTOP_UI) return;
+		native.setDesktopCommandHandler((command: DesktopCommand) => {
+			switch (command) {
+				case "about":
+					openUtility("about");
+					break;
+				case "settings":
+					openUtility("settings");
+					break;
+				case "reach-out":
+					openUtility("reach-out");
+					break;
+				case "new-terminal":
+					void newTerminal();
+					break;
+				case "open-file":
+					void native.pickLocalFiles().then((paths) => {
+						for (const path of paths) {
+							openWorkbenchSurface(
+								createEditorSurface({
+									id: `editor:${path}`,
+									filePath: path,
+								}),
+							);
+						}
+					});
+					break;
+				case "help":
+					void openBrowserSurface("https://shellular.dev/docs", "Shellular Help");
+					break;
+			}
+		});
+	}, [newTerminal]);
 
 	const closeSurface = useCallback(
 		async (surface: WorkbenchSurface) => {
@@ -212,7 +319,10 @@ export default function DesktopShell({
 			<div className="desktop-workbench">
 				<nav className="workbench-activity-bar" aria-label="Workspace sections">
 					<div className="workbench-activity-main">
-						{ACTIVITIES.map((item) => (
+						{ACTIVITIES.filter(
+							(item) =>
+								item.id !== "remote" || localCliState.capability?.available,
+						).map((item) => (
 							<ActivityButton
 								key={item.id}
 								item={item}
@@ -220,25 +330,29 @@ export default function DesktopShell({
 								onClick={() => chooseActivity(item.id)}
 							/>
 						))}
+						{RAIL_COMMANDS.filter((item) => !item.footer).map((item) => (
+							<CommandButton
+								key={item.page}
+								label={item.label}
+								icon={item.icon}
+								active={activity === item.page && !collapsed}
+								onClick={() => chooseActivity(item.page)}
+							/>
+						))}
 					</div>
 					<div className="workbench-activity-footer">
-						<ActivityButton
-							item={{ id: "more", label: "More", icon: "icon-grid" }}
-							active={activity === "more" && !collapsed}
-							onClick={() => chooseActivity("more")}
-						/>
-						<button
-							type="button"
-							className="workbench-activity-button"
-							onClick={() => openUtility("settings")}
-							aria-label="Settings"
-							title="Settings"
-						>
-							<span className="icon-settings" />
-						</button>
+						{RAIL_COMMANDS.filter((item) => item.footer).map((item) => (
+							<CommandButton
+								key={item.page}
+								label={item.label}
+								icon={item.icon}
+								active={activity === item.page && !collapsed}
+								onClick={() => chooseActivity(item.page)}
+							/>
+						))}
 						<AccountAvatarButton
 							className="workbench-account-avatar"
-							onClick={() => openUtility("account")}
+							onClick={() => chooseActivity("account")}
 						/>
 					</div>
 				</nav>
@@ -249,10 +363,13 @@ export default function DesktopShell({
 						style={{ width }}
 					>
 						<div className="workbench-sidebar-content">
+							{activity === "remote" && <LocalCliDashboard />}
 							{activity === "home" && <HomeTab showAccount={false} />}
 							{activity === "agents" && <AgentsTab compact />}
 							{activity === "projects" && <ProjectSidebar />}
-							{activity === "more" && <MoreSidebar />}
+							{isUtilityActivity(activity) && (
+								<SidebarUtilityPage page={activity} />
+							)}
 						</div>
 						{!compact && (
 							<div
@@ -275,13 +392,11 @@ export default function DesktopShell({
 				)}
 
 				<main className="workbench-main">
-					<div
-						className="workbench-tab-strip"
-						role="tablist"
-						aria-label="Open views"
-					>
+					<div className="workbench-tab-strip">
 						<div
 							className="workbench-tabs-scroll"
+							role="tablist"
+							aria-label="Open views"
 							onWheel={(event) => {
 								if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
 								if (
@@ -325,6 +440,18 @@ export default function DesktopShell({
 								</div>
 							))}
 						</div>
+						<div
+							className="workbench-page-title-target"
+							ref={setChromeTitleTarget}
+						/>
+						<div
+							className="workbench-page-nav-slot"
+							ref={setChromeNavigationTarget}
+						/>
+						<div
+							className="workbench-page-actions-target"
+							ref={setChromeActionsTarget}
+						/>
 						<button
 							type="button"
 							className="workbench-new-terminal"
@@ -352,13 +479,43 @@ export default function DesktopShell({
 										workbench.activeId === surface.id ? undefined : "none",
 								}}
 							>
-								<SurfaceRenderer surface={surface} />
+								<WorkbenchPageChromeProvider
+									active={workbench.activeId === surface.id}
+									targets={chromeTargets}
+								>
+									<SurfaceRenderer surface={surface} />
+								</WorkbenchPageChromeProvider>
 							</section>
 						))}
 					</div>
 				</main>
+				<DesktopDialogHost surface={workbench.dialog} />
 			</div>
 		</div>
+	);
+}
+
+function CommandButton({
+	label,
+	icon,
+	active,
+	onClick,
+}: {
+	label: string;
+	icon: string;
+	active?: boolean;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className={`workbench-activity-button${active ? " active" : ""}`}
+			onClick={onClick}
+			aria-label={label}
+			title={label}
+		>
+			<span className={icon} />
+		</button>
 	);
 }
 
@@ -367,7 +524,7 @@ function ActivityButton({
 	active,
 	onClick,
 }: {
-	item: { id: Activity; label: string; icon: string };
+	item: { id: PrimaryActivity; label: string; icon: string };
 	active: boolean;
 	onClick: () => void;
 }) {
@@ -382,6 +539,25 @@ function ActivityButton({
 			<span className={item.icon} />
 		</button>
 	);
+}
+
+function SidebarUtilityPage({ page }: { page: UtilityPage }) {
+	return (
+		<div className="workbench-sidebar-utility">
+			<SurfaceRenderer
+				surface={{
+					kind: "utility",
+					id: `sidebar:${page}`,
+					page,
+					...utilityMetadata[page],
+				}}
+			/>
+		</div>
+	);
+}
+
+function isUtilityActivity(activity: Activity): activity is UtilityPage {
+	return activity in utilityMetadata;
 }
 
 function WorkbenchWelcome({
@@ -481,94 +657,12 @@ function WorkbenchWelcome({
 	);
 }
 
-function MoreSidebar() {
-	const items: Array<{
-		page: UtilityPage;
-		label: string;
-		description: string;
-		icon: string;
-	}> = [
-		{
-			page: "ports",
-			label: "Ports",
-			description: "Manage forwarded services",
-			icon: "icon-power-cord",
-		},
-		{
-			page: "system-monitor",
-			label: "System Monitor",
-			description: "Connected host performance",
-			icon: "icon-activity",
-		},
-		{
-			page: "reach-out",
-			label: "Reach Out",
-			description: "Contact the Shellular team",
-			icon: "icon-message-circle",
-		},
-		{
-			page: "about",
-			label: "About",
-			description: "Version and licenses",
-			icon: "icon-info",
-		},
-	];
-	return (
-		<div className="workbench-more-list">
-			{items.map((item) => (
-				<button
-					type="button"
-					key={item.page}
-					onClick={() => openUtility(item.page)}
-				>
-					<span className={item.icon} />
-					<span>
-						<strong>{item.label}</strong>
-						<small>{item.description}</small>
-					</span>
-				</button>
-			))}
-		</div>
-	);
-}
-
 function openUtility(page: UtilityPage) {
-	const metadata: Record<
-		UtilityPage,
-		{ title: string; icon: string; showConnectionBanner: boolean }
-	> = {
-		settings: {
-			title: "Settings",
-			icon: "icon-settings",
-			showConnectionBanner: false,
-		},
-		ports: {
-			title: "Ports",
-			icon: "icon-power-cord",
-			showConnectionBanner: false,
-		},
-		about: { title: "About", icon: "icon-info", showConnectionBanner: false },
-		"reach-out": {
-			title: "Reach Out",
-			icon: "icon-message-circle",
-			showConnectionBanner: false,
-		},
-		account: {
-			title: "Account",
-			icon: "icon-user",
-			showConnectionBanner: false,
-		},
-		"system-monitor": {
-			title: "System Monitor",
-			icon: "icon-activity",
-			showConnectionBanner: true,
-		},
-	};
 	openWorkbenchSurface({
 		kind: "utility",
 		id: `utility:${page}`,
 		page,
-		...metadata[page],
+		...utilityMetadata[page],
 	});
 }
 

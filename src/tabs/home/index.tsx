@@ -16,9 +16,18 @@ import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
 import { getOnlineStatus } from "lib/utils";
 import AccountPage from "pages/account";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useShellular } from "state";
-import { getHostInfo } from "state/connection";
+import {
+	getConnectionSnapshot,
+	getHostInfo,
+	subscribeState,
+} from "state/connection";
+import {
+	connectLocalCli,
+	getLocalCliSnapshot,
+	subscribeLocalCli,
+} from "state/localCli";
 import {
 	dismissSessionActivity,
 	getActiveSessionActivities,
@@ -34,7 +43,13 @@ export default function HomeTab({
 }: {
 	showAccount?: boolean;
 }) {
-	const { savedHosts, connectionStatus, isSwitching, agents } = useShellular();
+	const { savedHosts, connectionStatus, isSwitching, agents, disconnect } =
+		useShellular();
+	const connection = useSyncExternalStore(
+		subscribeState,
+		getConnectionSnapshot,
+	);
+	const localCli = useSyncExternalStore(subscribeLocalCli, getLocalCliSnapshot);
 	// Treat an in-flight reconnect as "still connected" for display purposes, so
 	// a dropped CLI doesn't visually reset the home view to the host picker while
 	// we're transparently retrying. The reconnect overlay communicates the state.
@@ -53,6 +68,7 @@ export default function HomeTab({
 	const visibleActiveSessions = activeSessions.filter(
 		(session) => agents[session.agentId]?.available,
 	);
+	const isLocalConnection = isLive && connection.transport === "local";
 
 	useEffect(() => {
 		// Keep the last host info on screen during a reconnect (isLive) so the
@@ -119,7 +135,13 @@ export default function HomeTab({
 			<div className={clsx("px-4", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
-			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
+			{isOnline &&
+				hostInfo &&
+				(isLocalConnection ? (
+					<LocalConnectionInfo onDisconnect={disconnect} />
+				) : (
+					<ConnectionInfo hostInfo={hostInfo} />
+				))}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
 				<div className="px-[18px] pt-0.5 pb-[18px]">
 					<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
@@ -215,6 +237,38 @@ export default function HomeTab({
 					</motion.div>
 				)}
 			</AnimatePresence>
+			{localCli.capability?.available && !isLive && (
+				<div className="saved-machines-section">
+					<h2 className="saved-machines-title">This Machine</h2>
+					<button
+						type="button"
+						className="flex w-full items-center gap-3 rounded-xl border border-card-border bg-popup-background p-3 text-left shadow-[var(--shadow)]"
+						onClick={() => void connectLocalCli()}
+					>
+						<span
+							className="icon-shellular before:!text-current text-xl"
+							aria-hidden="true"
+						/>
+						<span className="min-w-0 flex-1">
+							<span className="block truncate text-sm font-bold text-primary-text">
+								{localCli.cli?.machineName ?? "This Mac"}
+							</span>
+							<span className="block truncate text-[11px] text-secondary-text opacity-60">
+								{localCli.busy
+									? localCli.phase === "connecting"
+										? "Connecting…"
+										: "Preparing local access…"
+									: (localCli.error ??
+										`Local · ${localCli.cli?.directory ?? "available"}`)}
+							</span>
+						</span>
+						<span
+							className="icon-chevron_right opacity-40"
+							aria-hidden="true"
+						/>
+					</button>
+				</div>
+			)}
 
 			{savedHosts.length > 0 && !showScanner && !isLive && (
 				<div className="saved-machines-section">
@@ -270,6 +324,41 @@ export default function HomeTab({
 function openAccountPage() {
 	if (tryOpenUtilitySurface("account", "Account", "icon-user")) return;
 	pushPage("account", <AccountPage />, { showConnectionBanner: false });
+}
+
+function LocalConnectionInfo({ onDisconnect }: { onDisconnect: () => void }) {
+	return (
+		<section className="local-connection-card" aria-label="Local workspace">
+			<div className="local-connection-icon">
+				<span className="icon-monitor" aria-hidden="true" />
+			</div>
+			<div className="local-connection-copy">
+				<span>{localMachineLabel()}</span>
+				<small>Working locally on this computer</small>
+			</div>
+			<button
+				type="button"
+				className="local-connection-exit"
+				onClick={onDisconnect}
+				aria-label="Leave local workspace"
+				title="Leave local workspace"
+			>
+				<span className="icon-log-out" aria-hidden="true" />
+			</button>
+		</section>
+	);
+}
+
+function localMachineLabel() {
+	if (process.env.PLATFORM === "macos") return "This Mac";
+	const platform = navigator.platform.toLowerCase();
+	const userAgent = navigator.userAgent.toLowerCase();
+	if (platform.includes("win") || userAgent.includes("windows"))
+		return "This PC";
+	if (platform.includes("linux") || userAgent.includes("linux")) {
+		return "This Computer";
+	}
+	return "This Computer";
 }
 
 async function openSession(

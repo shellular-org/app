@@ -334,6 +334,7 @@ export default function ChatSessionsPage({
 		<Page
 			className="agent-sessions-page"
 			title={searchVisible ? "" : pageTitle}
+			desktopTitleSlotInteractive={searchVisible}
 			titleSlot={
 				searchVisible ? (
 					<div

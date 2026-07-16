@@ -1,5 +1,5 @@
-import native from "bridge/native";
 import Page from "components/Page";
+import { openBrowserSurface } from "workbench/browserSurface";
 import "../about/style.scss";
 
 export type ReachOutLink = {
@@ -52,7 +52,7 @@ function ReachOutRow({ icon, label, href }: ReachOutLink) {
 		<button
 			type="button"
 			className="about-link-item"
-			onClick={() => native.openInBrowser(href)}
+			onClick={() => openBrowserSurface(href, label)}
 		>
 			<span className={`${icon} about-link-icon`} aria-hidden="true" />
 			<span className="about-link-label">{label}</span>
@@ -66,7 +66,7 @@ function ReachOutRow({ icon, label, href }: ReachOutLink) {
 
 export default function ReachOutPage() {
 	return (
-		<Page title="Reach Out">
+		<Page title="Reach Out" className="reach-out-page">
 			<section>
 				<p className="about-section-title">Get in touch</p>
 				<div className="about-card">

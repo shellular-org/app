@@ -1,6 +1,7 @@
-import type { WorkbenchSurface } from "./types";
+import type { WorkbenchPresentation, WorkbenchSurface } from "./types";
 
-type OpenHandler = (surface: WorkbenchSurface) => void;
+type OpenOptions = { presentation?: WorkbenchPresentation };
+type OpenHandler = (surface: WorkbenchSurface, options?: OpenOptions) => void;
 let openHandler: OpenHandler | null = null;
 
 export function setWorkbenchOpenHandler(handler: OpenHandler | null) {
@@ -8,8 +9,11 @@ export function setWorkbenchOpenHandler(handler: OpenHandler | null) {
 }
 
 /** Returns false on mobile so callers can use their existing page-stack flow. */
-export function openInWorkbench(surface: WorkbenchSurface): boolean {
+export function openInWorkbench(
+	surface: WorkbenchSurface,
+	options?: OpenOptions,
+): boolean {
 	if (!openHandler) return false;
-	openHandler(surface);
+	openHandler(surface, options);
 	return true;
 }

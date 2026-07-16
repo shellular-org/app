@@ -1,6 +1,4 @@
 import { pushPage } from "App";
-import browser from "bridge/browser";
-import native from "bridge/native";
 import Page from "components/Page";
 import { AnimatePresence, motion } from "framer-motion";
 import ReachOutPage from "pages/reach-out";
@@ -10,6 +8,7 @@ import betterKeepIcon from "res/better_keep.png";
 import chess69Icon from "res/chess69.png";
 import licenses from "./licenses";
 import "./style.scss";
+import { openBrowserSurface } from "workbench/browserSurface";
 
 export default function AboutPage() {
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -19,7 +18,7 @@ export default function AboutPage() {
 	}
 
 	return (
-		<Page title="About">
+		<Page title="About" className="about-page">
 			<div className="about-hero">
 				<div className="about-hero-icon-wrapper">
 					<span className="icon-shellular about-hero-icon" aria-hidden="true" />
@@ -69,7 +68,7 @@ export default function AboutPage() {
 					<button
 						type="button"
 						className="about-link-item"
-						onClick={() => native.openInBrowser("https://acode.app")}
+						onClick={() => openBrowserSurface("https://acode.app", "Acode Editor")}
 					>
 						<img
 							src={acodeIcon}
@@ -86,7 +85,7 @@ export default function AboutPage() {
 						type="button"
 						className="about-link-item"
 						onClick={() =>
-							native.openInBrowser("https://betterkeep.app/welcome")
+							openBrowserSurface("https://betterkeep.app/welcome", "Better Keep")
 						}
 					>
 						<img
@@ -103,7 +102,7 @@ export default function AboutPage() {
 					<button
 						type="button"
 						className="about-link-item"
-						onClick={() => native.openInBrowser("https://chess69.com")}
+						onClick={() => openBrowserSurface("https://chess69.com", "Hanging Piece")}
 					>
 						<img
 							src={chess69Icon}
@@ -163,7 +162,7 @@ export default function AboutPage() {
 													type="button"
 													className="about-license-entry"
 													key={entry.name}
-													onClick={() => browser.open(entry.url)}
+													onClick={() => openBrowserSurface(entry.url, entry.name)}
 												>
 													<span className="about-license-name">
 														{entry.name}

@@ -6,7 +6,13 @@ import Security
 import UserNotifications
 
 final class NativeService: BaseService {
+    private static var desktopCommandHandlers: [Callback] = []
     private lazy var socket = SocketService(bridge: bridge!)
+    static func sendDesktopCommand(_ command: String) {
+        DispatchQueue.main.async {
+            desktopCommandHandlers.forEach { $0.success(command, keep: true) }
+        }
+    }
     override func exec(action: String, args: [Any], callback: Callback) {
         switch action {
         case "shareFile": share(items: args.compactMap { ($0 as? String).map { URL(fileURLWithPath: $0) } }, callback)
@@ -15,6 +21,11 @@ final class NativeService: BaseService {
         case "getDeviceInfo": callback.success(["manufacturer":"Apple", "model": Host.current().localizedName ?? "Mac", "product": ProcessInfo.processInfo.operatingSystemVersionString, "isEmulator":false])
         case "openInBrowser": open(args, callback)
         case "setIntentHandler": AppDelegate.shared?.deepLinkHandler = { callback.success($0.absoluteString, keep: true) }; callback.success(nil, keep: true)
+        case "setDesktopCommandHandler": Self.desktopCommandHandlers.append(callback); callback.success(nil, keep: true)
+        case "getDesktopCapabilities": callback.success(["localWorkspace": true, "canPickLocalFiles": true, "canRevealLocalPath": true, "canOpenSystemTerminal": false])
+        case "pickLocalFiles": pickLocalFiles(callback)
+        case "revealLocalPath": revealLocalPath(args, callback)
+        case "openSystemTerminal": callback.error("System terminal is unavailable")
         case "setTheme": if let value = args.first as? [String:Any], value["type"] as? String == "light" { NSApp.appearance = NSAppearance(named: .aqua) } else { NSApp.appearance = NSAppearance(named: .darkAqua) }; callback.success()
         case "requestPermission": permission(args, request: true, callback)
         case "requestPermissions": requestMany(args, callback)
@@ -32,6 +43,28 @@ final class NativeService: BaseService {
     }
     private func share(items: [Any], _ callback: Callback) { DispatchQueue.main.async { guard let view = self.viewController?.view else { return callback.error("No window") }; NSSharingServicePicker(items: items).show(relativeTo: view.bounds, of: view, preferredEdge: .minY); callback.success() } }
     private func open(_ args: [Any], _ callback: Callback) { guard let s = args.first as? String, let u = URL(string:s) else { return callback.error("Invalid URL") }; NSWorkspace.shared.open(u); callback.success() }
+    private func pickLocalFiles(_ callback: Callback) {
+        DispatchQueue.main.async {
+            guard let window = self.viewController?.view.window else { return callback.error("No window") }
+            let panel = NSOpenPanel()
+            panel.allowsMultipleSelection = true
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK else { return callback.success([]) }
+                callback.success(panel.urls.map(\.path))
+            }
+        }
+    }
+    private func revealLocalPath(_ args: [Any], _ callback: Callback) {
+        guard let rawPath = args.first as? String, rawPath.hasPrefix("/") else { return callback.error("Absolute path required") }
+        let url = URL(fileURLWithPath: rawPath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return callback.error("Path does not exist") }
+        DispatchQueue.main.async {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            callback.success()
+        }
+    }
     private func permission(_ args: [Any], request: Bool, _ callback: Callback) {
         let p = (args.first as? String ?? "").lowercased()
         if p.contains("camera") {

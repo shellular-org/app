@@ -131,6 +131,27 @@ export default {
 	setIntentHandler(callback: Callback) {
 		intentHandler = callback;
 	},
+	setDesktopCommandHandler(callback: Callback) {
+		callback.keep = true;
+		callback.success(null);
+	},
+	getDesktopCapabilities(callback: Callback) {
+		callback.success({
+			localWorkspace: false,
+			canPickLocalFiles: false,
+			canRevealLocalPath: false,
+			canOpenSystemTerminal: false,
+		});
+	},
+	pickLocalFiles(callback: Callback) {
+		callback.success([]);
+	},
+	revealLocalPath(callback: Callback) {
+		callback.error("Native file explorer is unavailable");
+	},
+	openSystemTerminal(callback: Callback) {
+		callback.error("System terminal is unavailable");
+	},
 	getVersionSdkInt(callback: Callback) {
 		callback.success(0);
 	},

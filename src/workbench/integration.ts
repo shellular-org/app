@@ -24,18 +24,30 @@ const unsupported: WorkspaceCapabilities = {
 	canOpenSystemTerminal: false,
 };
 
-/** Replaced by a local-runtime provider when local mode is implemented. */
 export const workspaceIntegration: WorkspaceIntegration = {
 	async capabilities() {
-		return unsupported;
+		if (!process.env.IS_DESKTOP_UI) return unsupported;
+		try {
+			const capabilities = await native.getDesktopCapabilities();
+			return {
+				localWorkspace: capabilities.localWorkspace,
+				editors: [],
+				canReveal: capabilities.canRevealLocalPath,
+				canOpenSystemTerminal: capabilities.canOpenSystemTerminal,
+			};
+		} catch {
+			return unsupported;
+		}
 	},
 	async openInEditor() {
 		throw new Error("Local workspace integration is unavailable");
 	},
-	async reveal() {
-		throw new Error("Local workspace integration is unavailable");
+	async reveal(path: string) {
+		await native.revealLocalPath(path);
 	},
-	async openSystemTerminal() {
-		throw new Error("Local workspace integration is unavailable");
+	async openSystemTerminal(path: string) {
+		await native.openSystemTerminal(path);
 	},
 };
+
+import native from "bridge/native";

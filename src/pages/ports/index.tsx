@@ -1,4 +1,4 @@
-import browser from "bridge/browser";
+import "./style.scss";
 import dialog from "bridge/dialog";
 import { cachePorts } from "browser";
 import EmptyState from "components/EmptyState";
@@ -7,6 +7,7 @@ import Page from "components/Page";
 import { useCallback, useEffect, useState } from "react";
 import { useShellular } from "state";
 import { fetchPorts, killPort, type PortEntry } from "state/ports";
+import { openBrowserSurface } from "workbench/browserSurface";
 
 // Ports that are almost certainly running an HTTP server
 const WEB_PORTS = new Set([
@@ -179,7 +180,7 @@ export default function PortsPage() {
 		// Prefer the portless `<name>.localhost` URL when the user has one mapped.
 		const url = entry.portlessUrl ?? buildPortUrl(entry.port);
 		setExpandedPort(null);
-		await browser.open(url);
+		await openBrowserSurface(url, entry.portlessUrl?.replace(/^https?:\/\//, "") ?? `:${entry.port}`);
 	}
 
 	const rightSlot = (
@@ -216,7 +217,7 @@ export default function PortsPage() {
 	}
 
 	return (
-		<Page title="Ports" rightSlot={rightSlot}>
+		<Page title="Ports" rightSlot={rightSlot} className="ports-page">
 			{!loading && !error && ports.length > 0 && (
 				<div className="shrink-0 flex items-center gap-2 px-3 h-[38px] box-border mb-3 bg-surface-soft border border-card-border rounded-[10px]">
 					<span

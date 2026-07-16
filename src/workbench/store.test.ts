@@ -11,8 +11,10 @@ vi.mock("lib/store", () => ({
 
 import {
 	activateWorkbenchSurface,
+	closeWorkbenchDialog,
 	closeWorkbenchSurface,
 	getWorkbenchSnapshot,
+	openWorkbenchDialog,
 	openWorkbenchSurface,
 	registerWorkbenchCloseGuard,
 	resetWorkbench,
@@ -60,11 +62,26 @@ describe("desktop workbench store", () => {
 		expect(getWorkbenchSnapshot().tabs).toHaveLength(1);
 	});
 
-	it("restores serializable tabs and drops terminals that are no longer live", async () => {
+	it("opens and closes non-persisted dialogs", () => {
+		openWorkbenchDialog(settings);
+		expect(getWorkbenchSnapshot().dialog?.id).toBe(settings.id);
+		closeWorkbenchDialog(settings.id);
+		expect(getWorkbenchSnapshot().dialog).toBeNull();
+	});
+
+	it("restores utility, files, and live terminal tabs while dropping dead terminals", async () => {
 		persisted.set("shellular:desktop-workbench:host-1", {
 			activeId: "terminal:dead",
 			tabs: [
 				settings,
+				{
+					kind: "files",
+					id: "files:/repo",
+					title: "repo",
+					icon: "icon-folder",
+					initialPath: "/repo",
+					mode: "project",
+				},
 				{
 					kind: "terminal",
 					id: "terminal:live",
@@ -85,6 +102,7 @@ describe("desktop workbench store", () => {
 		await restoreWorkbench("host-1", new Set(["live"]));
 		expect(getWorkbenchSnapshot().tabs.map((tab) => tab.id)).toEqual([
 			settings.id,
+			"files:/repo",
 			"terminal:live",
 		]);
 		expect(getWorkbenchSnapshot().activeId).toBe(settings.id);

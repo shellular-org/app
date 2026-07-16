@@ -11,6 +11,7 @@ import {
 	parseMessage,
 	type SessionJoinedMsg,
 } from "@shellular/protocol";
+import localCli from "bridge/localCli";
 import native from "bridge/native";
 import { getAccessTokenForAuth } from "lib/auth";
 import {
@@ -18,6 +19,7 @@ import {
 	decryptProxyBinaryFrame,
 	encryptMessage,
 	isPlaintextMessage,
+	keyFromBase64,
 	type ProxyBinaryHttpResponseData,
 } from "lib/e2ee";
 import { getBaseServerUrl } from "lib/settings";
@@ -62,6 +64,7 @@ interface ConnectionSnapshot {
 	sessionToken: string;
 	hostInfo: ConnectedHostInfo | null;
 	connectionStatus: ConnectionStatus;
+	transport: "local" | "remote" | null;
 	batteryInfo: BatteryInfo | null;
 }
 
@@ -81,6 +84,8 @@ type WebSocketTokenResponse = {
 	clientId: string;
 	expiresIn: number;
 };
+
+type DirectTicket = { ticket: string; clientId: string };
 
 const RECV_TIMEOUT = 40_000;
 const PING_INTERVAL_MS = 25_000;
@@ -142,7 +147,11 @@ export class Connection extends EventTarget {
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
 
-	constructor(wsServerUrl: string, encryptionKey?: Uint8Array | null) {
+	constructor(
+		wsServerUrl: string,
+		encryptionKey?: Uint8Array | null,
+		private readonly directTicket?: DirectTicket,
+	) {
 		super();
 		this.serverUrl = wsServerUrl;
 		this.encryptionKey = encryptionKey ?? null;
@@ -229,6 +238,14 @@ export class Connection extends EventTarget {
 	}
 
 	async open(hostId: string): Promise<SessionJoinedMsg> {
+		if (this.directTicket) {
+			this.clientId = this.directTicket.clientId;
+			const directUrl = new URL(this.serverUrl);
+			directUrl.searchParams.set("ticket", this.directTicket.ticket);
+			this.ws = new WebSocket(directUrl.toString());
+			this.ws.binaryType = "arraybuffer";
+			return this.waitForHandshake(this.ws);
+		}
 		const accessToken =
 			process.env.PLATFORM === "browser" ? null : await getAccessTokenForAuth();
 		if (process.env.PLATFORM !== "browser" && !accessToken) {
@@ -264,7 +281,10 @@ export class Connection extends EventTarget {
 		this.ws = new WebSocket(wsUrl.toString());
 		const ws = this.ws;
 		ws.binaryType = "arraybuffer";
+		return this.waitForHandshake(ws);
+	}
 
+	private waitForHandshake(ws: WebSocket): Promise<SessionJoinedMsg> {
 		return new Promise((resolve, reject) => {
 			let settled = false;
 
@@ -287,11 +307,6 @@ export class Connection extends EventTarget {
 				cleanupHandshakeListeners();
 				reject(error);
 			};
-
-			if (!ws) {
-				rejectOnce(new Error("WebSocket connection was not created"));
-				return;
-			}
 
 			const onHandshakeError = (event: Event) => {
 				console.error("[Connection] WebSocket error during handshake", event);
@@ -353,6 +368,7 @@ export class Connection extends EventTarget {
 							void this.handleIncomingWebSocketData(nextEvent.data);
 						});
 						ws.addEventListener("close", (event) => {
+							this.failPendingRequests("Connection closed");
 							this.dispatchEvent(
 								new CustomEvent<ConnectionCloseDetail>("disconnected", {
 									detail: { code: event.code, reason: event.reason },
@@ -393,12 +409,12 @@ export class Connection extends EventTarget {
 
 		try {
 			if (this.encryptionKey && !isPlaintextMessage(msgObj.type)) {
-				// With E2EE the relay can't inject clientId, so we include it
-				const msgWithClient = this.clientId
-					? { ...fullMsg, clientId: this.clientId }
-					: fullMsg;
+				if (!this.clientId) {
+					console.error("failed to send encrypted message without a client ID");
+					return null;
+				}
 				const envelope = encryptMessage(
-					msgWithClient as { id: string; type: string },
+					{ ...fullMsg, clientId: this.clientId },
 					this.encryptionKey,
 				);
 				this.ws.send(JSON.stringify(envelope));
@@ -407,9 +423,22 @@ export class Connection extends EventTarget {
 			}
 		} catch (err) {
 			console.error("failed to send message", err);
+			return null;
 		}
 
 		return id;
+	}
+
+	private failPendingRequests(error: string): void {
+		for (const [requestId, resolve] of [...this.pendingResponses]) {
+			this.pendingResponses.delete(requestId);
+			resolve({
+				id: `closed_${requestId}`,
+				type: MsgType.SESSION_ERROR,
+				respTo: requestId,
+				error,
+			});
+		}
 	}
 
 	sendRequest<TMsg = unknown>(msgObj: SendableMsg): Promise<TMsg> {
@@ -494,6 +523,7 @@ class ConnectionManager {
 		sessionToken: "",
 		hostInfo: null,
 		connectionStatus: "disconnected",
+		transport: null,
 		batteryInfo: null,
 	};
 	private connection: Connection | null = null;
@@ -506,6 +536,7 @@ class ConnectionManager {
 	// The host we're currently meant to be connected to. Retained across
 	// reconnects so app-resume / network-online can re-establish the session.
 	private activeHostId: string | null = null;
+	private localMode = false;
 	private onConnected:
 		| ((token: string, prevStatus: ConnectionStatus) => void | Promise<void>)
 		| null = null;
@@ -576,21 +607,30 @@ class ConnectionManager {
 		hostId: string,
 		encryptionKey?: Uint8Array | null,
 		status: ConnectionStatus = "connecting",
+		directTicket?: DirectTicket,
 	): Promise<void> {
 		const attemptId = ++this.activeConnectAttempt;
 
 		this.closePendingSocket();
 		this.encryptionKey = encryptionKey ?? null;
+		this.localMode = Boolean(directTicket);
 		this.activeHostId = hostId;
 		this.setSnapshot({
 			serverUrl: url,
 			sessionToken: hostId,
 			connectionStatus: status,
+			transport: directTicket ? "local" : "remote",
 		});
 
 		return new Promise<void>((resolve, reject) => {
-			const wsUrl = `${url.endsWith("/") ? url : `${url}/`}app`;
-			const nextConnection = new Connection(toWsUrl(wsUrl), this.encryptionKey);
+			const wsUrl = directTicket
+				? url
+				: `${url.endsWith("/") ? url : `${url}/`}app`;
+			const nextConnection = new Connection(
+				toWsUrl(wsUrl),
+				this.encryptionKey,
+				directTicket,
+			);
 			let handshakeCompleted = false;
 			this.pendingSocket = nextConnection;
 
@@ -632,6 +672,7 @@ class ConnectionManager {
 					if (status !== "reconnecting") {
 						this.setSnapshot({
 							connectionStatus: "disconnected",
+							transport: null,
 						});
 					}
 					reject(err);
@@ -645,6 +686,7 @@ class ConnectionManager {
 					if (status !== "reconnecting") {
 						this.setSnapshot({
 							connectionStatus: "disconnected",
+							transport: null,
 						});
 					}
 					reject(
@@ -668,6 +710,7 @@ class ConnectionManager {
 					this.setSnapshot({
 						hostInfo: null,
 						connectionStatus: "disconnected",
+						transport: null,
 						batteryInfo: null,
 					});
 					this.onDisconnected?.();
@@ -680,10 +723,32 @@ class ConnectionManager {
 		});
 	}
 
+	async connectToLocal(status: ConnectionStatus = "connecting"): Promise<void> {
+		await localCli.ensureRunning();
+		const deviceInfo = await native.getDeviceInfo();
+		const clientId = await getClientId();
+		const ticket = await localCli.ticket({
+			clientId,
+			appVersion: `${process.env.VERSION} (${process.env.VERSION_CODE})`,
+			platform: "macos",
+			deviceModel: deviceInfo.model,
+			deviceIsEmulator: deviceInfo.isEmulator,
+			deviceManufacturer: deviceInfo.manufacturer,
+		});
+		return this.connectToServer(
+			ticket.wsUrl,
+			ticket.hostId,
+			keyFromBase64(ticket.encryptionKey),
+			status,
+			{ ticket: ticket.ticket, clientId: ticket.clientId },
+		);
+	}
+
 	disconnect() {
 		this.cancelReconnect();
 		this.encryptionKey = null;
 		this.activeHostId = null;
+		this.localMode = false;
 		this.stopPing();
 		this.closeConnection();
 		this.closePendingSocket();
@@ -692,6 +757,7 @@ class ConnectionManager {
 			sessionToken: "",
 			hostInfo: null,
 			connectionStatus: "disconnected",
+			transport: null,
 			batteryInfo: null,
 		});
 		this.onDisconnected?.();
@@ -779,6 +845,7 @@ class ConnectionManager {
 			this.setSnapshot({
 				connectionStatus: "disconnected",
 				hostInfo: null,
+				transport: null,
 				batteryInfo: null,
 			});
 			this.onDisconnected?.();
@@ -796,7 +863,8 @@ class ConnectionManager {
 		this.reconnectTimeout = setTimeout(async () => {
 			this.reconnectTimeout = null;
 			try {
-				await this.connectToServer(url, hostId, key, "reconnecting");
+				if (this.localMode) await this.connectToLocal("reconnecting");
+				else await this.connectToServer(url, hostId, key, "reconnecting");
 				this.reconnectAttempt = 0;
 			} catch {
 				this.attemptReconnect(hostId);
@@ -1026,6 +1094,10 @@ export function connectToServer(
 	encryptionKey?: Uint8Array | null,
 ): Promise<void> {
 	return connectionManager.connectToServer(url, hostId, encryptionKey);
+}
+
+export function connectToLocal(): Promise<void> {
+	return connectionManager.connectToLocal();
 }
 
 export function disconnect() {

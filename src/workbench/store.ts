@@ -1,7 +1,12 @@
 import * as store from "lib/store";
 import type { CloseGuard, WorkbenchSnapshot, WorkbenchSurface } from "./types";
 
-const EMPTY: WorkbenchSnapshot = { tabs: [], activeId: null, hostId: "" };
+const EMPTY: WorkbenchSnapshot = {
+	tabs: [],
+	activeId: null,
+	hostId: "",
+	dialog: null,
+};
 let snapshot = EMPTY;
 const listeners = new Set<() => void>();
 const closeGuards = new Map<string, CloseGuard>();
@@ -40,6 +45,15 @@ export function openWorkbenchSurface(surface: WorkbenchSurface) {
 			)
 		: [...snapshot.tabs, surface];
 	emit({ ...snapshot, tabs, activeId: surface.id });
+}
+
+export function openWorkbenchDialog(surface: WorkbenchSurface) {
+	emit({ ...snapshot, dialog: surface }, false);
+}
+
+export function closeWorkbenchDialog(id?: string) {
+	if (id && snapshot.dialog?.id !== id) return;
+	emit({ ...snapshot, dialog: null }, false);
 }
 
 export function activateWorkbenchSurface(id: string) {
@@ -104,7 +118,7 @@ export async function restoreWorkbench(
 	const activeId = tabs.some((tab) => tab.id === saved?.activeId)
 		? (saved?.activeId ?? null)
 		: (tabs[0]?.id ?? null);
-	emit({ tabs, activeId, hostId }, false);
+	emit({ tabs, activeId, hostId, dialog: null }, false);
 }
 
 export function pruneWorkbenchTerminals(liveTerminalIds: Set<string>) {

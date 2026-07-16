@@ -20,6 +20,7 @@
 		ECAC48CB6FFEC2C17B0DFEF3 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF52D9684360646294953B1F /* App.swift */; };
 		EDEC0196FD87CAA3BC2C9622 /* SocketService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4FBC43C303E1D1048DBEFEA /* SocketService.swift */; };
 		F3F28883E3832A8790FA187B /* ScannerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5851AA5FE9CF461DF6F42203 /* ScannerService.swift */; };
+		A11C0CA10000000000000001 /* LocalCLIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0CA10000000000000002 /* LocalCLIService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		E12AEBDA3A520F39A1AC0748 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		EF52D9684360646294953B1F /* App.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		FDE1137739EE1ED6755359FA /* EmbeddedProxyService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EmbeddedProxyService.swift; sourceTree = "<group>"; };
+		A11C0CA10000000000000002 /* LocalCLIService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalCLIService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +64,7 @@
 				5851AA5FE9CF461DF6F42203 /* ScannerService.swift */,
 				691AB78EB353B35D93A6A47B /* Services.swift */,
 				C4FBC43C303E1D1048DBEFEA /* SocketService.swift */,
+				A11C0CA10000000000000002 /* LocalCLIService.swift */,
 				80EF74D452998AB632E94C07 /* WebView.swift */,
 				93E2D0EAC882DBBEB887234B /* Assets.xcassets */,
 				67C797A43F6F06EB8F3B1E75 /* bundle */,
@@ -180,6 +183,7 @@
 				41595B5E8684E4075170609C /* EmbeddedProxyServer.swift in Sources */,
 				41581F5C82786E6EA18A95AE /* EmbeddedProxyService.swift in Sources */,
 				F3F28883E3832A8790FA187B /* ScannerService.swift in Sources */,
+				A11C0CA10000000000000001 /* LocalCLIService.swift in Sources */,
 				6277848D9BFDE2DD87D7382C /* Services.swift in Sources */,
 				EDEC0196FD87CAA3BC2C9622 /* SocketService.swift in Sources */,
 				8F54DD3E90571D5CA29A106F /* WebView.swift in Sources */,
@@ -256,7 +260,7 @@
 				ARCHS = "$(ARCHS_STANDARD)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = Shellular;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = shellular/shellular.entitlements;
+				CODE_SIGN_ENTITLEMENTS = shellular/shellular.direct.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 34;
@@ -269,6 +273,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.foxbiz.shellular;
 				PRODUCT_NAME = Shellular;
 				SDKROOT = macosx;
+				SHELLULAR_DEV_CLI_DIRECTORY = "$(SRCROOT)/../../../packages/cli";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -345,6 +350,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.foxbiz.shellular;
 				PRODUCT_NAME = Shellular;
 				SDKROOT = macosx;
+				SHELLULAR_DEV_CLI_DIRECTORY = "";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

@@ -58,6 +58,7 @@ export function isPlaintextMessage(type: string): boolean {
 export interface EncryptedEnvelope {
 	id: string;
 	type: "encrypted";
+	clientId: string;
 	nonce: string;
 	ciphertext: string;
 }
@@ -75,7 +76,7 @@ export interface ProxyBinaryHttpResponseData {
  * Returns the encrypted envelope to send on the wire.
  */
 export function encryptMessage(
-	msg: { id: string; type: string },
+	msg: { id: string; type: string; clientId: string },
 	key: Uint8Array,
 ): EncryptedEnvelope {
 	const plaintext = JSON.stringify(msg);
@@ -85,6 +86,7 @@ export function encryptMessage(
 	return {
 		id: msg.id,
 		type: "encrypted",
+		clientId: msg.clientId,
 		nonce: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
 		ciphertext: sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL),
 	};

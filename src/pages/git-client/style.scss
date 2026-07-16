@@ -1,8 +1,10 @@
 .git-client-page {
   > .page-content {
-    padding: 0;
+    padding: 0 0 8px;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    box-sizing: border-box;
   }
 }
 
@@ -37,10 +39,10 @@
 // ─── Tab bar (consistent with settings page) ────────────────────
 .git-tab-bar {
   display: flex;
-  background: #111218;
+  background: var(--surface-soft);
   border-radius: 12px;
   padding: 4px;
-  margin: 16px 16px 8px;
+  margin: 0 16px 8px;
   border: 1px solid var(--surface-soft);
   position: sticky;
   top: 0;
@@ -64,12 +66,12 @@
   cursor: pointer;
 
   &:active {
-    background: rgba(255, 255, 255, 0.04);
+    background: color-mix(in srgb, var(--secondary-text) 8%, transparent);
   }
 }
 
 .git-tab-active {
-  background: #1a1b23 !important;
+  background: var(--primary) !important;
   color: var(--primary-text) !important;
 }
 
@@ -80,7 +82,7 @@
   min-width: 18px;
   height: 18px;
   border-radius: 9px;
-  background: #2a2d3d;
+  background: color-mix(in srgb, var(--secondary-text) 12%, transparent);
   color: var(--secondary-text);
   font-size: 11px;
   font-weight: 700;
@@ -205,7 +207,7 @@
 .git-summary-branch-btn {
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.03);
+  background: color-mix(in srgb, var(--secondary-text) 6%, transparent);
   color: var(--accent);
   padding: 0 11px;
   height: 30px;
@@ -237,7 +239,7 @@
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 -4px 20px var(--shadow-color);
   position: relative;
   z-index: 5;
   transition: padding-bottom 0.15s ease-out;
@@ -1432,6 +1434,77 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@include desktop-ui {
+  .git-client-page {
+    > .page-content {
+      background: var(--primary);
+    }
+
+    .git-tab-bar {
+      width: fit-content;
+      min-width: 280px;
+      margin: 0 14px 8px;
+      border-radius: 8px;
+    }
+
+    .git-tab-item {
+      height: 30px;
+      padding: 0 14px;
+      font-size: 12px;
+    }
+
+    .git-changes-container {
+      padding: 0 14px 14px;
+    }
+
+    .git-changes-scrollable {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.92fr) minmax(360px, 1.2fr);
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+      overflow: hidden;
+      padding: 0;
+    }
+
+    .git-branch-block,
+    .git-error,
+    .git-output,
+    .git-filter-row {
+      grid-column: 1 / -1;
+      margin-left: 0;
+      margin-right: 0;
+    }
+
+    .git-change-group {
+      min-height: 0;
+      margin: 0;
+      overflow: auto;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--secondary) 72%, transparent);
+    }
+
+    .git-change-group + .git-change-group {
+      margin-top: 0;
+    }
+
+    .git-file-row {
+      min-height: 38px;
+    }
+
+    .git-commit-bar {
+      margin: 0 14px;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      box-shadow: none;
+    }
+
+    .commit-history {
+      padding: 0 14px 18px;
+    }
   }
 }
 

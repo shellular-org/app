@@ -31,6 +31,21 @@ export type NavigationMode = {
 	statusBarHeight: number;
 };
 
+export type DesktopCommand =
+	| "about"
+	| "settings"
+	| "open-file"
+	| "new-terminal"
+	| "help"
+	| "reach-out";
+
+export type DesktopCapabilities = {
+	localWorkspace: boolean;
+	canPickLocalFiles: boolean;
+	canRevealLocalPath: boolean;
+	canOpenSystemTerminal: boolean;
+};
+
 const native = bridge("Native");
 
 export default {
@@ -76,6 +91,30 @@ export default {
 			"setIntentHandler",
 			[],
 		);
+	},
+	setDesktopCommandHandler(
+		handler: (command: DesktopCommand) => void,
+		onerror: (e: Error) => void = console.error,
+	) {
+		Bridge.exec(
+			(data) => handler(data as DesktopCommand),
+			onerror,
+			"Native",
+			"setDesktopCommandHandler",
+			[],
+		);
+	},
+	getDesktopCapabilities(): Promise<DesktopCapabilities> {
+		return native("getDesktopCapabilities") as Promise<DesktopCapabilities>;
+	},
+	pickLocalFiles(): Promise<string[]> {
+		return native("pickLocalFiles") as Promise<string[]>;
+	},
+	revealLocalPath(path: string): Promise<void> {
+		return native("revealLocalPath", [path]) as Promise<void>;
+	},
+	openSystemTerminal(path: string): Promise<void> {
+		return native("openSystemTerminal", [path]) as Promise<void>;
 	},
 	async setTheme(theme: Theme) {
 		const themeStyle = document.querySelector("style#theme-data");

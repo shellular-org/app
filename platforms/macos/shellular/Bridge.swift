@@ -28,11 +28,34 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     private var services: [String: ServiceProtocol] = [:]
     func setup(webView: WKWebView, viewController: WebViewController) {
         self.webView = webView; self.viewController = viewController
-        services = ["Native":NativeService(bridge:self), "FileHandler":FileHandlerService(bridge:self), "Device":DeviceService(bridge:self), "Dialog":DialogService(bridge:self), "Encryption":EncryptionService(bridge:self), "Notification":NotificationService.sharedInstance(bridge:self), "SecureStore":SecureStoreService(bridge:self), "Scanner":ScannerService(bridge:self), "Browser":BrowserService(bridge:self), "EmbeddedProxy":EmbeddedProxyService(bridge:self), "SocketService":SocketService(bridge:self)]
+        services = ["Native":NativeService(bridge:self), "FileHandler":FileHandlerService(bridge:self), "Device":DeviceService(bridge:self), "Dialog":DialogService(bridge:self), "Encryption":EncryptionService(bridge:self), "Notification":NotificationService.sharedInstance(bridge:self), "SecureStore":SecureStoreService(bridge:self), "Scanner":ScannerService(bridge:self), "Browser":BrowserService(bridge:self), "EmbeddedProxy":EmbeddedProxyService(bridge:self), "SocketService":SocketService(bridge:self), "LocalCLI":LocalCLIService(bridge:self)]
     }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, isTrusted(origin: message.frameInfo.securityOrigin) else {
+            NSLog("Rejected bridge call from %@://%@", message.frameInfo.securityOrigin.protocol, message.frameInfo.securityOrigin.host)
+            return
+        }
         guard let body = message.body as? [String:Any], let service = body["service"] as? String, let action = body["action"] as? String, let string = body["args"] as? String, let id = body["id"] as? Int, let target = services[service] else { return }
         let args = (try? JSONSerialization.jsonObject(with: Data(string.utf8))) as? [Any] ?? []
         target.exec(action: action, args: args, callback: Callback(id: id, webView: webView))
+    }
+
+    private func isTrusted(origin: WKSecurityOrigin) -> Bool {
+        if origin.protocol == "shellular" && origin.host == "localhost" { return true }
+        #if DEBUG
+        guard origin.protocol == "http" || origin.protocol == "https" else { return false }
+        return isLocalDevelopmentHost(origin.host)
+        #else
+        return false
+        #endif
+    }
+
+    private func isLocalDevelopmentHost(_ host: String) -> Bool {
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return false }
+        return parts[0] == 10 ||
+            (parts[0] == 172 && (16...31).contains(parts[1])) ||
+            (parts[0] == 192 && parts[1] == 168)
     }
 }

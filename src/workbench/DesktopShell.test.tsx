@@ -19,10 +19,24 @@ const shellularState = vi.hoisted(() => ({
 	agents: {},
 	projects: [],
 }));
+const localCliSnapshot = vi.hoisted(() => ({
+	capability: { available: true, sandboxed: false, protocolVersion: 1 },
+	cli: null,
+	busy: false,
+	error: null,
+	phase: "idle" as const,
+}));
 const scrollIntoView = vi.fn();
 
 vi.mock("bridge/dialog", () => ({
 	default: { confirm: vi.fn(async () => true) },
+}));
+vi.mock("bridge/native", () => ({
+	default: {
+		setDesktopCommandHandler: vi.fn(),
+		pickLocalFiles: vi.fn(async () => []),
+		openInBrowser: vi.fn(async () => undefined),
+	},
 }));
 vi.mock("components/AccountAvatarButton", () => ({
 	default: ({ onClick }: { onClick: () => void }) => (
@@ -31,10 +45,17 @@ vi.mock("components/AccountAvatarButton", () => ({
 		</button>
 	),
 }));
+vi.mock("components/LocalCliDashboard", () => ({
+	default: () => <div>Remote Access sidebar</div>,
+}));
 vi.mock("state", () => ({
 	useShellular: () => shellularState,
 }));
 vi.mock("state/connection", () => ({ getHostInfo: () => null }));
+vi.mock("state/localCli", () => ({
+	getLocalCliSnapshot: () => localCliSnapshot,
+	subscribeLocalCli: () => () => {},
+}));
 vi.mock("state/chatTabs", () => ({
 	getChatTabs: () => [],
 	subscribeChatTabs: () => () => {},
@@ -48,11 +69,23 @@ vi.mock("tabs/agents", () => ({
 vi.mock("./ProjectSidebar", () => ({
 	default: () => <div>Projects sidebar</div>,
 }));
-vi.mock("./SurfaceRenderer", () => ({
-	default: ({ surface }: { surface: { title: string } }) => (
-		<div>Surface: {surface.title}</div>
-	),
-}));
+vi.mock("./SurfaceRenderer", async () => {
+	const Page = (await import("components/Page")).default;
+	return {
+		default: ({ surface }: { surface: { title: string } }) => (
+			<Page
+				title={surface.title}
+				rightSlot={
+					<button type="button" aria-label={`${surface.title} action`}>
+						Action
+					</button>
+				}
+			>
+				<div>Surface: {surface.title}</div>
+			</Page>
+		),
+	};
+});
 
 import DesktopShell from "./DesktopShell";
 import { resetWorkbench } from "./store";
@@ -74,28 +107,32 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("desktop shell", () => {
-	it("renders the activity rail, sidebar, and welcome workspace without a terminal activity", () => {
+	it("renders the desktop activity rail, direct utilities, and welcome workspace", () => {
 		render(<DesktopShell />);
 		const navigation = screen.getByRole("navigation", {
 			name: "Workspace sections",
 		});
-		expect(
-			within(navigation).getByRole("button", { name: "Home" }),
-		).toBeVisible();
-		expect(
-			within(navigation).getByRole("button", { name: "Agents" }),
-		).toBeVisible();
-		expect(
-			within(navigation).getByRole("button", { name: "Projects" }),
-		).toBeVisible();
+		const names = within(navigation)
+			.getAllByRole("button")
+			.map((button) => button.getAttribute("aria-label"));
+		expect(names).toEqual([
+			"Home",
+			"Remote Access",
+			"Agents",
+			"Projects",
+			"Ports",
+			"System Monitor",
+			"Reach Out",
+			"About",
+			"Settings",
+			"Account",
+		]);
 		expect(
 			within(navigation).queryByRole("button", { name: "Terminal" }),
 		).toBeNull();
 		expect(
-			within(navigation).getByRole("button", { name: "Account" }),
-		).toBeVisible();
-		const railButtons = within(navigation).getAllByRole("button");
-		expect(railButtons[railButtons.length - 1]).toHaveAccessibleName("Account");
+			within(navigation).queryByRole("button", { name: "More" }),
+		).toBeNull();
 		expect(screen.getByText("Home sidebar")).toBeVisible();
 		expect(screen.getByRole("heading", { name: "Shellular" })).toBeVisible();
 		expect(screen.queryByRole("button", { name: "Close sidebar" })).toBeNull();
@@ -106,16 +143,15 @@ describe("desktop shell", () => {
 		expect(screen.getByText("Home sidebar")).toBeVisible();
 	});
 
-	it("omits account and settings from the desktop More sidebar", () => {
+	it("shows Remote Access as the second activity", () => {
 		render(<DesktopShell />);
 		const navigation = screen.getByRole("navigation", {
 			name: "Workspace sections",
 		});
-		fireEvent.click(within(navigation).getByRole("button", { name: "More" }));
-
-		expect(screen.getByText("Manage forwarded services")).toBeVisible();
-		expect(screen.queryByText("Preferences and configuration")).toBeNull();
-		expect(screen.queryByText("Account and connected devices")).toBeNull();
+		fireEvent.click(
+			within(navigation).getByRole("button", { name: "Remote Access" }),
+		);
+		expect(screen.getByText("Remote Access sidebar")).toBeVisible();
 	});
 
 	it("uses the compact agents sidebar presentation", () => {
@@ -130,7 +166,7 @@ describe("desktop shell", () => {
 		);
 	});
 
-	it("renders a browser-only global titlebar with active context", () => {
+	it("renders a browser-only global titlebar while rail utilities stay in the sidebar", () => {
 		render(<DesktopShell showBrowserTitlebar />);
 		const titlebar = screen.getByRole("banner");
 		expect(within(titlebar).getByText("Shellular")).toBeVisible();
@@ -142,10 +178,13 @@ describe("desktop shell", () => {
 		fireEvent.click(
 			within(navigation).getByRole("button", { name: "Settings" }),
 		);
-		expect(within(titlebar).getByText("Settings")).toBeVisible();
+		expect(within(titlebar).getByText("Workbench")).toBeVisible();
+		expect(screen.queryByRole("tab", { name: "Settings" })).toBeNull();
+		expect(screen.getByText("Surface: Settings")).toBeVisible();
+		expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
 	});
 
-	it("opens singleton utilities and reveals the active tab", async () => {
+	it("opens rail utilities in the sidebar instead of the main tab strip", async () => {
 		render(<DesktopShell />);
 		const navigation = screen.getByRole("navigation", {
 			name: "Workspace sections",
@@ -153,8 +192,23 @@ describe("desktop shell", () => {
 		fireEvent.click(
 			within(navigation).getByRole("button", { name: "Settings" }),
 		);
-		expect(screen.getByRole("tab", { name: "Settings" })).toBeVisible();
+		expect(screen.queryByRole("tab", { name: "Settings" })).toBeNull();
+		expect(screen.queryByRole("dialog", { name: "Settings" })).toBeNull();
 		expect(screen.getByText("Surface: Settings")).toBeVisible();
-		await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+		await waitFor(() => {
+			expect(
+				within(navigation).getByRole("button", { name: "Settings" }),
+			).toHaveClass("active");
+		});
+	});
+
+	it("renders active page actions in the workbench tabbar", () => {
+		render(<DesktopShell />);
+		fireEvent.click(
+			screen.getByText("Settings").closest("button") as HTMLButtonElement,
+		);
+		const action = screen.getByRole("button", { name: "Settings action" });
+		expect(action).toBeVisible();
+		expect(action.closest(".workbench-tab-strip")).not.toBeNull();
 	});
 });

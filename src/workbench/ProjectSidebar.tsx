@@ -15,6 +15,7 @@ import {
 	type WorkspaceCapabilities,
 	workspaceIntegration,
 } from "./integration";
+import { tryOpenFileSurface } from "./openers";
 import { buildProjectMenuItems } from "./projectCommands";
 import {
 	mergeProjectSessions,
@@ -190,21 +191,22 @@ function ProjectTree({ project }: { project: ProjectInfo }) {
 		});
 	};
 
+	const openExplore = async () => {
+		tryOpenFileSurface({
+			id: `files:${project.path}`,
+			title: project.name,
+			initialPath: project.path,
+			mode: "project",
+		});
+	};
+
 	const menuItems = buildProjectMenuItems(
 		project,
 		availableAgents,
 		capabilities,
 		{
 			onNewChat: (agent) => openChat(agent),
-			onExplore: () =>
-				openWorkbenchSurface({
-					kind: "files",
-					id: `files:${project.path}`,
-					title: project.name,
-					icon: "icon-folder",
-					initialPath: project.path,
-					mode: "project",
-				}),
+			onExplore: openExplore,
 			onGit: () =>
 				openWorkbenchSurface({
 					kind: "git",

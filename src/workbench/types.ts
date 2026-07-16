@@ -61,6 +61,11 @@ export interface AgentSessionsSurface extends SurfaceBase {
 	workspacePath?: string;
 }
 
+export interface BrowserSurface extends SurfaceBase {
+	kind: "browser";
+	url: string;
+}
+
 export type WorkbenchSurface =
 	| ChatSurface
 	| TerminalSurface
@@ -68,7 +73,8 @@ export type WorkbenchSurface =
 	| FilesSurface
 	| GitSurface
 	| EditorSurface
-	| AgentSessionsSurface;
+	| AgentSessionsSurface
+	| BrowserSurface;
 
 export type CloseGuard = () => boolean | Promise<boolean>;
 
@@ -76,4 +82,7 @@ export interface WorkbenchSnapshot {
 	tabs: WorkbenchSurface[];
 	activeId: string | null;
 	hostId: string;
+	dialog: WorkbenchSurface | null;
 }
+
+export type WorkbenchPresentation = "tab" | "dialog";

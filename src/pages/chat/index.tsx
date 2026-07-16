@@ -57,7 +57,7 @@ import {
 	setSessionStreaming,
 	subscribeSessionActivities,
 } from "state/sessions";
-import { openInWorkbench } from "workbench/navigation";
+import { tryOpenEditorSurface } from "workbench/openers";
 import { updateWorkbenchSurface } from "workbench/store";
 import {
 	ChatComposer,
@@ -2003,11 +2003,9 @@ function openEditorPath(
 	const target = normalizeEditorPath(rawPath, workspacePath);
 	const pageKey = target.line ? `${target.path}:${target.line}` : target.path;
 	if (
-		openInWorkbench({
-			kind: "editor",
+		tryOpenEditorSurface({
 			id: pageKey,
 			title: target.path.split("/").pop() || target.path,
-			icon: "icon-file",
 			readOnly,
 			filePath: target.path,
 			initialLine: target.line,

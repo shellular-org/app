@@ -1,6 +1,8 @@
 import "@xterm/xterm/css/xterm.css";
+import browser from "bridge/browser";
 import EmptyState from "components/EmptyState";
-import { lazy, Suspense, useMemo } from "react";
+import Page from "components/Page";
+import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useShellular } from "state";
 import TerminalContainer from "tabs/terminal/TerminalContainer";
 import type { WorkbenchSurface } from "./types";
@@ -55,7 +57,40 @@ export default function SurfaceRenderer({
 			{surface.kind === "agent-sessions" && (
 				<AgentSessionsSurfaceView surface={surface} />
 			)}
+			{surface.kind === "browser" && <BrowserSurfaceView surface={surface} />}
 		</Suspense>
+	);
+}
+
+function BrowserSurfaceView({
+	surface,
+}: {
+	surface: Extract<WorkbenchSurface, { kind: "browser" }>;
+}) {
+	useEffect(() => {
+		void browser.open(surface.url);
+	}, [surface.url]);
+
+	return (
+		<Page
+			title={surface.title}
+			className="browser-surface-page"
+			rightSlot={
+				<button
+					type="button"
+					className="page-header-action"
+					onClick={() => void browser.open(surface.url)}
+					aria-label="Open in app browser"
+				>
+					<span className="icon-external-link" aria-hidden="true" />
+				</button>
+			}
+		>
+			<EmptyState
+				mascot="thinking"
+				message={`Opened ${surface.url} in the app browser`}
+			/>
+		</Page>
 	);
 }
 

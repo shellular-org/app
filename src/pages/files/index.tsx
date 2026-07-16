@@ -14,11 +14,14 @@ import "./style.scss";
 import { pushPage } from "App";
 import dialog from "bridge/dialog";
 import { bytesToBase64 } from "bridge/file";
-import AppMenu from "components/AppMenu";
+import AppMenu, { type AppMenuItem } from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
 import EditorPage from "pages/editor";
 import { openInWorkbench } from "workbench/navigation";
+import { tryOpenEditorSurface } from "workbench/openers";
+import { useIsWorkbenchPageChromeActive } from "workbench/pageChrome";
+import { closeWorkbenchDialog } from "workbench/store";
 
 export interface FileBrowserPageProps {
 	title?: string;
@@ -68,11 +71,15 @@ export default function FileBrowserPage({
 	const [searchLoading, setSearchLoading] = useState(false);
 	const [searchError, setSearchError] = useState<string | null>(null);
 	const [searchClosing, setSearchClosing] = useState(false);
+	const [navDepth, setNavDepth] = useState(0);
 	const navHistoryRef = useRef<{ path: string; id: string }[]>([]);
+	const forwardHistoryRef = useRef<string[]>([]);
+	const [forwardDepth, setForwardDepth] = useState(0);
 	const searchInputRef = useRef<HTMLInputElement>(null);
 	const searchCloseTimerRef = useRef<number | null>(null);
 	const uploadInputRef = useRef<HTMLInputElement>(null);
 	const uploadTimerRef = useRef<number | null>(null);
+	const isWorkbenchTab = useIsWorkbenchPageChromeActive();
 	const [uploadState, setUploadState] = useState<{
 		startTime: number;
 		filename: string;
@@ -107,6 +114,7 @@ export default function FileBrowserPage({
 	const searchRootPath =
 		mode === "project" ? (initialPath ?? ".") : currentPath;
 	const searchVisible = searchOpen || searchClosing;
+	const effectiveSearchOpen = searchOpen;
 
 	const fetchDir = useCallback(
 		async (path: string) => {
@@ -183,13 +191,17 @@ export default function FileBrowserPage({
 				const id = `files-nav-${Date.now()}`;
 				const prevPath = currentPath;
 				navHistoryRef.current.push({ path: prevPath, id });
+				forwardHistoryRef.current = [];
+				setForwardDepth(0);
 				actionStack.push({
 					id,
 					action: () => {
 						navHistoryRef.current.pop();
+						setNavDepth((depth) => Math.max(0, depth - 1));
 						fetchDir(prevPath);
 					},
 				});
+				setNavDepth((depth) => depth + 1);
 				fetchDir(targetPath);
 				closeSearch();
 
@@ -198,15 +210,14 @@ export default function FileBrowserPage({
 
 			const pageId = `file-${entry.name}-${Date.now()}`;
 			if (
-				openInWorkbench({
-					kind: "editor",
+				tryOpenEditorSurface({
 					id: pageId,
 					title: entry.name,
-					icon: "icon-file",
 					filePath: targetPath,
 					gitStatus: entry.gitStatus,
 				})
 			) {
+				closeWorkbenchDialog();
 				return;
 			}
 			pushPage(
@@ -260,6 +271,7 @@ export default function FileBrowserPage({
 				actionStack.remove(entry.id);
 			}
 			navHistoryRef.current = [];
+			forwardHistoryRef.current = [];
 		};
 	}, []);
 
@@ -290,7 +302,7 @@ export default function FileBrowserPage({
 	}, [uploadState]);
 
 	useEffect(() => {
-		if (!searchOpen) {
+		if (!effectiveSearchOpen) {
 			setSearchResults([]);
 			setSearchLoading(false);
 			setSearchError(null);
@@ -327,11 +339,11 @@ export default function FileBrowserPage({
 			cancelled = true;
 			window.clearTimeout(timeout);
 		};
-	}, [searchOpen, searchProjectFiles, searchQuery, searchRootPath]);
+	}, [effectiveSearchOpen, searchProjectFiles, searchQuery, searchRootPath]);
 
 	const refreshCurrentView = useCallback(() => {
 		fetchDir(currentPath);
-		if (!searchOpen) return;
+		if (!effectiveSearchOpen) return;
 		searchProjectFiles(searchRootPath, searchQuery.trim(), {
 			limit: 40,
 			includeHistory: true,
@@ -348,8 +360,8 @@ export default function FileBrowserPage({
 			});
 	}, [
 		currentPath,
+		effectiveSearchOpen,
 		fetchDir,
-		searchOpen,
 		searchProjectFiles,
 		searchQuery,
 		searchRootPath,
@@ -357,7 +369,7 @@ export default function FileBrowserPage({
 
 	const displayPath = normalizeRemoteWorkspacePath(currentPath, hostDir);
 	const breadcrumbs = displayPath.split("/").filter(Boolean);
-	const isSearchMode = searchOpen && searchQuery.trim().length > 0;
+	const isSearchMode = effectiveSearchOpen && searchQuery.trim().length > 0;
 
 	const buildServerPath = useCallback(
 		(name: string) =>
@@ -425,6 +437,95 @@ export default function FileBrowserPage({
 		);
 	}, [initialPath, title]);
 
+	const navigateBack = useCallback(() => {
+		const entry = navHistoryRef.current.pop();
+		if (!entry) return;
+		actionStack.remove(entry.id);
+		forwardHistoryRef.current.push(currentPath);
+		setForwardDepth(forwardHistoryRef.current.length);
+		setNavDepth((depth) => Math.max(0, depth - 1));
+		fetchDir(entry.path);
+		closeSearch();
+	}, [closeSearch, currentPath, fetchDir]);
+
+	const navigateForward = useCallback(() => {
+		const nextPath = forwardHistoryRef.current.pop();
+		if (!nextPath) return;
+		const id = `files-nav-${Date.now()}`;
+		const prevPath = currentPath;
+		navHistoryRef.current.push({ path: prevPath, id });
+		setForwardDepth(forwardHistoryRef.current.length);
+		actionStack.push({
+			id,
+			action: () => {
+				navHistoryRef.current.pop();
+				setNavDepth((depth) => Math.max(0, depth - 1));
+				fetchDir(prevPath);
+			},
+		});
+		setNavDepth((depth) => depth + 1);
+		fetchDir(nextPath);
+		closeSearch();
+	}, [closeSearch, currentPath, fetchDir]);
+
+	const fileMenuItems: AppMenuItem[] = [
+		{
+			icon: "icon-refresh-cw",
+			label: "Refresh",
+			onClick: refreshCurrentView,
+		},
+		{
+			icon: "icon-upload",
+			label: "Upload File",
+			onClick: handleUploadClick,
+		},
+		{
+			icon: showHidden ? "icon-eye" : "icon-eye-off",
+			label: showHidden ? "Hide hidden files" : "Show hidden files",
+			onClick: toggleShowHidden,
+		},
+		{
+			divider: true,
+			icon: "icon-file-plus",
+			label: "New File",
+			onClick: handleNewFile,
+		},
+		{
+			icon: "icon-folder-plus",
+			label: "New Directory",
+			onClick: handleNewDir,
+		},
+	];
+	const footer =
+		onSelectFolder || !isWorkbenchTab ? (
+			<div className="files-footer" data-disabled={loading}>
+				{onSelectFolder && (
+					<button
+						type="button"
+						className="files-page-done-button"
+						onClick={() => {
+							onSelectFolder(displayPath);
+							closePage();
+						}}
+					>
+						<span className="icon-check" aria-hidden="true" />
+						Select
+					</button>
+				)}
+				{!isWorkbenchTab && (
+					<button
+						type="button"
+						className="files-close-button"
+						onClick={closePage}
+						aria-label="Close"
+					>
+						<span className="icon-x" aria-hidden="true" />
+						Close
+					</button>
+				)}
+			</div>
+		) : null;
+
 	return (
 		<>
 			<Page
@@ -432,6 +533,23 @@ export default function FileBrowserPage({
 				subtitle={searchVisible ? undefined : breadcrumbs.join(" / ")}
 				className="files-page"
 				reverseTruncate={true}
+				desktopNavigationControls={[
+					{
+						id: "files-back",
+						label: "Back",
+						icon: "icon-chevron-left",
+						disabled: navDepth === 0,
+						onClick: navigateBack,
+					},
+					{
+						id: "files-forward",
+						label: "Forward",
+						icon: "icon-chevron-right",
+						disabled: forwardDepth === 0,
+						onClick: navigateForward,
+					},
+				]}
+				desktopTitleSlotInteractive={searchVisible}
 				titleSlot={
 					searchVisible ? (
 						<div
@@ -478,42 +596,14 @@ export default function FileBrowserPage({
 							<AppMenu
 								ariaLabel="File actions"
 								buttonClassName="files-refresh"
-								items={[
-									{
-										icon: "icon-refresh-cw",
-										label: "Refresh",
-										onClick: refreshCurrentView,
-									},
-									{
-										icon: "icon-upload",
-										label: "Upload File",
-										onClick: handleUploadClick,
-									},
-									{
-										icon: showHidden ? "icon-eye" : "icon-eye-off",
-										label: showHidden
-											? "Hide hidden files"
-											: "Show hidden files",
-										onClick: toggleShowHidden,
-									},
-									{
-										divider: true,
-										icon: "icon-file-plus",
-										label: "New File",
-										onClick: handleNewFile,
-									},
-									{
-										icon: "icon-folder-plus",
-										label: "New Directory",
-										onClick: handleNewDir,
-									},
-								]}
+								items={fileMenuItems}
 							>
 								<span className="icon-more-vertical" aria-hidden="true" />
 							</AppMenu>
 						)}
 					</>
 				}
+				footerSlot={footer}
 			>
 				{error && <EmptyState message={error} mascot="error" />}
 				{searchOpen && !searchQuery.trim() ? (
@@ -583,30 +673,6 @@ export default function FileBrowserPage({
 						onRefresh={refreshCurrentView}
 					/>
 				)}
-				<div className="files-footer" data-disabled={loading}>
-					{onSelectFolder && (
-						<button
-							type="button"
-							className="files-page-done-button"
-							onClick={() => {
-								onSelectFolder(displayPath);
-								closePage();
-							}}
-						>
-							<span className="icon-check" aria-hidden="true" />
-							Select
-						</button>
-					)}
-					<button
-						type="button"
-						className="files-close-button"
-						onClick={closePage}
-						aria-label="Close"
-					>
-						<span className="icon-x" aria-hidden="true" />
-						Close
-					</button>
-				</div>
 			</Page>
 			{uploadState && (
 				<div className="files-upload-overlay">
