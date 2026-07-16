@@ -3,12 +3,13 @@ import {
 	ClientHandshakeRespMsgSchema,
 	type ClientIncomingMsg,
 	ClientIncomingMsgSchema,
-	type ClientInfoRequest,
+	type ClientInfo,
 	type ClientToHostMsg,
 	type ClientToServerMsg,
 	type HostInfo,
 	MsgType,
 	parseMessage,
+	ServerCloseCodeAndReason,
 	type SessionJoinedMsg,
 } from "@shellular/protocol";
 import native from "bridge/native";
@@ -80,6 +81,12 @@ type WebSocketTokenResponse = {
 	wsToken: string;
 	clientId: string;
 	expiresIn: number;
+	/**
+	 * The regional relay to open the WebSocket to (e.g. wss://in.shellular.dev).
+	 * Central returns this from the host's live presence so the app lands on the
+	 * SAME relay its CLI is connected to — in-process relaying can't cross regions.
+	 */
+	relayUrl: string;
 };
 
 const RECV_TIMEOUT = 40_000;
@@ -94,14 +101,6 @@ const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 20_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
-const HANDSHAKE_CLOSE_CODE = {
-	HOST_UNAVAILABLE: 4001,
-	INVALID_QUERY: 4002,
-	APPROVAL_DENIED: 4003,
-	SESSION_ERROR: 4004,
-	HOST_DISCONNECTED: 4005,
-	CLIENT_REPLACED: 4006,
-} as const;
 
 class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
 	readonly msg: TMsg;
@@ -137,14 +136,16 @@ export class Connection extends EventTarget {
 	private pendingResponses = new Map<string, (msg: unknown) => void>();
 	private encryptionKey: Uint8Array | null = null;
 	private clientId: string | null = null;
+	// The CENTRAL API base (http/https). Used only to request a WebSocket token +
+	// the host's current relayUrl; the socket itself is opened to that relay.
 	private readonly serverUrl: string;
 	// Timestamp of the last inbound frame of any kind. Any traffic from the host
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
 
-	constructor(wsServerUrl: string, encryptionKey?: Uint8Array | null) {
+	constructor(serverUrl: string, encryptionKey?: Uint8Array | null) {
 		super();
-		this.serverUrl = wsServerUrl;
+		this.serverUrl = serverUrl;
 		this.encryptionKey = encryptionKey ?? null;
 	}
 
@@ -237,9 +238,7 @@ export class Connection extends EventTarget {
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
-		// Deliberately a request-shaped payload: the server derives `user` from the
-		// authenticated session, so the app never asserts its own identity here.
-		const clientInfo: ClientInfoRequest = {
+		const clientInfo: ClientInfo = {
 			hostId,
 			clientId,
 			appVersion,
@@ -248,17 +247,18 @@ export class Connection extends EventTarget {
 			deviceIsEmulator: deviceInfo.isEmulator,
 			deviceManufacturer: deviceInfo.manufacturer,
 		};
-		const wsToken = await requestWebSocketToken(
+		// The token request goes to CENTRAL server (this.serverUrl); to get the token
+		// and the relay associated with the host
+		const wsInfo = await requestWebSocketToken(
 			this.serverUrl,
 			accessToken,
 			clientInfo,
 		);
 
-		const wsUrl = new URL(this.serverUrl);
-		wsUrl.search = "";
-		wsUrl.searchParams.set("wsToken", wsToken.wsToken);
+		const wsUrl = new URL(wsInfo.relayUrl);
+		wsUrl.searchParams.set("wsToken", wsInfo.wsToken);
 
-		this.clientId = wsToken.clientId;
+		this.clientId = wsInfo.clientId;
 		this.ws = new WebSocket(wsUrl.toString());
 		const ws = this.ws;
 		ws.binaryType = "arraybuffer";
@@ -587,8 +587,7 @@ class ConnectionManager {
 		});
 
 		return new Promise<void>((resolve, reject) => {
-			const wsUrl = `${url.endsWith("/") ? url : `${url}/`}app`;
-			const nextConnection = new Connection(toWsUrl(wsUrl), this.encryptionKey);
+			const nextConnection = new Connection(url, this.encryptionKey);
 			let handshakeCompleted = false;
 			this.pendingSocket = nextConnection;
 
@@ -859,17 +858,17 @@ function createHandshakeError({
 
 function getHandshakeCloseMessage(code: number, reason: string): string {
 	switch (code) {
-		case HANDSHAKE_CLOSE_CODE.HOST_UNAVAILABLE:
+		case ServerCloseCodeAndReason.HOST_UNAVAILABLE.code:
 			return "Your dev machine is unavailable right now. Make sure Shellular CLI is running, then try again.";
-		case HANDSHAKE_CLOSE_CODE.INVALID_QUERY:
+		case ServerCloseCodeAndReason.INVALID_QUERY.code:
 			return "This connection request is invalid. Please scan the QR code again and retry.";
-		case HANDSHAKE_CLOSE_CODE.APPROVAL_DENIED:
+		case ServerCloseCodeAndReason.APPROVAL_DENIED.code:
 			return "This client is not allowed to connect. Please approve it in your dev machine.";
-		case HANDSHAKE_CLOSE_CODE.SESSION_ERROR:
+		case ServerCloseCodeAndReason.SESSION_JOIN_FAILED.code:
 			return "We couldn't attach this client to the session. Please try again.";
-		case HANDSHAKE_CLOSE_CODE.HOST_DISCONNECTED:
+		case ServerCloseCodeAndReason.HOST_DISCONNECTED.code:
 			return "The host is offline. Please check your dev machine and try again.";
-		case HANDSHAKE_CLOSE_CODE.CLIENT_REPLACED:
+		case ServerCloseCodeAndReason.CLIENT_REPLACED.code:
 			return "This browser session was replaced by a newer Shellular window.";
 		default:
 			break;
@@ -915,27 +914,29 @@ function connectionCloseDetail(
 
 function isClientReplacedClose(detail: ConnectionCloseDetail | null): boolean {
 	return (
-		detail?.code === HANDSHAKE_CLOSE_CODE.CLIENT_REPLACED ||
+		detail?.code === ServerCloseCodeAndReason.CLIENT_REPLACED.code ||
 		detail?.reason === "client_replaced"
 	);
 }
 
 function toWsUrl(httpUrl: string): string {
-	return httpUrl
-		.replace(/^https:\/\//, "wss://")
-		.replace(/^http:\/\//, "ws://");
-}
-
-function toHttpUrl(wsUrl: string): string {
-	return wsUrl.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
+	const url = new URL(httpUrl);
+	if (url.protocol === "https:") {
+		url.protocol = "wss:";
+	} else if (url.protocol === "http:") {
+		url.protocol = "ws:";
+	}
+	return url.toString();
 }
 
 async function requestWebSocketToken(
-	wsUrl: string,
+	serverUrl: string,
 	accessToken: string | null,
-	clientInfo: ClientInfoRequest,
+	clientInfo: ClientInfo,
 ): Promise<WebSocketTokenResponse> {
-	const url = new URL(toHttpUrl(wsUrl));
+	// Defensive: central base is http(s), but normalize in case a ws-scheme
+	// URL is ever passed. The token endpoint always lives on central.
+	const url = new URL(serverUrl);
 	url.pathname = "/auth/ws-app-token";
 	url.search = "";
 
@@ -961,12 +962,15 @@ async function requestWebSocketToken(
 		!response.ok ||
 		json.success === false ||
 		!json.data?.wsToken ||
-		!json.data.clientId
+		!json.data.clientId ||
+		!json.data.relayUrl
 	) {
 		throw new Error(
 			json.error || json.message || "Failed to authorize WebSocket connection.",
 		);
 	}
+
+	json.data.relayUrl = toWsUrl(json.data.relayUrl);
 
 	return json.data;
 }
