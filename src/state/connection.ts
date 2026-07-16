@@ -238,8 +238,6 @@ export class Connection extends EventTarget {
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
 		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
-		// Deliberately a request-shaped payload: the server derives `user` from the
-		// authenticated session, so the app never asserts its own identity here.
 		const clientInfo: ClientInfo = {
 			hostId,
 			clientId,
@@ -249,10 +247,8 @@ export class Connection extends EventTarget {
 			deviceIsEmulator: deviceInfo.isEmulator,
 			deviceManufacturer: deviceInfo.manufacturer,
 		};
-		// The token request goes to CENTRAL (this.serverUrl); the WebSocket itself
-		// goes to the regional relay central names in `relayUrl` — the same relay the
-		// host's CLI is on. Central's relayUrl is a bare wss:// origin, so we append
-		// the /app path the relay's upgrade handler expects.
+		// The token request goes to CENTRAL server (this.serverUrl); to get the token
+		// and the relay associated with the host
 		const wsInfo = await requestWebSocketToken(
 			this.serverUrl,
 			accessToken,
