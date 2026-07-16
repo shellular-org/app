@@ -5,9 +5,9 @@ import {
 	DEFAULT_EDITOR_SETTINGS,
 	DEFAULT_SERVER_SETTINGS,
 	DEFAULT_TERMINAL_SETTINGS,
-	type DevServerProtocol,
 	loadSettings,
 	MONOSPACE_FONT_FAMILY_OPTIONS,
+	type ServerProtocol,
 	saveSettings,
 	type TerminalCursorStyle,
 } from "lib/settings";
@@ -217,10 +217,10 @@ export default function SettingsPage() {
 		if (name === "oled") return "black";
 		return name ?? "dark";
 	});
-	const [devServerDomain, setDevServerDomain] = useState(
+	const [serverDomain, setServerDomain] = useState(
 		DEFAULT_SERVER_SETTINGS.domain,
 	);
-	const [devServerProtocol, setDevServerProtocol] = useState<DevServerProtocol>(
+	const [serverProtocol, setServerProtocol] = useState<ServerProtocol>(
 		DEFAULT_SERVER_SETTINGS.protocol,
 	);
 
@@ -261,7 +261,7 @@ export default function SettingsPage() {
 	);
 
 	const [hapticFeedback, setHapticFeedback] = useState(true);
-	const [isSavingDevServer, setIsSavingDevServer] = useState(false);
+	const [isSavingServer, setIsSavingServer] = useState(false);
 	const [testOnboarding, setTestOnboarding] = useState(false);
 
 	useEffect(() => {
@@ -279,8 +279,8 @@ export default function SettingsPage() {
 	useEffect(() => {
 		loadSettings().then((s) => {
 			setCurrentTheme(s.theme);
-			setDevServerDomain(s.devServer.domain);
-			setDevServerProtocol(s.devServer.protocol);
+			setServerDomain(s.server.domain);
+			setServerProtocol(s.server.protocol);
 			setEditorFontSize(s.editor.fontSize);
 			setEditorFontFamily(s.editor.fontFamily);
 			setEditorWordWrap(s.editor.wordWrap);
@@ -407,22 +407,22 @@ export default function SettingsPage() {
 	}
 
 	async function handleServerSave() {
-		setIsSavingDevServer(true);
+		setIsSavingServer(true);
 		try {
 			const domain =
-				normalizeDomain(devServerDomain) || DEFAULT_SERVER_SETTINGS.domain;
-			setDevServerDomain(domain);
+				normalizeDomain(serverDomain) || DEFAULT_SERVER_SETTINGS.domain;
+			setServerDomain(domain);
 			// Explicit Save action (unlike the auto-saving controls), so confirm
 			// success with a toast. persistSettings toasts on failure.
 			if (
 				await persistSettings({
-					devServer: { protocol: devServerProtocol, domain },
+					server: { protocol: serverProtocol, domain },
 				})
 			) {
 				toast("Server settings saved", 2000);
 			}
 		} finally {
-			setIsSavingDevServer(false);
+			setIsSavingServer(false);
 		}
 	}
 
@@ -782,10 +782,8 @@ export default function SettingsPage() {
 										description="http:// or https://"
 										control={
 											<AppSelect
-												value={devServerProtocol}
-												onChange={(v) =>
-													setDevServerProtocol(v as DevServerProtocol)
-												}
+												value={serverProtocol}
+												onChange={(v) => setServerProtocol(v as ServerProtocol)}
 												options={[
 													{ value: "http", label: "HTTP" },
 													{ value: "https", label: "HTTPS" },
@@ -800,17 +798,17 @@ export default function SettingsPage() {
 										control={
 											<div className="flex flex-col sm:flex-row gap-3 w-full">
 												<TextInput
-													value={devServerDomain}
-													onChange={setDevServerDomain}
+													value={serverDomain}
+													onChange={setServerDomain}
 													placeholder="server.shellular.dev"
 												/>
 												<button
 													type="button"
 													className="px-4 py-2 bg-(--surface-strong) text-(--primary-text) border border-(--card-border) text-sm font-medium rounded-md hover:bg-(--accent) hover:text-(--button-text) hover:border-transparent transition-colors disabled:opacity-50 shrink-0"
 													onClick={handleServerSave}
-													disabled={isSavingDevServer}
+													disabled={isSavingServer}
 												>
-													{isSavingDevServer ? "Saving..." : "Save"}
+													{isSavingServer ? "Saving..." : "Save"}
 												</button>
 											</div>
 										}
