@@ -221,7 +221,7 @@ public class ScannerView extends PopupWindow {
     }
 
     @NonNull
-    private static JSONArray getJsonArray(List<Barcode> barcodes) throws JSONException {
+    static JSONArray getJsonArray(List<Barcode> barcodes) throws JSONException {
         JSONArray result = new JSONArray();
         for (Barcode barcode : barcodes) {
             JSONObject obj = new JSONObject();
