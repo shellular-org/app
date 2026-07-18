@@ -102,7 +102,7 @@ type TokenRequestError = Error & { httpStatus?: number };
 // Legacy central server. Older CLI versions still point at this domain and
 // don't know how to return a `relayUrl` — for them the domain itself IS the
 // relay (see requestWebSocketToken).
-const OLD_SERVER_URL = "https://app.shellular.dev";
+const OLD_SERVER_URL = "https://api.shellular.dev";
 const OLD_RELAY_PATH = "/app";
 
 // Per-host "which central server actually works" preference, so mixed CLI
@@ -1033,7 +1033,7 @@ function isHttp4xxError(err: unknown): boolean {
  *   on error — that would just be a real failure, not a version mismatch.
  * - Otherwise we always try the new server first (picks up CLI upgrades from
  *   old → new automatically), and only on a 4xx response fall back to the
- *   legacy `app.shellular.dev`. Non-4xx failures (network, 5xx) propagate
+ *   legacy `api.shellular.dev`. Non-4xx failures (network, 5xx) propagate
  *   without alternating — they're not a "wrong server" signal.
  * - Whichever server responds successfully is remembered per-hostId so the
  *   next connection attempt for this host goes straight to it.
