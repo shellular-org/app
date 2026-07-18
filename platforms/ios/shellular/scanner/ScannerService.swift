@@ -1,5 +1,6 @@
 import UIKit
 import AVFoundation
+import Vision
 
 final class ScannerService: BaseService {
 
@@ -20,6 +21,7 @@ final class ScannerService: BaseService {
         case "show":              show(args: args, callback: callback)
         case "hide":              hide(args: args, callback: callback)
         case "scan":              scan(args: args, callback: callback)
+        case "scanImage":         scanImage(args: args, callback: callback)
         case "update":            update(args: args, callback: callback)
         case "setTheme":          setTheme(args: args, callback: callback)
         case "setOnShowListener": onShowCallback = callback; callback.success(nil, keep: true)
@@ -109,6 +111,51 @@ final class ScannerService: BaseService {
         scanOnce = (args[safe: 0] as? Bool) == true || (args[safe: 0] as? Int) == 1
         scanCallback = callback
         // Match Android: keep the callback pending until a scan result is emitted.
+    }
+
+    // MARK: - scanImage
+
+    private func scanImage(args: [Any], callback: Callback) {
+        guard let base64 = args[safe: 0] as? String,
+              let data = Data(base64Encoded: base64),
+              let image = UIImage(data: data),
+              let cgImage = image.cgImage else {
+            callback.error("Could not read this image. Please try another file.")
+            return
+        }
+
+        let request = VNDetectBarcodesRequest { request, error in
+            if let error = error {
+                callback.error(error.localizedDescription)
+                return
+            }
+
+            let results: [[String: Any]] = (request.results as? [VNBarcodeObservation] ?? [])
+                .filter { $0.symbology == .qr }
+                .compactMap { observation in
+                    guard let value = observation.payloadStringValue else { return nil }
+                    return [
+                        "rawValue":     value,
+                        "displayValue": value,
+                        "format":       "256",   // FORMAT_QR_CODE numeric value
+                        "valueType":    "0",
+                    ]
+                }
+
+            if results.isEmpty {
+                callback.error("No QR code was found in this image. Please try another image.")
+            } else {
+                callback.success(results)
+            }
+        }
+        request.symbologies = [.qr]
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: image.cgImagePropertyOrientation, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            callback.error(error.localizedDescription)
+        }
     }
 
     // MARK: - setTheme
@@ -237,6 +284,24 @@ final class ScannerService: BaseService {
         case .landscapeLeft:         return 180
         case .portraitUpsideDown:    return 270
         default:                     return 90  // .portrait
+        }
+    }
+}
+
+// MARK: - UIImage orientation → CGImagePropertyOrientation
+
+private extension UIImage {
+    var cgImagePropertyOrientation: CGImagePropertyOrientation {
+        switch imageOrientation {
+        case .up:            return .up
+        case .upMirrored:    return .upMirrored
+        case .down:          return .down
+        case .downMirrored:  return .downMirrored
+        case .left:          return .left
+        case .leftMirrored:  return .leftMirrored
+        case .right:         return .right
+        case .rightMirrored: return .rightMirrored
+        @unknown default:    return .up
         }
     }
 }

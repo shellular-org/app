@@ -2,9 +2,18 @@ package io.foxbiz.shellular.scanner;
 
 import android.app.Activity;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebView;
+
+import com.google.mlkit.vision.barcode.BarcodeScanner;
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
+import com.google.mlkit.vision.barcode.BarcodeScanning;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.common.InputImage;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -120,6 +129,41 @@ public class Scanner extends Service {
         scanOnce = args.optBoolean(0, false);
         onScanListener = callback;
         Log.d("Scanner", "scanOnce: " + scanOnce);
+    }
+
+    public void scanImage(JSONArray args, Callback callback) {
+        try {
+            String base64 = args.getString(0);
+            byte[] data = Base64.decode(base64, Base64.DEFAULT);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length);
+
+            if (bitmap == null) {
+                callback.error("Could not read this image. Please try another file.");
+                return;
+            }
+
+            InputImage inputImage = InputImage.fromBitmap(bitmap, 0);
+            BarcodeScannerOptions options = new BarcodeScannerOptions.Builder()
+                    .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+                    .build();
+            BarcodeScanner scanner = BarcodeScanning.getClient(options);
+
+            scanner.process(inputImage)
+                    .addOnSuccessListener(barcodes -> {
+                        if (barcodes.isEmpty()) {
+                            callback.error("No QR code was found in this image. Please try another image.");
+                            return;
+                        }
+                        try {
+                            callback.success(ScannerView.getJsonArray(barcodes));
+                        } catch (Exception e) {
+                            callback.error(e.toString());
+                        }
+                    })
+                    .addOnFailureListener(e -> callback.error(e.toString()));
+        } catch (Exception e) {
+            callback.error(e.toString());
+        }
     }
 
     public void setTheme(JSONArray args, Callback callback) {

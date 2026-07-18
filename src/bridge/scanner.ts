@@ -1,6 +1,7 @@
 import type Theme from "classes/theme";
 import permissions from "lib/permissions";
 import bridge from "./bridge";
+import { bytesToBase64 } from "./file";
 import native from "./native";
 
 export const FORMAT_QR_CODE = 256;
@@ -77,6 +78,11 @@ export default {
 		const res = (await scanner("scan", [true])) as ScanResult[] | null;
 		observer.stop();
 		return res;
+	},
+	async scanImage(file: File | Blob): Promise<ScanResult[] | null> {
+		const buffer = await file.arrayBuffer();
+		const base64 = bytesToBase64(new Uint8Array(buffer));
+		return (await scanner("scanImage", [base64])) as ScanResult[] | null;
 	},
 	setTheme(theme: Theme) {
 		return scanner("setTheme", [theme.json]);
