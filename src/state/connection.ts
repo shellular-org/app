@@ -103,7 +103,7 @@ type TokenRequestError = Error & { httpStatus?: number };
 // don't know how to return a `relayUrl` — for them the domain itself IS the
 // relay (see requestWebSocketToken).
 const OLD_SERVER_URL = "https://api.shellular.dev";
-const OLD_RELAY_PATH = "/app";
+const OLD_RELAY_URL = "wss://api.shellular.dev/app";
 
 // Per-host "which central server actually works" preference, so mixed CLI
 // versions (some hosts upgraded to the new server, some still on the old
@@ -1015,7 +1015,7 @@ async function requestWebSocketToken(
 	// Legacy central server: no relay lookup, it IS the relay.
 	const relayUrl = json.data.relayUrl
 		? toWsUrl(json.data.relayUrl)
-		: `${toWsUrl(serverUrl)}${OLD_RELAY_PATH}`;
+		: OLD_RELAY_URL;
 
 	return { ...json.data, relayUrl };
 }
