@@ -85,9 +85,45 @@ type WebSocketTokenResponse = {
 	 * The regional relay to open the WebSocket to (e.g. wss://in.shellular.dev).
 	 * Central returns this from the host's live presence so the app lands on the
 	 * SAME relay its CLI is connected to — in-process relaying can't cross regions.
+	 *
+	 * `relayUrl` is absent on the legacy server, and we need to support it for people
+	 * who already have an older version of CLI running on their VPS for backwards
+	 * compatibility. In that case, the server itself is the relay so we just
+	 * synthesize it from the server URL.
 	 */
 	relayUrl: string;
 };
+
+/** Thrown by requestWebSocketToken; `httpStatus` lets callers detect 4xx to
+ * distinguish "this server doesn't support the request" (old server) from a
+ * generic network/5xx failure that shouldn't trigger fallback. */
+type TokenRequestError = Error & { httpStatus?: number };
+
+// Legacy central server. Older CLI versions still point at this domain and
+// don't know how to return a `relayUrl` — for them the domain itself IS the
+// relay (see requestWebSocketToken).
+const OLD_SERVER_URL = "https://app.shellular.dev";
+const OLD_RELAY_PATH = "/app";
+
+// Per-host "which central server actually works" preference, so mixed CLI
+// versions (some hosts upgraded to the new server, some still on the old
+// one) don't have to renegotiate every connection. Keyed by hostId because a
+// single user can have multiple hosts on either CLI version.
+type ServerPreference = "new" | "old";
+function serverPrefStorageKey(hostId: string): string {
+	return `shellular:server-pref:${hostId}`;
+}
+async function getServerPreference(
+	hostId: string,
+): Promise<ServerPreference | null> {
+	return store.get<ServerPreference>(serverPrefStorageKey(hostId));
+}
+async function setServerPreference(
+	hostId: string,
+	pref: ServerPreference,
+): Promise<void> {
+	await store.set(serverPrefStorageKey(hostId), pref);
+}
 
 const RECV_TIMEOUT = 40_000;
 const PING_INTERVAL_MS = 25_000;
@@ -136,16 +172,18 @@ export class Connection extends EventTarget {
 	private pendingResponses = new Map<string, (msg: unknown) => void>();
 	private encryptionKey: Uint8Array | null = null;
 	private clientId: string | null = null;
-	// The CENTRAL API base (http/https). Used only to request a WebSocket token +
-	// the host's current relayUrl; the socket itself is opened to that relay.
-	private readonly serverUrl: string;
+	// The CENTRAL base that actually worked for this host (new or old server),
+	// resolved fresh from settings each time open() runs (see
+	// resolveWebSocketToken). Read back by ConnectionManager so future
+	// reconnects/attempts for this host start from the known-good server.
+	resolvedServerUrl: string;
 	// Timestamp of the last inbound frame of any kind. Any traffic from the host
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
 
-	constructor(serverUrl: string, encryptionKey?: Uint8Array | null) {
+	constructor(initialServerUrl: string, encryptionKey?: Uint8Array | null) {
 		super();
-		this.serverUrl = serverUrl;
+		this.resolvedServerUrl = initialServerUrl;
 		this.encryptionKey = encryptionKey ?? null;
 	}
 
@@ -247,13 +285,15 @@ export class Connection extends EventTarget {
 			deviceIsEmulator: deviceInfo.isEmulator,
 			deviceManufacturer: deviceInfo.manufacturer,
 		};
-		// The token request goes to CENTRAL server (this.serverUrl); to get the token
-		// and the relay associated with the host
-		const wsInfo = await requestWebSocketToken(
-			this.serverUrl,
+		// The token request goes to CENTRAL server; to get the token and the
+		// relay associated with the host. Resolves new-vs-old server per hostId,
+		// alternating on 4xx and remembering whichever one works.
+		const { url: resolvedServerUrl, wsInfo } = await resolveWebSocketToken(
+			hostId,
 			accessToken,
 			clientInfo,
 		);
+		this.resolvedServerUrl = resolvedServerUrl;
 
 		const wsUrl = new URL(wsInfo.relayUrl);
 		wsUrl.searchParams.set("wsToken", wsInfo.wsToken);
@@ -600,6 +640,7 @@ class ConnectionManager {
 					this.connection = nextConnection;
 					nextConnection.markAlive();
 					this.setSnapshot({
+						serverUrl: nextConnection.resolvedServerUrl,
 						hostInfo: {
 							id: hostId,
 							username: msg.data.username,
@@ -962,17 +1003,80 @@ async function requestWebSocketToken(
 		!response.ok ||
 		json.success === false ||
 		!json.data?.wsToken ||
-		!json.data.clientId ||
-		!json.data.relayUrl
+		!json.data.clientId
 	) {
-		throw new Error(
+		const error = new Error(
 			json.error || json.message || "Failed to authorize WebSocket connection.",
-		);
+		) as TokenRequestError;
+		error.httpStatus = response.status;
+		throw error;
 	}
 
-	json.data.relayUrl = toWsUrl(json.data.relayUrl);
+	// Legacy central server: no relay lookup, it IS the relay.
+	const relayUrl = json.data.relayUrl
+		? toWsUrl(json.data.relayUrl)
+		: `${toWsUrl(serverUrl)}${OLD_RELAY_PATH}`;
 
-	return json.data;
+	return { ...json.data, relayUrl };
+}
+
+function isHttp4xxError(err: unknown): boolean {
+	const status = (err as TokenRequestError)?.httpStatus;
+	return typeof status === "number" && status >= 400 && status < 500;
+}
+
+/**
+ * Resolves which CENTRAL server to use for this host and requests a WebSocket
+ * token from it, transparently handling old-server backwards compatibility:
+ *
+ * - A host once confirmed on the new server never falls back to the old one
+ *   on error — that would just be a real failure, not a version mismatch.
+ * - Otherwise we always try the new server first (picks up CLI upgrades from
+ *   old → new automatically), and only on a 4xx response fall back to the
+ *   legacy `app.shellular.dev`. Non-4xx failures (network, 5xx) propagate
+ *   without alternating — they're not a "wrong server" signal.
+ * - Whichever server responds successfully is remembered per-hostId so the
+ *   next connection attempt for this host goes straight to it.
+ */
+async function resolveWebSocketToken(
+	hostId: string,
+	accessToken: string | null,
+	clientInfo: ClientInfo,
+): Promise<{ url: string; wsInfo: WebSocketTokenResponse }> {
+	// Always resolved fresh from settings rather than trusting whatever URL a
+	// prior connection attempt happened to land on — that may have been the
+	// old server, which must never be mistaken for "the new server".
+	const newServerUrl = await getBaseServerUrl();
+	const pref = await getServerPreference(hostId);
+
+	if (pref === "new") {
+		const wsInfo = await requestWebSocketToken(
+			newServerUrl,
+			accessToken,
+			clientInfo,
+		);
+		return { url: newServerUrl, wsInfo };
+	}
+
+	try {
+		const wsInfo = await requestWebSocketToken(
+			newServerUrl,
+			accessToken,
+			clientInfo,
+		);
+		await setServerPreference(hostId, "new");
+		return { url: newServerUrl, wsInfo };
+	} catch (err) {
+		if (!isHttp4xxError(err)) throw err;
+
+		const wsInfo = await requestWebSocketToken(
+			OLD_SERVER_URL,
+			accessToken,
+			clientInfo,
+		);
+		await setServerPreference(hostId, "old");
+		return { url: OLD_SERVER_URL, wsInfo };
+	}
 }
 
 export function subscribeState(listener: Listener): () => void {
