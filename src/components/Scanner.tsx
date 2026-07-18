@@ -3,7 +3,6 @@ import browser from "bridge/browser";
 import scanner from "bridge/scanner";
 import ConnectingIcon from "components/ConnectingIcon";
 import Mascot from "components/Mascot";
-import jsQR from "jsqr";
 import actionStack from "lib/actionStack";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useShellular } from "state";
@@ -29,9 +28,9 @@ export default function Scanner({
 
 	const connecting = connectionStatus === "connecting";
 
-	const connectWithToken = useCallback(
-		async (rawValue: string | undefined | null) => {
-			if (!rawValue) {
+	const connectToHost = useCallback(
+		async (hostAndKey: string) => {
+			if (!hostAndKey) {
 				setError(
 					"This QR code did not contain a valid connection token. Please try again.",
 				);
@@ -39,7 +38,7 @@ export default function Scanner({
 			}
 
 			try {
-				await connect(rawValue);
+				await connect(hostAndKey);
 				return true;
 			} catch (err) {
 				if (err instanceof Error) {
@@ -84,8 +83,14 @@ export default function Scanner({
 				return;
 			}
 
-			const token = results.find((token) => Boolean(token.rawValue));
-			const success = await connectWithToken(token?.rawValue);
+			const result = results.find((s) => Boolean(s.rawValue));
+			if (!result?.rawValue) {
+				throw new Error(
+					"Either there was no QR code, or the value was invalid. Please try again with a valid QR code.",
+				);
+			}
+
+			const success = await connectToHost(result.rawValue);
 
 			if (success) {
 				setShowScanner(false);
@@ -102,7 +107,7 @@ export default function Scanner({
 		}
 
 		actionStack.remove("qr-code-scanner");
-	}, [connectWithToken, setShowScanner, handleCancelScanner]);
+	}, [connectToHost, setShowScanner, handleCancelScanner]);
 
 	const handleUploadQr = useCallback(
 		async (file: File | undefined) => {
@@ -114,8 +119,14 @@ export default function Scanner({
 				setUploadingQr(true);
 				scanner.hide().catch(console.error);
 
-				const rawValue = await decodeQrImage(file);
-				const connected = await connectWithToken(rawValue);
+				const results = await scanner.scanImage(file);
+				const result = results?.find((s) => Boolean(s.rawValue));
+				if (!result?.rawValue) {
+					throw new Error(
+						"Either there was no QR code, or the value was invalid. Please try again with a valid QR code.",
+					);
+				}
+				const connected = await connectToHost(result.rawValue);
 				if (connected) {
 					setShowScanner(false);
 				}
@@ -133,7 +144,7 @@ export default function Scanner({
 				}
 			}
 		},
-		[connectWithToken, setShowScanner, uploadingQr],
+		[connectToHost, setShowScanner, uploadingQr],
 	);
 
 	useEffect(() => {
@@ -284,44 +295,4 @@ export default function Scanner({
 			/>
 		</div>
 	);
-}
-
-async function decodeQrImage(file: File) {
-	const image = await loadImage(file);
-	try {
-		const canvas = document.createElement("canvas");
-		canvas.width = image.naturalWidth;
-		canvas.height = image.naturalHeight;
-
-		const context = canvas.getContext("2d", { willReadFrequently: true });
-		if (!context) {
-			throw new Error("Could not read this image. Please try another file.");
-		}
-
-		context.drawImage(image, 0, 0);
-
-		const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-		const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
-		if (!qrCode?.data) {
-			throw new Error(
-				"No QR code was found in this image. Please try another image.",
-			);
-		}
-
-		return qrCode.data;
-	} finally {
-		URL.revokeObjectURL(image.src);
-	}
-}
-
-function loadImage(file: File) {
-	return new Promise<HTMLImageElement>((resolve, reject) => {
-		const image = new Image();
-		image.onload = () => resolve(image);
-		image.onerror = () => {
-			URL.revokeObjectURL(image.src);
-			reject(new Error("Could not load this image. Please try another file."));
-		};
-		image.src = URL.createObjectURL(file);
-	});
 }

@@ -1,3 +1,4 @@
+import jsQR from "jsqr";
 import * as store from "lib/store";
 
 interface Dimensions {
@@ -100,6 +101,31 @@ export default {
 		scanOnce = arg1 === true;
 		onScanCallback = callback;
 	},
+	async scanImage(callback: Callback, [base64]: [string]) {
+		try {
+			const rawValue = await decodeImage(base64);
+			if (!rawValue) {
+				callback.error(
+					"No QR code was found in this image. Please try another image.",
+				);
+				return;
+			}
+			callback.success([
+				{
+					rawValue,
+					displayValue: rawValue,
+					format: "256",
+					valueType: "0",
+				},
+			]);
+		} catch (err) {
+			callback.error(
+				err instanceof Error
+					? err.message
+					: "Could not read this image. Please try another file.",
+			);
+		}
+	},
 	setTheme(callback: Callback) {
 		callback.success();
 	},
@@ -120,6 +146,56 @@ async function loadCameraDevices() {
 	if (!preferredCamera && cameraDevices.length) {
 		preferredCamera = cameraDevices[0].deviceId;
 		store.set("preferredCamera", preferredCamera).catch(console.error);
+	}
+}
+
+function base64ToBlob(base64: string): Blob {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return new Blob([bytes]);
+}
+
+async function decodeImage(base64: string): Promise<string | null> {
+	const blob = base64ToBlob(base64);
+
+	if ("BarcodeDetector" in window) {
+		const detector =
+			barcodeDetector ??
+			new BarcodeDetector({ formats: ["qr_code", "ean_13", "code_128"] });
+		const bitmap = await createImageBitmap(blob);
+		try {
+			const barcodes = await detector.detect(bitmap);
+			if (barcodes.length) return barcodes[0].rawValue;
+		} finally {
+			bitmap.close();
+		}
+	}
+
+	return decodeWithJsQr(blob);
+}
+
+async function decodeWithJsQr(blob: Blob): Promise<string | null> {
+	const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+		const img = new Image();
+		const url = URL.createObjectURL(blob);
+		img.onload = () => resolve(img);
+		img.onerror = () => reject(new Error("Could not load this image."));
+		img.src = url;
+	});
+
+	try {
+		const canvas = document.createElement("canvas");
+		canvas.width = image.naturalWidth;
+		canvas.height = image.naturalHeight;
+		const context = canvas.getContext("2d", { willReadFrequently: true });
+		if (!context) return null;
+		context.drawImage(image, 0, 0);
+		const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+		const qrCode = jsQR(imageData.data, imageData.width, imageData.height);
+		return qrCode?.data ?? null;
+	} finally {
+		URL.revokeObjectURL(image.src);
 	}
 }
 

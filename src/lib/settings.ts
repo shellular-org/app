@@ -1,10 +1,10 @@
 import file from "bridge/file";
 import appConfig from "lib/appConfig";
 
-export type DevServerProtocol = "http" | "https";
+export type ServerProtocol = "http" | "https";
 
-export type DevServerSettings = {
-	protocol: DevServerProtocol;
+export type ServerSettings = {
+	protocol: ServerProtocol;
 	domain: string;
 };
 
@@ -30,7 +30,7 @@ export type TerminalSettings = {
 
 export type AppSettings = {
 	theme: string;
-	devServer: DevServerSettings;
+	server: ServerSettings;
 	editor: EditorSettings;
 	terminal: TerminalSettings;
 	showHiddenFiles: boolean;
@@ -80,7 +80,7 @@ function normalizeFontFamily(value: unknown): string {
 		: MONOSPACE_FONT_FAMILY_OPTIONS[0].value;
 }
 
-export const DEFAULT_DEV_SERVER_SETTINGS: DevServerSettings = {
+export const DEFAULT_SERVER_SETTINGS: ServerSettings = {
 	protocol: "https",
 	domain: appConfig.DEFAULT_SERVER,
 };
@@ -105,7 +105,7 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
 
 const DEFAULT_SETTINGS: AppSettings = {
 	theme: "dark",
-	devServer: DEFAULT_DEV_SERVER_SETTINGS,
+	server: DEFAULT_SERVER_SETTINGS,
 	editor: DEFAULT_EDITOR_SETTINGS,
 	terminal: DEFAULT_TERMINAL_SETTINGS,
 	showHiddenFiles: false,
@@ -119,17 +119,15 @@ function normalizeDomain(domain: string): string {
 		.replace(/\/+$/, "");
 }
 
-function normalizeDevServerSettings(
-	settings?: Partial<DevServerSettings> | null,
-): DevServerSettings {
+function normalizeServerSettings(
+	settings?: Partial<ServerSettings> | null,
+): ServerSettings {
 	return {
 		protocol:
 			settings?.protocol === "http" || settings?.protocol === "https"
 				? settings.protocol
-				: DEFAULT_DEV_SERVER_SETTINGS.protocol,
-		domain: normalizeDomain(
-			settings?.domain || DEFAULT_DEV_SERVER_SETTINGS.domain,
-		),
+				: DEFAULT_SERVER_SETTINGS.protocol,
+		domain: normalizeDomain(settings?.domain || DEFAULT_SERVER_SETTINGS.domain),
 	};
 }
 
@@ -216,7 +214,7 @@ function normalizeSettings(
 ): AppSettings {
 	return {
 		theme: settings?.theme || DEFAULT_SETTINGS.theme,
-		devServer: normalizeDevServerSettings(settings?.devServer),
+		server: normalizeServerSettings(settings?.server),
 		editor: normalizeEditorSettings(settings?.editor),
 		terminal: normalizeTerminalSettings(settings?.terminal),
 		showHiddenFiles:
@@ -254,9 +252,9 @@ export async function saveSettings(
 	const next = normalizeSettings({
 		...current,
 		...settings,
-		devServer: {
-			...current.devServer,
-			...settings.devServer,
+		server: {
+			...current.server,
+			...settings.server,
 		},
 		editor: {
 			...current.editor,
@@ -275,6 +273,6 @@ export async function saveSettings(
 
 export async function getBaseServerUrl(): Promise<string> {
 	const settings = await loadSettings();
-	const domain = normalizeDomain(settings.devServer.domain);
-	return `${settings.devServer.protocol}://${domain || DEFAULT_DEV_SERVER_SETTINGS.domain}`;
+	const domain = normalizeDomain(settings.server.domain);
+	return `${settings.server.protocol}://${domain || DEFAULT_SERVER_SETTINGS.domain}`;
 }
