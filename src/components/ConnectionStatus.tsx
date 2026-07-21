@@ -1,4 +1,3 @@
-import "./ConnectionStatus.scss";
 import Mascot from "components/Mascot";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -19,11 +18,34 @@ import { useShellular } from "state";
 // recovery.
 const SHOW_DELAY_MS = 700;
 
+// Once a reconnect has failed this many times the host is probably genuinely
+// gone (laptop shut, CLI killed) rather than the socket having blipped, and
+// riding out the remaining backoff behind a blocking scrim is just an annoyance
+// — so we offer an explicit way out. Cancelling drops to `disconnected`, the
+// home view's terminal state, where the host picker takes over.
+// Note `reconnectAttempt` becomes 1 the moment a reconnect starts, before the
+// first attempt has run — so 2 is the first value meaning "an attempt actually
+// failed". Gating on 1 would flash the button during blips that resolve in well
+// under a second.
+const SHOW_CANCEL_AFTER_ATTEMPTS = 2;
+
+// During a CLI self-update the drop is expected, so we don't offer to give up
+// straight away. But an update can genuinely fail and never come back, and the
+// update reconnect budget runs several minutes — so still surface the escape
+// hatch once the restart has clearly overrun the "minute or two" we promised.
+const SHOW_CANCEL_AFTER_ATTEMPTS_WHILE_UPDATING = 6;
+
 export default function ConnectionStatus() {
-	const { connectionStatus } = useShellular();
+	const { connectionStatus, reconnectAttempt, hostUpdating, disconnect } =
+		useShellular();
 	const [visible, setVisible] = useState(false);
 
 	const shouldShow = connectionStatus === "reconnecting";
+	const canCancel =
+		reconnectAttempt >=
+		(hostUpdating
+			? SHOW_CANCEL_AFTER_ATTEMPTS_WHILE_UPDATING
+			: SHOW_CANCEL_AFTER_ATTEMPTS);
 
 	useEffect(() => {
 		if (!shouldShow) {
@@ -39,7 +61,9 @@ export default function ConnectionStatus() {
 		<AnimatePresence>
 			{visible && (
 				<motion.div
-					className="connection-status is-connecting"
+					// Soft, light scrim — the app stays faintly visible underneath so a
+					// reconnect feels like a momentary pause rather than a hard wall.
+					className="fixed inset-0 z-200 flex items-center justify-center bg-[color-mix(in_srgb,var(--primary)_32%,transparent)] px-6 pt-[calc(24px+var(--sat,0px))] pb-[calc(24px+var(--sab,0px))] backdrop-blur-[10px] backdrop-saturate-[1.05]"
 					initial={{ opacity: 0 }}
 					animate={{ opacity: 1 }}
 					exit={{ opacity: 0 }}
@@ -48,19 +72,44 @@ export default function ConnectionStatus() {
 					role="status"
 				>
 					<motion.div
-						className="connection-status-card"
+						className="flex max-w-[min(420px,100%)] flex-col rounded-[18px] border border-[var(--popup-border-color,var(--card-border))] bg-[var(--popup-background,var(--surface-soft))] px-5 py-4 shadow-[0_12px_32px_var(--shadow-color),0_2px_8px_var(--shadow-color)]"
 						initial={{ opacity: 0, y: 8, scale: 0.96 }}
 						animate={{ opacity: 1, y: 0, scale: 1 }}
 						exit={{ opacity: 0, y: 8, scale: 0.96 }}
 						transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
 					>
-						<Mascot state="loading" size={56} />
-						<div className="connection-status-text">
-							<p className="connection-status-message">Reconnecting…</p>
-							<p className="connection-status-hint">
-								Hang tight, picking up where you left off
-							</p>
+						<div className="flex items-center gap-3.5">
+							<Mascot state="loading" size={56} className="shrink-0" />
+							<div className="flex min-w-0 flex-col gap-[3px]">
+								<p className="m-0 text-base font-bold leading-[1.25] text-accent">
+									{hostUpdating ? "Updating CLI…" : "Reconnecting…"}
+								</p>
+								<p className="m-0 text-[13px] font-medium leading-[1.4] text-secondary-text">
+									{hostUpdating
+										? canCancel
+											? "This is taking longer than usual. The update may have failed."
+											: "Your dev machine is restarting after the update. This usually takes a minute or two."
+										: canCancel
+											? "Still trying. Your dev machine may be offline."
+											: "Hang tight, picking up where you left off"}
+								</p>
+							</div>
 						</div>
+						<AnimatePresence>
+							{canCancel && (
+								<motion.button
+									type="button"
+									className="haptic-trigger box-border shrink-0 cursor-pointer overflow-hidden rounded-xl border border-[var(--popup-border-color,var(--card-border))] bg-transparent px-4 py-2.5 font-[inherit] text-sm font-semibold leading-[1.2] text-secondary-text transition-[background,color] duration-150 active:bg-[color-mix(in_srgb,var(--primary-text)_8%,transparent)] active:text-primary-text"
+									onClick={disconnect}
+									initial={{ opacity: 0, height: 0, marginTop: 0 }}
+									animate={{ opacity: 1, height: "auto", marginTop: 14 }}
+									exit={{ opacity: 0, height: 0, marginTop: 0 }}
+									transition={{ duration: 0.24, ease: "easeOut" }}
+								>
+									Stop reconnecting
+								</motion.button>
+							)}
+						</AnimatePresence>
 					</motion.div>
 				</motion.div>
 			)}

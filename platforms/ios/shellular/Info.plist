@@ -28,7 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>foxbiz</string>
-				<string>shellular</string>
+				<string>$(AUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
 	</array>

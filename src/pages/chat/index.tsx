@@ -1281,12 +1281,7 @@ export default function ChatConversationPage({
 			/>
 			<BottomSheet
 				open={showConfigSheet}
-				onClose={() => {
-					setShowConfigSheet(false);
-					requestAnimationFrame(() => {
-						promptInputRef.current?.focus();
-					});
-				}}
+				onClose={() => setShowConfigSheet(false)}
 				title="Session Configuration"
 			>
 				<div className="flex flex-col">
@@ -1331,12 +1326,7 @@ export default function ChatConversationPage({
 			</BottomSheet>
 			<BottomSheet
 				open={showContextSheet}
-				onClose={() => {
-					setShowContextSheet(false);
-					requestAnimationFrame(() => {
-						promptInputRef.current?.focus();
-					});
-				}}
+				onClose={() => setShowContextSheet(false)}
 				title="Context Window"
 			>
 				{contextWindowUsage && (
@@ -1645,9 +1635,6 @@ export default function ChatConversationPage({
 			setError((err as Error).message);
 		} finally {
 			setConfigSavingId(null);
-			requestAnimationFrame(() => {
-				promptInputRef.current?.focus();
-			});
 		}
 	}
 

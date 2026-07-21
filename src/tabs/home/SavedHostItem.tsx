@@ -7,6 +7,7 @@ import { formatRelativeTime, getPlatformIcon } from "lib/utils";
 import { useCallback, useState } from "react";
 import { type SavedHost, useShellular } from "state";
 import { getConnectionSnapshot, getHostInfo } from "state/connection";
+import HostQrSheet from "./HostQrSheet";
 
 interface SavedHostProps {
 	host: SavedHost;
@@ -15,6 +16,7 @@ interface SavedHostProps {
 export default function SavedHostItem({ host }: SavedHostProps) {
 	const { removeSavedHost, connect, switchDevice, disconnect } = useShellular();
 	const [hostname, setHostname] = useState(host.alias || host.hostname);
+	const [showQr, setShowQr] = useState(false);
 
 	const hostInfo = getHostInfo();
 	const { connectionStatus, sessionToken } = getConnectionSnapshot();
@@ -90,6 +92,20 @@ export default function SavedHostItem({ host }: SavedHostProps) {
 						},
 					},
 					{
+						icon: "icon-qr_code_scanner",
+						label: "Show Connection QR",
+						onClick: async () => {
+							// This QR is a bearer credential that doesn't expire, so
+							// confirm intent before putting it on screen.
+							const ok = await dialog.confirm(
+								`Keep this QR code private — do not share it with anyone.`,
+								"Show Connection QR",
+							);
+							if (!ok) return;
+							setShowQr(true);
+						},
+					},
+					{
 						icon: "icon-trash",
 						label: "Remove",
 						danger: true,
@@ -108,6 +124,7 @@ export default function SavedHostItem({ host }: SavedHostProps) {
 			>
 				<span className="icon-more-vertical" aria-hidden="true" />
 			</AppMenu>
+			<HostQrSheet host={host} open={showQr} onClose={() => setShowQr(false)} />
 		</div>
 	);
 }
