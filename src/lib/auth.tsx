@@ -579,7 +579,10 @@ function logAuthError(action: string, error: unknown): void {
 }
 
 async function getAuthCallbackScheme(): Promise<string> {
-	if (process.env.PLATFORM !== "android") {
+	// Android and iOS both ship dev builds under a `.dev` bundle id so they can
+	// sit alongside the store build; those register `shellular-dev` instead of
+	// `shellular` so the OS routes the auth callback to the right app.
+	if (process.env.PLATFORM !== "android" && process.env.PLATFORM !== "ios") {
 		return "shellular";
 	}
 
@@ -589,7 +592,7 @@ async function getAuthCallbackScheme(): Promise<string> {
 			appInfo.packageName.endsWith(".dev") ? "shellular-dev" : "shellular",
 		)
 		.catch((error) => {
-			console.warn("[auth] Failed to detect Android package name", error);
+			console.warn("[auth] Failed to detect app bundle id", error);
 			return "shellular";
 		});
 	return authCallbackSchemeInFlight;
