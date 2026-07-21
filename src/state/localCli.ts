@@ -88,7 +88,9 @@ export async function connectLocalCli(): Promise<void> {
 	try {
 		await initializeLocalCli();
 		if (!getLocalCliSnapshot().cli)
-			throw new Error(getLocalCliSnapshot().error ?? "Local access is unavailable.");
+			throw new Error(
+				getLocalCliSnapshot().error ?? "Local access is unavailable.",
+			);
 		if (getConnectionSnapshot().connectionStatus === "disconnected") {
 			publish({ phase: "connecting" });
 			await connectToLocal();

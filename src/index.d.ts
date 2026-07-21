@@ -1,4 +1,4 @@
-type PLATFORM = "android" | "browser" | "ios" | "macos" | "windows" | "linux";
+type PLATFORM = "android" | "browser" | "ios" | "macos";
 
 interface Bridge {
 	exec(

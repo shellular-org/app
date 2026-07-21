@@ -49,7 +49,7 @@ export default (_, { env = {}, mode = "development" }) => {
 				? IOS_BUNDLE
 				: platform === "macos"
 					? MACOS_BUNDLE
-				: ANDROID_BUNDLE;
+					: ANDROID_BUNDLE;
 
 	let alias;
 	if (isDev) {

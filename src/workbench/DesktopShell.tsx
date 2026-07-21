@@ -48,20 +48,21 @@ const SIDEBAR_WIDTH_KEY = "shellular:desktop-sidebar-width";
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 480;
 
-const ACTIVITIES: Array<{ id: PrimaryActivity; label: string; icon: string }> = [
-	{
-		id: "home",
-		label: "Home",
-		icon: "icon-home",
-	},
-	{
-		id: "remote",
-		label: "Remote Access",
-		icon: "icon-radio",
-	},
-	{ id: "agents", label: "Agents", icon: "icon-ai-chat" },
-	{ id: "projects", label: "Projects", icon: "icon-code" },
-];
+const ACTIVITIES: Array<{ id: PrimaryActivity; label: string; icon: string }> =
+	[
+		{
+			id: "home",
+			label: "Home",
+			icon: "icon-home",
+		},
+		{
+			id: "remote",
+			label: "Remote Access",
+			icon: "icon-radio",
+		},
+		{ id: "agents", label: "Agents", icon: "icon-ai-chat" },
+		{ id: "projects", label: "Projects", icon: "icon-code" },
+	];
 
 const RAIL_COMMANDS: Array<{
 	page: UtilityPage;
@@ -272,7 +273,10 @@ export default function DesktopShell({
 					});
 					break;
 				case "help":
-					void openBrowserSurface("https://shellular.dev/docs", "Shellular Help");
+					void openBrowserSurface(
+						"https://shellular.dev/docs",
+						"Shellular Help",
+					);
 					break;
 			}
 		});

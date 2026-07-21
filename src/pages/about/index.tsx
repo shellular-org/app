@@ -68,7 +68,9 @@ export default function AboutPage() {
 					<button
 						type="button"
 						className="about-link-item"
-						onClick={() => openBrowserSurface("https://acode.app", "Acode Editor")}
+						onClick={() =>
+							openBrowserSurface("https://acode.app", "Acode Editor")
+						}
 					>
 						<img
 							src={acodeIcon}
@@ -85,7 +87,10 @@ export default function AboutPage() {
 						type="button"
 						className="about-link-item"
 						onClick={() =>
-							openBrowserSurface("https://betterkeep.app/welcome", "Better Keep")
+							openBrowserSurface(
+								"https://betterkeep.app/welcome",
+								"Better Keep",
+							)
 						}
 					>
 						<img
@@ -102,7 +107,9 @@ export default function AboutPage() {
 					<button
 						type="button"
 						className="about-link-item"
-						onClick={() => openBrowserSurface("https://chess69.com", "Hanging Piece")}
+						onClick={() =>
+							openBrowserSurface("https://chess69.com", "Hanging Piece")
+						}
 					>
 						<img
 							src={chess69Icon}
@@ -162,7 +169,9 @@ export default function AboutPage() {
 													type="button"
 													className="about-license-entry"
 													key={entry.name}
-													onClick={() => openBrowserSurface(entry.url, entry.name)}
+													onClick={() =>
+														openBrowserSurface(entry.url, entry.name)
+													}
 												>
 													<span className="about-license-name">
 														{entry.name}

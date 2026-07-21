@@ -86,6 +86,6 @@ export function buildProjectMenuItems(
 
 function getRevealLabel() {
 	if (process.env.PLATFORM === "macos") return "Reveal in Finder";
-	if (process.env.PLATFORM === "windows") return "Show in Explorer";
+	// if (process.env.PLATFORM === "windows") return "Show in Explorer";
 	return "Reveal in File Manager";
 }

@@ -180,7 +180,10 @@ export default function PortsPage() {
 		// Prefer the portless `<name>.localhost` URL when the user has one mapped.
 		const url = entry.portlessUrl ?? buildPortUrl(entry.port);
 		setExpandedPort(null);
-		await openBrowserSurface(url, entry.portlessUrl?.replace(/^https?:\/\//, "") ?? `:${entry.port}`);
+		await openBrowserSurface(
+			url,
+			entry.portlessUrl?.replace(/^https?:\/\//, "") ?? `:${entry.port}`,
+		);
 	}
 
 	const rightSlot = (
