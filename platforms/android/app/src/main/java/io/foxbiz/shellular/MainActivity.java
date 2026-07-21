@@ -110,14 +110,14 @@ public class MainActivity extends AppCompatActivity {
 
         appView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null);
         appView.getSettings().setJavaScriptEnabled(true);
-        appView.setScrollBarStyle(WebView.SCROLLBARS_OUTSIDE_OVERLAY);
+        appView.setVerticalScrollBarEnabled(false);
+        appView.setHorizontalScrollBarEnabled(false);
         appView.getSettings().setDomStorageEnabled(true);
         appView.setInputType(AppView.SUGGESTIONS_DEFAULT);
 
         // Critical settings to prevent blank screen issues
         appView.getSettings().setUseWideViewPort(true);
         appView.getSettings().setLoadWithOverviewMode(true);
-        appView.setScrollbarFadingEnabled(false);
 
         // Ensure WebView is visible and properly rendered
         appView.setVisibility(View.VISIBLE);
