@@ -36,6 +36,8 @@ type ProviderStatus = {
 };
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
+/** Error from `authRequest`, carrying the HTTP status when there was one. */
+type AuthRequestError = Error & { httpStatus?: number };
 type AccountAction = {
 	type: "link" | "unlink";
 	provider: AuthProviderId;
@@ -59,6 +61,8 @@ type AuthContextValue = {
 
 const REFRESH_TOKEN_KEY = "auth-refresh-token";
 const REFRESH_SKEW_MS = 60 * 1000;
+/** Backoff after a refresh that failed for non-auth reasons (offline, 5xx). */
+const REFRESH_RETRY_MS = 30 * 1000;
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 let accessToken: string | null = null;
@@ -125,6 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 					return true;
 				} catch (err) {
 					logAuthError("refresh browser session", err);
+					// See the token path below: don't sign the user out over a
+					// transient network/server failure.
+					if (!isAuthRejection(err)) return false;
 					await clearAuth();
 					return false;
 				} finally {
@@ -148,6 +155,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				return true;
 			} catch (err) {
 				logAuthError("refresh session", err);
+				// Only a explicit rejection means the token is dead. On network or
+				// server errors keep it and stay signed in — the next refresh (or
+				// the next request that needs a token) will retry.
+				if (!isAuthRejection(err)) return false;
 				await clearAuth();
 				setError("Your session expired. Please sign in again.");
 				return false;
@@ -206,15 +217,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		};
 	}, [refresh]);
 
+	// A refresh that failed for network reasons leaves the token on disk (only an
+	// explicit 401/403 clears it), so the session is recoverable — retry when the
+	// device comes back online or the app returns to the foreground instead of
+	// stranding the user on the login screen until they sign in again.
+	useEffect(() => {
+		if (status !== "unauthenticated") return;
+
+		const retry = async () => {
+			if (
+				!isBrowserCookieAuth() &&
+				!(await secureStore.get(REFRESH_TOKEN_KEY))
+			) {
+				return;
+			}
+			refresh().catch(console.error);
+		};
+
+		window.addEventListener("online", retry);
+		document.addEventListener("resume", retry);
+		return () => {
+			window.removeEventListener("online", retry);
+			document.removeEventListener("resume", retry);
+		};
+	}, [refresh, status]);
+
 	useEffect(() => {
 		if (status !== "authenticated") return;
-		const delay = Math.max(
-			1000,
-			accessTokenExpiresAt - Date.now() - REFRESH_SKEW_MS,
+		let timer = 0;
+
+		const schedule = (delay: number) => {
+			timer = window.setTimeout(async () => {
+				const ok = await refresh().catch((err) => {
+					console.error(err);
+					return false;
+				});
+				// A transient failure leaves us authenticated with a stale access
+				// token; retry on a short backoff rather than waiting for the next
+				// expiry that will never be scheduled.
+				if (!ok) schedule(REFRESH_RETRY_MS);
+			}, delay);
+		};
+
+		schedule(
+			Math.max(1000, accessTokenExpiresAt - Date.now() - REFRESH_SKEW_MS),
 		);
-		const timer = window.setTimeout(() => {
-			refresh().catch(console.error);
-		}, delay);
 		return () => window.clearTimeout(timer);
 	}, [refresh, status]);
 
@@ -504,11 +551,16 @@ async function refreshWithoutReact(): Promise<boolean> {
 		refreshTokenValue = data.refreshToken;
 		await secureStore.set(REFRESH_TOKEN_KEY, data.refreshToken);
 		return true;
-	} catch {
+	} catch (err) {
+		// Drop the in-memory access token either way (it's unusable), but only
+		// destroy the refresh token when the server actually rejected it —
+		// otherwise a blip while connecting would silently sign the user out.
 		accessToken = null;
 		accessTokenExpiresAt = 0;
-		refreshTokenValue = null;
-		await secureStore.remove(REFRESH_TOKEN_KEY);
+		if (isAuthRejection(err)) {
+			refreshTokenValue = null;
+			await secureStore.remove(REFRESH_TOKEN_KEY);
+		}
 		return false;
 	} finally {
 		refreshInFlight = null;
@@ -550,9 +602,27 @@ async function authRequest<T = unknown>(
 		message?: string;
 	};
 	if (!res.ok || json.success === false) {
-		throw new Error(json.error || json.message || "Authentication failed.");
+		const error = new Error(
+			json.error || json.message || "Authentication failed.",
+		) as AuthRequestError;
+		error.httpStatus = res.status;
+		throw error;
 	}
 	return json.data as T;
+}
+
+/**
+ * True only when the server explicitly rejected our credentials (401/403).
+ *
+ * Everything else — `fetch` rejecting outright (offline, DNS, TLS, backgrounded
+ * radio), 5xx during a deploy, 429, a gateway's HTML error page — says nothing
+ * about whether the refresh token is still valid. Treating those as "signed
+ * out" throws away a perfectly good token and forces a fresh login, which is
+ * how a week-long session turns into a daily one.
+ */
+export function isAuthRejection(err: unknown): boolean {
+	const status = (err as AuthRequestError)?.httpStatus;
+	return status === 401 || status === 403;
 }
 
 function callbackParams(url: string): Record<string, string> {
