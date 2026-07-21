@@ -108,6 +108,10 @@ interface ShellularContextValue {
 		| "connected"
 		| "reconnecting";
 	hostDir?: string;
+	/** Reconnect attempts made in the current reconnect run; 0 when settled. */
+	reconnectAttempt: number;
+	/** True while the CLI is self-updating and restarting. */
+	hostUpdating: boolean;
 	batteryInfo: BatteryInfo | null;
 	agents: Record<string, AcpAgentInfo>;
 	loadAgents: () => Promise<void>;
@@ -248,6 +252,10 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 	const disconnect = useCallback(() => {
 		detachAllTerminals();
 		pendingSavedHostRef.current = null;
+		// Clear the recovery target too. `recover()` (app resume / network back)
+		// reconnects to the last host whenever one is remembered, which would
+		// silently undo an explicit disconnect — including cancelling a reconnect.
+		setLastConnectedHost(null);
 		disconnectWs();
 	}, []);
 

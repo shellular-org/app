@@ -79,6 +79,21 @@ interface ConnectionSnapshot {
 	connectionStatus: ConnectionStatus;
 	transport: "local" | "remote" | null;
 	batteryInfo: BatteryInfo | null;
+	/**
+	 * How many reconnect attempts have been made in the current run (reset to 0
+	 * whenever we settle into `connected` or `disconnected`). The UI reads this
+	 * to decide when a reconnect has dragged on long enough to be worth offering
+	 * a way out of — see ConnectionStatus.
+	 */
+	reconnectAttempt: number;
+	/**
+	 * True from the moment the CLI reports it's self-updating until the next
+	 * successful connect (or until we give up reconnecting). The CLI restarts
+	 * mid-update, so the socket drop that follows is expected rather than a
+	 * fault — the reconnect overlay reads this to explain the wait instead of
+	 * implying something broke.
+	 */
+	hostUpdating: boolean;
 }
 
 type HandshakeError = Error & {
@@ -151,7 +166,11 @@ const PING_INTERVAL_MS = 25_000;
 // slack before we tear down and reconnect.
 const LIVENESS_TIMEOUT_MS = 55_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
-const BASE_RECONNECT_DELAY_MS = 1000;
+// Backoff runs 4s → 8s → 16s → 20s (capped) per attempt. Retrying faster than
+// this rarely helps: a host that's genuinely gone won't be back in a second,
+// and the sub-second reconnects that do succeed are handled by reconnectNow()
+// on app resume / network-online rather than by this backoff.
+const BASE_RECONNECT_DELAY_MS = 4000;
 const MAX_RECONNECT_DELAY_MS = 20_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
 
@@ -691,6 +710,8 @@ class ConnectionManager {
 		connectionStatus: "disconnected",
 		transport: null,
 		batteryInfo: null,
+		reconnectAttempt: 0,
+		hostUpdating: false,
 	};
 	private connection: Connection | null = null;
 	private pendingSocket: Connection | null = null;
@@ -845,6 +866,9 @@ class ConnectionManager {
 						},
 						connectionStatus: "connected",
 						batteryInfo: null,
+						reconnectAttempt: 0,
+						// The CLI is back; whatever update was in flight is done.
+						hostUpdating: false,
 					});
 					nextConnection.on<BatteryUpdateMsg>(MsgType.BATTERY_UPDATE, (msg) => {
 						if (msg instanceof Event) return;
@@ -952,8 +976,19 @@ class ConnectionManager {
 			connectionStatus: "disconnected",
 			transport: null,
 			batteryInfo: null,
+			reconnectAttempt: 0,
+			hostUpdating: false,
 		});
 		this.onDisconnected?.();
+	}
+
+	/**
+	 * Mark that the CLI has begun a self-update. Held outside the socket because
+	 * the update tears the socket down — a per-connection listener would be gone
+	 * exactly when the UI needs to know why.
+	 */
+	setHostUpdating(updating: boolean) {
+		this.setSnapshot({ hostUpdating: updating });
 	}
 
 	/**
@@ -980,7 +1015,11 @@ class ConnectionManager {
 		this.stopPing();
 		this.closeConnection();
 		this.closePendingSocket();
-		this.setSnapshot({ connectionStatus: "reconnecting", batteryInfo: null });
+		this.setSnapshot({
+			connectionStatus: "reconnecting",
+			batteryInfo: null,
+			reconnectAttempt: 0,
+		});
 		this.attemptReconnect(hostId, true);
 	}
 
@@ -1023,6 +1062,7 @@ class ConnectionManager {
 			this.reconnectTimeout = null;
 		}
 		this.reconnectAttempt = 0;
+		this.setSnapshot({ reconnectAttempt: 0 });
 	}
 
 	private async attemptReconnect(hostId: string, immediate = false) {
@@ -1040,10 +1080,13 @@ class ConnectionManager {
 				hostInfo: null,
 				transport: null,
 				batteryInfo: null,
+				reconnectAttempt: 0,
+				hostUpdating: false,
 			});
 			this.onDisconnected?.();
 			return;
 		}
+		this.setSnapshot({ reconnectAttempt: this.reconnectAttempt });
 
 		const backoff = Math.min(
 			BASE_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempt - 1),
@@ -1380,6 +1423,15 @@ export function connectToLocal(): Promise<void> {
 
 export function disconnect() {
 	connectionManager.disconnect();
+}
+
+/**
+ * Flag that the CLI is self-updating, so the reconnect overlay can explain the
+ * expected restart instead of presenting it as a failure. Cleared automatically
+ * on the next successful connect, on disconnect, and if reconnecting gives up.
+ */
+export function setHostUpdating(updating: boolean) {
+	connectionManager.setHostUpdating(updating);
 }
 
 /**

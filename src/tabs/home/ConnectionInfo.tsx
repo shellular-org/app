@@ -17,6 +17,7 @@ import {
 	type ConnectedHostInfo,
 	onMessage,
 	sendMessage,
+	setHostUpdating,
 } from "state/connection";
 
 const COLLAPSED_AGENT_COUNT = 5;
@@ -61,14 +62,17 @@ export default function ConnectionInfo({
 					case "starting":
 					case "updating":
 						setUpdating(true);
+						setHostUpdating(true);
 						toast("Updating CLI…");
 						break;
 					case "restarting":
 						setUpdating(true);
+						setHostUpdating(true);
 						toast("CLI is updating and restarting…", 4000);
 						break;
 					case "error":
 						setUpdating(false);
+						setHostUpdating(false);
 						toast(
 							`Update failed: ${msg.data.message ?? "unknown error"}`,
 							4000,
@@ -91,6 +95,10 @@ export default function ConnectionInfo({
 		if (!ok) return;
 
 		setUpdating(true);
+		// Set this up front rather than waiting for the CLI's first status
+		// message — the socket can drop before it arrives, and the reconnect
+		// overlay needs to know the restart is expected.
+		setHostUpdating(true);
 		toast("Requesting CLI update…");
 		sendMessage({ type: MsgType.HOST_UPDATE, data: {} });
 	}, [hostInfo.hostname, hostInfo.latestCliVersion]);
