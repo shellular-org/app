@@ -1,8 +1,8 @@
 {
   "name": "io.foxbiz.shellular",
   "displayName": "Use your dev machine from your phone.",
-  "version": "0.0.36",
-  "versionCode": 36,
+  "version": "0.0.37",
+  "versionCode": 37,
   "description": "",
   "type": "module",
   "licenses": [
@@ -99,6 +99,7 @@
     "libsodium-wrappers": "^0.8.4",
     "marked": "^18.0.2",
     "nanoid": "^5.1.11",
+    "qrcode-generator": "^2.0.4",
     "react": "^19.2.5",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.5",
