@@ -105,12 +105,59 @@ body {
   user-select: none;
   font-size: 18px;
   -webkit-tap-highlight-color: transparent;
+}
 
-  @include desktop-ui {
-    ::-webkit-scrollbar {
-      display: none;
-    }
-  }
+// Keep desktop scroll owners visually consistent across browser and WKWebView.
+// This must target the desktop body directly: nesting the desktop-ui mixin from
+// inside `body` produces the impossible `body[ui-platform="desktop"] body`.
+body[ui-platform="desktop"] * {
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+body[ui-platform="desktop"] *::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+	background: var(--scrollbar-track);
+}
+
+body[ui-platform="desktop"] *::-webkit-scrollbar-track,
+body[ui-platform="desktop"] *::-webkit-scrollbar-corner {
+	background: var(--scrollbar-track);
+}
+
+body[ui-platform="desktop"] *::-webkit-scrollbar-thumb {
+	min-width: 32px;
+	min-height: 32px;
+	border: 2px solid transparent;
+	border-radius: 999px;
+	background-color: var(--scrollbar-thumb);
+	background-clip: padding-box;
+}
+
+body[ui-platform="desktop"] *::-webkit-scrollbar-thumb:hover {
+	background-color: var(--scrollbar-thumb-hover);
+}
+
+body[ui-platform="desktop"] *::-webkit-scrollbar-thumb:active {
+	background-color: var(--scrollbar-thumb-active);
+}
+
+// Decorative infinite animation competes with layout and raster work during a
+// live resize. Pause it briefly without changing editor or cursor animations.
+body[ui-platform="desktop"].resizing {
+	.mascot *,
+	.loader-icon {
+		animation-play-state: paused !important;
+	}
+}
+
+.desktop-scroll-area {
+	overscroll-behavior: contain;
+}
+
+.desktop-scroll-area-stable {
+	scrollbar-gutter: stable;
 }
 
 #app {

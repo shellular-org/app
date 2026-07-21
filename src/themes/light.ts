@@ -163,6 +163,18 @@ export default new (class extends Theme {
 		return "rgba(60, 60, 67, 0.06)";
 	}
 
+	get scrollbarThumb() {
+		return "rgba(60, 60, 67, 0.18)";
+	}
+
+	get scrollbarThumbHover() {
+		return "rgba(88, 86, 214, 0.3)";
+	}
+
+	get scrollbarThumbActive() {
+		return "rgba(88, 86, 214, 0.42)";
+	}
+
 	get xtermTheme() {
 		return {
 			background: "transparent",
@@ -171,9 +183,10 @@ export default new (class extends Theme {
 			cursorAccent: "#FFFFFF",
 			selectionBackground: "rgba(88, 86, 214, 0.24)",
 			selectionInactiveBackground: "rgba(60, 60, 67, 0.12)",
-			scrollbarSliderBackground: "rgba(60, 60, 67, 0.1)",
-			scrollbarSliderHoverBackground: "rgba(88, 86, 214, 0.2)",
-			scrollbarSliderActiveBackground: "rgba(88, 86, 214, 0.32)",
+			scrollbarSliderBackground: this.scrollbarThumb,
+			scrollbarSliderHoverBackground: this.scrollbarThumbHover,
+			scrollbarSliderActiveBackground: this.scrollbarThumbActive,
+			overviewRulerBorder: this.lineSoft,
 			black: "#E5E5EA",
 			red: "#FF3B30",
 			green: "#34C759",

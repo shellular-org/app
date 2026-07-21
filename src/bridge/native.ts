@@ -35,7 +35,14 @@ export type DesktopCommand =
 	| "about"
 	| "settings"
 	| "open-file"
+	| "open-folder"
+	| "new-chat"
 	| "new-terminal"
+	| "save"
+	| "close-tab"
+	| "toggle-sidebar"
+	| "ports"
+	| "system-monitor"
 	| "help"
 	| "reach-out";
 
@@ -47,6 +54,7 @@ export type DesktopCapabilities = {
 };
 
 const native = bridge("Native");
+let desktopCommandRegistration = 0;
 
 export default {
 	exitApp(): Promise<void> {
@@ -96,25 +104,54 @@ export default {
 		handler: (command: DesktopCommand) => void,
 		onerror: (e: Error) => void = console.error,
 	) {
+		desktopCommandRegistration += 1;
+		const registrationId = `desktop-command-${desktopCommandRegistration}`;
+		let active = true;
 		Bridge.exec(
-			(data) => handler(data as DesktopCommand),
+			(data) => {
+				if (active && isDesktopCommand(data)) handler(data);
+			},
 			onerror,
 			"Native",
 			"setDesktopCommandHandler",
-			[],
+			[registrationId],
 		);
+		return () => {
+			if (!active) return;
+			active = false;
+			void native("clearDesktopCommandHandler", [registrationId]).catch(
+				onerror,
+			);
+		};
 	},
 	getDesktopCapabilities(): Promise<DesktopCapabilities> {
 		return native("getDesktopCapabilities") as Promise<DesktopCapabilities>;
 	},
-	pickLocalFiles(): Promise<string[]> {
-		return native("pickLocalFiles") as Promise<string[]>;
+	pickLocalFiles(rootPath?: string): Promise<string[]> {
+		return native("pickLocalFiles", rootPath ? [rootPath] : []) as Promise<
+			string[]
+		>;
+	},
+	pickLocalDirectory(rootPath: string): Promise<string | null> {
+		return native("pickLocalDirectory", [rootPath]) as Promise<string | null>;
 	},
 	revealLocalPath(path: string): Promise<void> {
 		return native("revealLocalPath", [path]) as Promise<void>;
 	},
 	openSystemTerminal(path: string): Promise<void> {
 		return native("openSystemTerminal", [path]) as Promise<void>;
+	},
+	setWindowTitle(title: string): Promise<void> {
+		return native("setWindowTitle", [title]) as Promise<void>;
+	},
+	loadBundledAsset(path: string): Promise<string> {
+		return native("loadBundledAsset", [path]) as Promise<string>;
+	},
+	readClipboardText(): Promise<string> {
+		return native("readClipboardText") as Promise<string>;
+	},
+	writeClipboardText(text: string): Promise<void> {
+		return native("writeClipboardText", [text]) as Promise<void>;
 	},
 	async setTheme(theme: Theme) {
 		const themeStyle = document.querySelector("style#theme-data");
@@ -162,3 +199,24 @@ export default {
 		return native("setKeyboardSuggestionsEnabled", [enabled]) as Promise<void>;
 	},
 };
+
+function isDesktopCommand(value: unknown): value is DesktopCommand {
+	return (
+		typeof value === "string" &&
+		[
+			"about",
+			"settings",
+			"open-file",
+			"open-folder",
+			"new-chat",
+			"new-terminal",
+			"save",
+			"close-tab",
+			"toggle-sidebar",
+			"ports",
+			"system-monitor",
+			"help",
+			"reach-out",
+		].includes(value)
+	);
+}

@@ -18,7 +18,21 @@ import {
 	MsgType,
 	type ProjectFileSearchResultMsg,
 } from "@shellular/protocol";
+import type { SendableMsg } from "./connection";
 import { sendRequest } from "./connection";
+import {
+	PROJECT_TREE_MESSAGE,
+	type ProjectTreeResult,
+} from "./projectTreeProtocol";
+
+export const GIT_WORKTREE_CHANGED_EVENT = "shellular:git-worktree-changed";
+
+export function notifyGitWorktreeChanged(path: string) {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(
+		new CustomEvent(GIT_WORKTREE_CHANGED_EVENT, { detail: { path } }),
+	);
+}
 
 export interface GitLogPage {
 	commits: GitCommit[];
@@ -39,6 +53,11 @@ export type {
 	GitWorkingTreeFileDiff,
 	GitWorkingTreeStatus,
 };
+
+export type GitDiffTarget =
+	| "head-to-worktree"
+	| "head-to-index"
+	| "index-to-worktree";
 
 export type GitFileStatus =
 	| "modified"
@@ -84,6 +103,12 @@ export interface ProjectFileSearchResult {
 			issues: string[];
 		};
 	};
+}
+
+export interface ProjectTreeEntry {
+	relativePath: string;
+	type: "file" | "directory";
+	gitStatus?: GitFileStatus;
 }
 
 function base64ToBytes(content: string): Uint8Array {
@@ -151,6 +176,33 @@ export async function listDir(
 		...entry,
 		gitStatus: entry.gitStatus ?? undefined,
 	}));
+}
+
+export async function loadProjectTreePage(input: {
+	path: string;
+	snapshotId?: string;
+	cursor?: number;
+	pageSize?: number;
+	refresh?: boolean;
+}): Promise<{
+	path: string;
+	snapshotId: string;
+	entries: ProjectTreeEntry[];
+	nextCursor?: number;
+}> {
+	const response = await sendRequest<ProjectTreeResult>({
+		type: PROJECT_TREE_MESSAGE,
+		data: input,
+	} as unknown as SendableMsg);
+	if (response.error) throw new Error(response.error);
+	if (!response.data) throw new Error("No project tree data received");
+	return {
+		...response.data,
+		entries: response.data.entries.map((entry) => ({
+			...entry,
+			gitStatus: entry.gitStatus ?? undefined,
+		})),
+	};
 }
 
 export async function searchProjectFiles(
@@ -295,19 +347,22 @@ export async function runGitOperation(
 		message?: string;
 		branch?: string;
 		force?: boolean;
+		diffTarget?: GitDiffTarget;
 	} = {},
 ): Promise<NonNullable<GitOperationResultMsg["data"]>> {
+	const data = {
+		path,
+		operation,
+		files: options.files,
+		file: options.file,
+		message: options.message,
+		branch: options.branch,
+		force: options.force,
+		diffTarget: options.diffTarget,
+	};
 	const res = await sendRequest<GitOperationResultMsg>({
 		type: MsgType.GIT_OPERATION,
-		data: {
-			path,
-			operation,
-			files: options.files,
-			file: options.file,
-			message: options.message,
-			branch: options.branch,
-			force: options.force,
-		},
+		data,
 	});
 	if (res.error) throw new Error(res.error);
 	if (!res.data) throw new Error("No git operation data received");
@@ -328,6 +383,7 @@ export async function writeFile(
 		},
 	});
 	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(path);
 }
 
 export async function writeFileBinary(
@@ -343,6 +399,7 @@ export async function createDir(path: string): Promise<void> {
 		data: { path },
 	});
 	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(path);
 }
 
 export async function deleteEntry(path: string): Promise<void> {
@@ -351,4 +408,17 @@ export async function deleteEntry(path: string): Promise<void> {
 		data: { path },
 	});
 	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(path);
+}
+
+export async function renameEntry(
+	oldPath: string,
+	newPath: string,
+): Promise<void> {
+	const res = await sendRequest<FsResultMsg>({
+		type: MsgType.FS_RENAME,
+		data: { oldPath, newPath },
+	});
+	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(newPath);
 }

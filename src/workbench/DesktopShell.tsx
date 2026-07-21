@@ -1,11 +1,15 @@
 import "./desktop.scss";
+import browser from "bridge/browser";
 import dialog from "bridge/dialog";
 import native, { type DesktopCommand } from "bridge/native";
-import AccountAvatarButton from "components/AccountAvatarButton";
 import LocalCliDashboard from "components/LocalCliDashboard";
+import ContextMenuHost from "context-menu/ContextMenuHost";
+import { showContextMenuForEvent } from "context-menu/service";
 import { getAgentIcon } from "lib/agents";
-import { chatTabId } from "lib/chatTabId";
+import { copyToClipboard } from "lib/clipboard";
 import { textifyEmoji } from "lib/emoji";
+import { redirectVerticalWheelToHorizontal } from "lib/horizontalWheel";
+import toast from "lib/toast";
 import {
 	useCallback,
 	useEffect,
@@ -16,34 +20,65 @@ import {
 import appLogo from "res/logo.svg";
 import { useShellular } from "state";
 import { type ChatTab, getChatTabs, subscribeChatTabs } from "state/chatTabs";
-import { getHostInfo } from "state/connection";
+import {
+	getConnectionSnapshot,
+	getHostInfo,
+	subscribeState,
+} from "state/connection";
 import { getLocalCliSnapshot, subscribeLocalCli } from "state/localCli";
-import AgentsTab from "tabs/agents";
 import HomeTab from "tabs/home";
+import useProjectPicker from "tabs/projects/useProjectPicker";
+import themes from "themes";
 import { openBrowserSurface } from "./browserSurface";
 import DesktopDialogHost from "./DesktopDialogHost";
+import DesktopGitSidebar from "./DesktopGitSidebar";
+import DesktopMenuBar, { type DesktopMenuCommand } from "./DesktopMenuBar";
+import DesktopProfileMenu from "./DesktopProfileMenu";
+import { subscribeDesktopGitFocus } from "./desktopGitNavigation";
+import {
+	canRunDomEditCommand,
+	runDomEditCommand,
+	type WorkbenchEditCommand,
+} from "./domEditCommands";
+import { useDesktopGitWorkspace } from "./gitWorkspace";
+import NewChatDialog from "./NewChatDialog";
 import { setWorkbenchOpenHandler } from "./navigation";
+import { requestNewChat, subscribeNewChat } from "./newChat";
 import ProjectSidebar from "./ProjectSidebar";
 import {
 	WorkbenchPageChromeProvider,
 	type WorkbenchPageChromeTargets,
 } from "./pageChrome";
+import {
+	ShellularFileIcon,
+	ShellularFileIconSprite,
+	TREE_ICON_THEME_STYLE,
+} from "./ShellularFileIcon";
+import SidebarResizeHandle from "./SidebarResizeHandle";
 import SurfaceRenderer from "./SurfaceRenderer";
 import {
 	activateWorkbenchSurface,
+	canExecuteWorkbenchSurfaceCommand,
 	closeWorkbenchSurface,
+	executeWorkbenchSurfaceCommand,
+	getWorkbenchCommandRevision,
 	getWorkbenchSnapshot,
 	openWorkbenchDialog,
 	openWorkbenchSurface,
 	pruneWorkbenchTerminals,
 	restoreWorkbench,
+	saveWorkbenchSurface,
 	subscribeWorkbench,
+	subscribeWorkbenchCommands,
 } from "./store";
 import { createEditorSurface, utilityMetadata } from "./surfaces";
 import type { UtilityPage, WorkbenchSurface } from "./types";
+import {
+	formatWorkbenchDocumentTitle,
+	resolveWorkbenchContextTitle,
+} from "./windowTitle";
 
-type PrimaryActivity = "home" | "remote" | "agents" | "projects";
-type Activity = PrimaryActivity | UtilityPage;
+type PrimaryActivity = "home" | "remote" | "projects" | "git";
 const SIDEBAR_WIDTH_KEY = "shellular:desktop-sidebar-width";
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 480;
@@ -60,32 +95,14 @@ const ACTIVITIES: Array<{ id: PrimaryActivity; label: string; icon: string }> =
 			label: "Remote Access",
 			icon: "icon-radio",
 		},
-		{ id: "agents", label: "Agents", icon: "icon-ai-chat" },
 		{ id: "projects", label: "Projects", icon: "icon-code" },
+		{ id: "git", label: "Source Control", icon: "icon-git-branch" },
 	];
 
-const RAIL_COMMANDS: Array<{
-	page: UtilityPage;
-	label: string;
-	icon: string;
-	footer?: boolean;
-}> = [
-	{ page: "ports", label: "Ports", icon: "icon-power-cord" },
-	{ page: "system-monitor", label: "System Monitor", icon: "icon-activity" },
-	{
-		page: "reach-out",
-		label: "Reach Out",
-		icon: "icon-message-circle",
-		footer: true,
-	},
-	{ page: "about", label: "About", icon: "icon-info", footer: true },
-	{ page: "settings", label: "Settings", icon: "icon-settings", footer: true },
-];
-
 export default function DesktopShell({
-	showBrowserTitlebar = process.env.IS_BROWSER,
+	showDesktopTitlebar = process.env.IS_DESKTOP_UI,
 }: {
-	showBrowserTitlebar?: boolean;
+	showDesktopTitlebar?: boolean;
 } = {}) {
 	const workbench = useSyncExternalStore(
 		subscribeWorkbench,
@@ -95,6 +112,10 @@ export default function DesktopShell({
 		subscribeLocalCli,
 		getLocalCliSnapshot,
 	);
+	const commandRevision = useSyncExternalStore(
+		subscribeWorkbenchCommands,
+		getWorkbenchCommandRevision,
+	);
 	const {
 		activeTerminals,
 		connectionStatus,
@@ -103,8 +124,16 @@ export default function DesktopShell({
 		terminalsRestoring,
 		terminalNames,
 		terminalProcesses,
+		agents,
+		projects,
 	} = useShellular();
-	const [activity, setActivity] = useState<Activity>("home");
+	const [activity, setActivity] = useState<PrimaryActivity>("home");
+	const [showNewChat, setShowNewChat] = useState(false);
+	const [newChatProjectPath, setNewChatProjectPath] = useState<string>();
+	const [gitFocusRequest, setGitFocusRequest] = useState<{
+		projectPath: string;
+		id: number;
+	}>();
 	const [collapsed, setCollapsed] = useState(false);
 	const [compact, setCompact] = useState(() => window.innerWidth < 900);
 	const [chromeTargets, setChromeTargets] =
@@ -117,11 +146,26 @@ export default function DesktopShell({
 		const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
 		return saved >= SIDEBAR_MIN && saved <= SIDEBAR_MAX ? saved : 300;
 	});
-	const resizingRef = useRef(false);
+	const { openProjectPicker } = useProjectPicker();
 	const observedRestoreRef = useRef(false);
 	const activeTabRef = useRef<HTMLButtonElement>(null);
+	const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+	const nativeCommandHandlerRef = useRef<(command: DesktopCommand) => void>(
+		() => {},
+	);
+	const [, setFocusRevision] = useState(0);
+	const gitWorkspace = useDesktopGitWorkspace();
 	const activeSurface = workbench.tabs.find(
 		(surface) => surface.id === workbench.activeId,
+	);
+	const activeSurfaceTitle = activeSurface
+		? surfaceTitle(activeSurface, terminalNames, terminalProcesses)
+		: undefined;
+	const contextTitle = resolveWorkbenchContextTitle(
+		activeSurface,
+		projects,
+		activeSurfaceTitle,
+		activity,
 	);
 	const setChromeTarget = useCallback(
 		(key: keyof WorkbenchPageChromeTargets, element: HTMLElement | null) => {
@@ -143,6 +187,53 @@ export default function DesktopShell({
 		(element: HTMLElement | null) => setChromeTarget("actions", element),
 		[setChromeTarget],
 	);
+
+	useEffect(() => {
+		if (!process.env.IS_MACOS) return;
+		void browser.syncConnectionContext();
+		const unsubscribeConnection = subscribeState(() => {
+			void browser.syncConnectionContext();
+		});
+		const unsubscribeTheme = themes.subscribe(() => {
+			void browser.syncTheme();
+		});
+		return () => {
+			unsubscribeConnection();
+			unsubscribeTheme();
+		};
+	}, []);
+
+	useEffect(() => {
+		const platform = process.env.IS_MACOS ? "macos" : "browser";
+		document.title = formatWorkbenchDocumentTitle(contextTitle, platform);
+		if (process.env.IS_MACOS) {
+			void native.setWindowTitle(contextTitle).catch(console.error);
+		}
+	}, [contextTitle]);
+
+	useEffect(() => {
+		const updateFocus = (event: FocusEvent) => {
+			const target = event.target;
+			if (!(target instanceof HTMLElement)) return;
+			if (target.closest(".desktop-workbench-titlebar")) return;
+			lastFocusedElementRef.current = target;
+			setFocusRevision((value) => value + 1);
+		};
+		const updateSelection = () => setFocusRevision((value) => value + 1);
+		document.addEventListener("focusin", updateFocus);
+		document.addEventListener("selectionchange", updateSelection);
+		return () => {
+			document.removeEventListener("focusin", updateFocus);
+			document.removeEventListener("selectionchange", updateSelection);
+		};
+	}, []);
+
+	useEffect(() => {
+		return subscribeNewChat(({ projectPath }) => {
+			setNewChatProjectPath(projectPath);
+			setShowNewChat(true);
+		});
+	}, []);
 
 	useEffect(() => {
 		setWorkbenchOpenHandler((surface, options) => {
@@ -200,36 +291,31 @@ export default function DesktopShell({
 		observedRestoreRef.current = false;
 	}, [activeTerminals, connectionStatus, terminalsRestoring]);
 
-	useEffect(() => {
-		const onMove = (event: PointerEvent) => {
-			if (!resizingRef.current) return;
-			const next = Math.min(
-				SIDEBAR_MAX,
-				Math.max(SIDEBAR_MIN, event.clientX - 48),
-			);
-			setWidth(next);
-		};
-		const onUp = () => {
-			if (!resizingRef.current) return;
-			resizingRef.current = false;
-			localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
-			document.body.style.cursor = "";
-		};
-		window.addEventListener("pointermove", onMove);
-		window.addEventListener("pointerup", onUp);
-		return () => {
-			window.removeEventListener("pointermove", onMove);
-			window.removeEventListener("pointerup", onUp);
-		};
-	}, [width]);
+	const showActivity = useCallback((next: PrimaryActivity) => {
+		setActivity(next);
+		setCollapsed(false);
+	}, []);
 
-	const chooseActivity = (next: Activity) => {
+	useEffect(
+		() =>
+			subscribeDesktopGitFocus((projectPath) => {
+				if (projectPath) {
+					setGitFocusRequest((current) => ({
+						projectPath,
+						id: (current?.id ?? 0) + 1,
+					}));
+				}
+				showActivity("git");
+			}),
+		[showActivity],
+	);
+
+	const chooseActivity = (next: PrimaryActivity) => {
 		if (activity === next && !collapsed) {
 			setCollapsed(true);
 			return;
 		}
-		setActivity(next);
-		setCollapsed(false);
+		showActivity(next);
 	};
 
 	const newTerminal = useCallback(async () => {
@@ -244,44 +330,6 @@ export default function DesktopShell({
 		});
 	}, [createTerminal]);
 
-	useEffect(() => {
-		if (!process.env.IS_DESKTOP_UI) return;
-		native.setDesktopCommandHandler((command: DesktopCommand) => {
-			switch (command) {
-				case "about":
-					openUtility("about");
-					break;
-				case "settings":
-					openUtility("settings");
-					break;
-				case "reach-out":
-					openUtility("reach-out");
-					break;
-				case "new-terminal":
-					void newTerminal();
-					break;
-				case "open-file":
-					void native.pickLocalFiles().then((paths) => {
-						for (const path of paths) {
-							openWorkbenchSurface(
-								createEditorSurface({
-									id: `editor:${path}`,
-									filePath: path,
-								}),
-							);
-						}
-					});
-					break;
-				case "help":
-					void openBrowserSurface(
-						"https://shellular.dev/docs",
-						"Shellular Help",
-					);
-					break;
-			}
-		});
-	}, [newTerminal]);
-
 	const closeSurface = useCallback(
 		async (surface: WorkbenchSurface) => {
 			if (surface.kind === "terminal") {
@@ -293,29 +341,220 @@ export default function DesktopShell({
 						"Close this tab and kill the terminal process?",
 						"Close Terminal",
 					);
-					if (!confirmed) return;
+					if (!confirmed) return false;
 					closeTerminal(surface.terminalId);
 				}
 			}
-			await closeWorkbenchSurface(surface.id);
+			return closeWorkbenchSurface(surface.id);
 		},
 		[activeTerminals, closeTerminal],
 	);
+	const closeSurfaces = useCallback(
+		async (surfaces: WorkbenchSurface[]) => {
+			for (const surface of surfaces) {
+				if (!(await closeSurface(surface))) return false;
+			}
+			return true;
+		},
+		[closeSurface],
+	);
+
+	const runDesktopMenuCommand = useCallback(
+		async (command: DesktopMenuCommand) => {
+			const snapshot = getWorkbenchSnapshot();
+			const editCommands: Partial<
+				Record<DesktopMenuCommand, WorkbenchEditCommand>
+			> = {
+				undo: "undo",
+				redo: "redo",
+				cut: "cut",
+				copy: "copy",
+				paste: "paste",
+				"select-all": "select-all",
+			};
+			const editCommand = editCommands[command];
+			if (editCommand) {
+				if (
+					await executeWorkbenchSurfaceCommand(snapshot.activeId, editCommand)
+				)
+					return;
+				try {
+					await runDomEditCommand(editCommand, lastFocusedElementRef.current);
+				} catch (error) {
+					console.warn(`Desktop ${command} command failed`, error);
+					toast(
+						`${command[0].toUpperCase()}${command.slice(1)} is unavailable`,
+						3000,
+					);
+				}
+				return;
+			}
+
+			switch (command) {
+				case "new-chat":
+					requestNewChat();
+					break;
+				case "new-terminal":
+					await newTerminal();
+					break;
+				case "open-folder":
+					openProjectPicker();
+					showActivity("projects");
+					break;
+				case "save":
+					await saveWorkbenchSurface(snapshot.activeId);
+					break;
+				case "close-tab": {
+					const surface = snapshot.tabs.find(
+						(candidate) => candidate.id === snapshot.activeId,
+					);
+					if (surface) await closeSurface(surface);
+					break;
+				}
+				case "toggle-sidebar":
+					setCollapsed((value) => !value);
+					break;
+				case "ports":
+					openUtility("ports");
+					break;
+				case "system-monitor":
+					openUtility("system-monitor");
+					break;
+				case "help":
+					await openBrowserSurface(
+						"https://shellular.dev/docs",
+						"Shellular Help",
+					);
+					break;
+				case "reach-out":
+					openUtility("reach-out");
+					break;
+				case "about":
+					openUtility("about");
+					break;
+				case "undo":
+				case "redo":
+				case "cut":
+				case "copy":
+				case "paste":
+				case "select-all":
+					break;
+			}
+		},
+		[closeSurface, newTerminal, openProjectPicker, showActivity],
+	);
+
+	const isDesktopMenuCommandEnabled = useCallback(
+		(command: DesktopMenuCommand) => {
+			void commandRevision;
+			const activeId = getWorkbenchSnapshot().activeId;
+			if (command === "save") {
+				return canExecuteWorkbenchSurfaceCommand(activeId, "save");
+			}
+			if (command === "close-tab") return Boolean(activeId);
+			if (
+				command === "undo" ||
+				command === "redo" ||
+				command === "cut" ||
+				command === "copy" ||
+				command === "paste" ||
+				command === "select-all"
+			) {
+				return (
+					canExecuteWorkbenchSurfaceCommand(activeId, command) ||
+					canRunDomEditCommand(command, lastFocusedElementRef.current)
+				);
+			}
+			return true;
+		},
+		[commandRevision],
+	);
+	const persistSidebarWidth = useCallback((nextWidth: number) => {
+		localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
+	}, []);
+
+	nativeCommandHandlerRef.current = (command) => {
+		if (command === "settings") {
+			openUtility("settings");
+			return;
+		}
+		if (command === "open-file") {
+			if (getConnectionSnapshot().transport !== "local") {
+				void dialog.message(
+					"Open File uses the connected remote file browser on remote hosts.",
+					"Remote Workspace",
+				);
+				return;
+			}
+			void native.pickLocalFiles(getHostInfo()?.dir).then((paths) => {
+				for (const path of paths) {
+					openWorkbenchSurface(
+						createEditorSurface({
+							id: `editor:${path}`,
+							filePath: path,
+						}),
+					);
+				}
+			});
+			return;
+		}
+		void runDesktopMenuCommand(command);
+	};
+
+	useEffect(() => {
+		if (!process.env.IS_DESKTOP_UI) return;
+		return native.setDesktopCommandHandler((command) =>
+			nativeCommandHandlerRef.current(command),
+		);
+	}, []);
+
+	useEffect(() => {
+		if (!process.env.IS_BROWSER) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+			const key = event.key.toLowerCase();
+			if (key === "s") {
+				event.preventDefault();
+				void runDesktopMenuCommand("save");
+			} else if (key === "b") {
+				event.preventDefault();
+				void runDesktopMenuCommand("toggle-sidebar");
+			} else if (key === "w" && getWorkbenchSnapshot().activeId) {
+				event.preventDefault();
+				void runDesktopMenuCommand("close-tab");
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [runDesktopMenuCommand]);
 
 	return (
-		<div className="desktop-frame">
-			{showBrowserTitlebar && (
-				<header className="browser-workbench-titlebar">
-					<div className="browser-workbench-brand">
-						<img className="browser-workbench-logo" src={appLogo} alt="" />
-						<span>Shellular</span>
+		<div className="desktop-frame" style={TREE_ICON_THEME_STYLE}>
+			<ShellularFileIconSprite />
+			{showDesktopTitlebar && (
+				<header
+					className={`desktop-workbench-titlebar ${process.env.IS_MACOS ? "is-macos" : "is-browser"}`}
+				>
+					<div className="desktop-workbench-titlebar-start">
+						{!process.env.IS_MACOS && (
+							<>
+								<div className="browser-workbench-brand">
+									<img
+										className="browser-workbench-logo"
+										src={appLogo}
+										alt=""
+									/>
+									<span>Shellular</span>
+								</div>
+								<DesktopMenuBar
+									onCommand={runDesktopMenuCommand}
+									isCommandEnabled={isDesktopMenuCommandEnabled}
+								/>
+							</>
+						)}
 					</div>
-					<div className="browser-workbench-title">
-						<span>
-							{activeSurface
-								? surfaceTitle(activeSurface, terminalNames, terminalProcesses)
-								: "Workbench"}
-						</span>
+					<div className="desktop-workbench-context" title={contextTitle}>
+						<span>{contextTitle}</span>
 					</div>
 					<div aria-hidden="true" />
 				</header>
@@ -332,32 +571,21 @@ export default function DesktopShell({
 								item={item}
 								active={activity === item.id && !collapsed}
 								onClick={() => chooseActivity(item.id)}
+								badge={
+									item.id === "git" ? gitWorkspace.totalChanges : undefined
+								}
 							/>
 						))}
-						{RAIL_COMMANDS.filter((item) => !item.footer).map((item) => (
+						{process.env.IS_MACOS && (
 							<CommandButton
-								key={item.page}
-								label={item.label}
-								icon={item.icon}
-								active={activity === item.page && !collapsed}
-								onClick={() => chooseActivity(item.page)}
+								label="Browser"
+								icon="icon-globe"
+								onClick={() => void browser.open()}
 							/>
-						))}
+						)}
 					</div>
 					<div className="workbench-activity-footer">
-						{RAIL_COMMANDS.filter((item) => item.footer).map((item) => (
-							<CommandButton
-								key={item.page}
-								label={item.label}
-								icon={item.icon}
-								active={activity === item.page && !collapsed}
-								onClick={() => chooseActivity(item.page)}
-							/>
-						))}
-						<AccountAvatarButton
-							className="workbench-account-avatar"
-							onClick={() => chooseActivity("account")}
-						/>
+						<DesktopProfileMenu onOpen={(page) => openUtility(page)} />
 					</div>
 				</nav>
 
@@ -369,22 +597,24 @@ export default function DesktopShell({
 						<div className="workbench-sidebar-content">
 							{activity === "remote" && <LocalCliDashboard />}
 							{activity === "home" && <HomeTab showAccount={false} />}
-							{activity === "agents" && <AgentsTab compact />}
 							{activity === "projects" && <ProjectSidebar />}
-							{isUtilityActivity(activity) && (
-								<SidebarUtilityPage page={activity} />
+							{activity === "git" && (
+								<DesktopGitSidebar
+									workspace={gitWorkspace}
+									focusRequest={gitFocusRequest}
+								/>
 							)}
 						</div>
-						{!compact && (
-							<div
-								className="workbench-sidebar-resizer"
-								onPointerDown={() => {
-									resizingRef.current = true;
-									document.body.style.cursor = "col-resize";
-								}}
-							/>
-						)}
 					</aside>
+				)}
+				{!collapsed && !compact && (
+					<SidebarResizeHandle
+						value={width}
+						min={SIDEBAR_MIN}
+						max={SIDEBAR_MAX}
+						onResize={setWidth}
+						onResizeEnd={persistSidebarWidth}
+					/>
 				)}
 				{compact && !collapsed && (
 					<button
@@ -402,20 +632,58 @@ export default function DesktopShell({
 							role="tablist"
 							aria-label="Open views"
 							onWheel={(event) => {
-								if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-								if (
-									event.currentTarget.scrollWidth <=
-									event.currentTarget.clientWidth
-								)
-									return;
-								event.currentTarget.scrollLeft += event.deltaY;
-								event.preventDefault();
+								redirectVerticalWheelToHorizontal(event);
 							}}
 						>
 							{workbench.tabs.map((surface) => (
 								<div
 									key={surface.id}
-									className={`workbench-tab${workbench.activeId === surface.id ? " active" : ""}`}
+									className={`workbench-tab${workbench.activeId === surface.id ? " active" : ""}${surface.dirty ? " is-dirty" : ""}`}
+									onContextMenu={(event) => {
+										const index = workbench.tabs.findIndex(
+											(candidate) => candidate.id === surface.id,
+										);
+										const path =
+											surface.kind === "editor" ? surface.filePath : null;
+										void showContextMenuForEvent(event, {
+											menuId: "workbench-tab",
+											target: {
+												handlers: {
+													"tab.close": { run: () => closeSurface(surface) },
+													"tab.closeOthers": {
+														run: () =>
+															closeSurfaces(
+																workbench.tabs.filter(
+																	(candidate) => candidate.id !== surface.id,
+																),
+															),
+														enabled: workbench.tabs.length > 1,
+													},
+													"tab.closeRight": {
+														run: () =>
+															closeSurfaces(workbench.tabs.slice(index + 1)),
+														enabled:
+															index >= 0 && index < workbench.tabs.length - 1,
+													},
+													"tab.closeAll": {
+														run: () => closeSurfaces([...workbench.tabs]),
+														enabled: workbench.tabs.length > 0,
+													},
+													"resource.copyPath": {
+														run: () => path && copyToClipboard({ text: path }),
+														visible: Boolean(path),
+													},
+													"resource.reveal": {
+														run: () => path && native.revealLocalPath(path),
+														visible: Boolean(
+															path &&
+																getConnectionSnapshot().transport === "local",
+														),
+													},
+												},
+											},
+										});
+									}}
 								>
 									<button
 										ref={
@@ -428,19 +696,41 @@ export default function DesktopShell({
 										aria-selected={workbench.activeId === surface.id}
 										onClick={() => activateWorkbenchSurface(surface.id)}
 									>
-										<span className={surface.icon} />
+										{surface.kind === "editor" ? (
+											<ShellularFileIcon
+												path={surface.filePath}
+												className="workbench-file-icon size-4 shrink-0"
+											/>
+										) : (
+											<span className={surface.icon} />
+										)}
 										<span>
 											{surfaceTitle(surface, terminalNames, terminalProcesses)}
 										</span>
 									</button>
-									<button
-										type="button"
-										className="workbench-tab-close"
-										aria-label={`Close ${surface.title}`}
-										onClick={() => closeSurface(surface)}
-									>
-										<span className="icon-x" />
-									</button>
+									{workbench.activeId === surface.id ? (
+										<button
+											type="button"
+											className="workbench-tab-close"
+											aria-label={`Close ${surface.title}`}
+											onClick={() => closeSurface(surface)}
+										>
+											{surface.dirty ? (
+												<>
+													<span className="workbench-tab-dirty-icon icon-circle" />
+													<span className="workbench-tab-dirty-close icon-x" />
+												</>
+											) : (
+												<span className="icon-x" />
+											)}
+										</button>
+									) : surface.dirty ? (
+										<span
+											className="workbench-tab-dirty-indicator icon-circle"
+											role="img"
+											aria-label={`${surface.title} has unsaved changes`}
+										/>
+									) : null}
 								</div>
 							))}
 						</div>
@@ -456,21 +746,16 @@ export default function DesktopShell({
 							className="workbench-page-actions-target"
 							ref={setChromeActionsTarget}
 						/>
-						<button
-							type="button"
-							className="workbench-new-terminal"
-							onClick={newTerminal}
-							aria-label="New terminal"
-							title="New terminal"
-						>
-							<span className="icon-plus" />
-						</button>
 					</div>
 					<div className="workbench-editor-area">
 						{workbench.tabs.length === 0 && (
 							<WorkbenchWelcome
 								onNewTerminal={newTerminal}
-								onOpenProjects={() => chooseActivity("projects")}
+								onNewChat={() => requestNewChat()}
+								onOpenProject={() => {
+									openProjectPicker();
+									showActivity("projects");
+								}}
 							/>
 						)}
 						{workbench.tabs.map((surface) => (
@@ -494,6 +779,20 @@ export default function DesktopShell({
 					</div>
 				</main>
 				<DesktopDialogHost surface={workbench.dialog} />
+				<ContextMenuHost />
+				{showNewChat && (
+					<NewChatDialog
+						hostId={getHostInfo()?.id ?? "local"}
+						projects={projects}
+						agents={Object.values(agents).filter((agent) => agent.available)}
+						initialProjectPath={newChatProjectPath}
+						onOpenFolder={openProjectPicker}
+						onClose={() => {
+							setShowNewChat(false);
+							setNewChatProjectPath(undefined);
+						}}
+					/>
+				)}
 			</div>
 		</div>
 	);
@@ -527,10 +826,12 @@ function ActivityButton({
 	item,
 	active,
 	onClick,
+	badge,
 }: {
 	item: { id: PrimaryActivity; label: string; icon: string };
 	active: boolean;
 	onClick: () => void;
+	badge?: number;
 }) {
 	return (
 		<button
@@ -539,39 +840,33 @@ function ActivityButton({
 			onClick={onClick}
 			aria-label={item.label}
 			title={item.label}
+			aria-description={
+				badge ? `${badge} changed ${badge === 1 ? "file" : "files"}` : undefined
+			}
 		>
 			<span className={item.icon} />
+			{badge ? (
+				<span
+					className="absolute bottom-1 right-1 grid min-w-4 place-items-center rounded-full bg-button-background px-1 text-[9px] font-bold leading-4 text-button-text"
+					aria-hidden="true"
+				>
+					{badge > 99 ? "99+" : badge}
+				</span>
+			) : null}
 		</button>
 	);
 }
 
-function SidebarUtilityPage({ page }: { page: UtilityPage }) {
-	return (
-		<div className="workbench-sidebar-utility">
-			<SurfaceRenderer
-				surface={{
-					kind: "utility",
-					id: `sidebar:${page}`,
-					page,
-					...utilityMetadata[page],
-				}}
-			/>
-		</div>
-	);
-}
-
-function isUtilityActivity(activity: Activity): activity is UtilityPage {
-	return activity in utilityMetadata;
-}
-
 function WorkbenchWelcome({
 	onNewTerminal,
-	onOpenProjects,
+	onNewChat,
+	onOpenProject,
 }: {
 	onNewTerminal: () => void;
-	onOpenProjects: () => void;
+	onNewChat: () => void;
+	onOpenProject: () => void;
 }) {
-	const { agents, projects } = useShellular();
+	const { projects } = useShellular();
 	const [recent, setRecent] = useState<
 		Array<ChatTab & { projectPath: string }>
 	>([]);
@@ -592,8 +887,6 @@ function WorkbenchWelcome({
 		refresh();
 		return subscribeChatTabs(refresh);
 	}, [projects]);
-	const firstAgent = Object.values(agents).find((agent) => agent.available);
-	const firstProject = projects[0];
 	const openRecent = (tab: ChatTab & { projectPath: string }) => {
 		openWorkbenchSurface({
 			kind: "chat",
@@ -616,27 +909,11 @@ function WorkbenchWelcome({
 					<span className="icon-terminal" />
 					New Terminal
 				</button>
-				<button
-					type="button"
-					onClick={() => {
-						if (!firstAgent || !firstProject) return onOpenProjects();
-						const id = chatTabId(firstAgent.id, "");
-						openWorkbenchSurface({
-							kind: "chat",
-							id,
-							title: "New Chat",
-							icon: getAgentIcon(firstAgent.id),
-							agentId: firstAgent.id,
-							sessionId: "",
-							workspacePath: firstProject.path,
-							createOnFirstMessage: true,
-						});
-					}}
-				>
+				<button type="button" onClick={onNewChat}>
 					<span className="icon-ai-chat" />
 					New Chat
 				</button>
-				<button type="button" onClick={onOpenProjects}>
+				<button type="button" onClick={onOpenProject}>
 					<span className="icon-folder" />
 					Open Project
 				</button>

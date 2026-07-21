@@ -3,10 +3,10 @@ import { pushPage } from "App";
 import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import TabPageHeader from "components/TabPageHeader";
-import BookmarkSessionsPage from "pages/bookmark-sessions";
 import type { ReactElement } from "react";
 import { useShellular } from "state";
 import { useBookmarkedSessions } from "state/bookmarkSessions";
+import { tryOpenUtilitySurface } from "workbench/openers";
 import AgentTile from "./AgentTile";
 
 export default function AgentsTab({ compact = false }: { compact?: boolean }) {
@@ -26,9 +26,29 @@ export default function AgentsTab({ compact = false }: { compact?: boolean }) {
 		);
 	}
 
-	const openBookmarked = () =>
-		pushPage("bookmarked-sessions", <BookmarkSessionsPage />);
+	const openBookmarked = async () => {
+		if (
+			tryOpenUtilitySurface(
+				"bookmarked-sessions",
+				"Bookmarked Chats",
+				"icon-bookmark",
+				true,
+			)
+		)
+			return;
+		const BookmarkSessionsPage = await import("pages/bookmark-sessions");
+		pushPage("bookmarked-sessions", <BookmarkSessionsPage.default />);
+	};
 	const openManageAgents = async () => {
+		if (
+			tryOpenUtilitySurface(
+				"manage-agents",
+				"Manage Agents",
+				"icon-sliders",
+				true,
+			)
+		)
+			return;
 		const ManageAgentsPage = await import("pages/manage-agents");
 		pushPage("manage-agents", <ManageAgentsPage.default />);
 	};

@@ -2,7 +2,6 @@ import { pushPage, toToTab } from "App";
 import AgentIcon from "components/AgentIcon";
 import AppMenu from "components/AppMenu";
 import { getAgentIcon, getInstallationOptions } from "lib/agents";
-import ChatSessionsPage from "pages/sessions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcpAgentInfo } from "state/acp";
 import { getHostInfo } from "state/connection";
@@ -125,7 +124,7 @@ export default function AgentTile({ agent }: AgentTileProps) {
 			<button
 				type="button"
 				className="agent-tile haptic-trigger"
-				onClick={() => {
+				onClick={async () => {
 					if (!agent.id) return;
 					if (
 						openInWorkbench({
@@ -137,9 +136,10 @@ export default function AgentTile({ agent }: AgentTileProps) {
 						})
 					)
 						return;
+					const ChatSessionsPage = await import("pages/sessions");
 					pushPage(
 						`agent-${agent.id}`,
-						<ChatSessionsPage backend={agent.id} agent={agent} />,
+						<ChatSessionsPage.default backend={agent.id} agent={agent} />,
 					);
 				}}
 			>

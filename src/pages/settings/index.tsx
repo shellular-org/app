@@ -1,6 +1,7 @@
 import { ONBOARDING_KEY } from "App";
 import AppSelect from "components/AppSelect";
 import Page from "components/Page";
+import { redirectVerticalWheelToHorizontal } from "lib/horizontalWheel";
 import {
 	DEFAULT_EDITOR_SETTINGS,
 	DEFAULT_SERVER_SETTINGS,
@@ -239,6 +240,12 @@ export default function SettingsPage() {
 	const [editorTabSize, setEditorTabSize] = useState(
 		DEFAULT_EDITOR_SETTINGS.tabSize,
 	);
+	const [editorMinimap, setEditorMinimap] = useState(
+		DEFAULT_EDITOR_SETTINGS.minimap,
+	);
+	const [editorStickyScroll, setEditorStickyScroll] = useState(
+		DEFAULT_EDITOR_SETTINGS.stickyScroll,
+	);
 
 	const [terminalFontSize, setTerminalFontSize] = useState(
 		DEFAULT_TERMINAL_SETTINGS.fontSize,
@@ -286,6 +293,8 @@ export default function SettingsPage() {
 			setEditorWordWrap(s.editor.wordWrap);
 			setEditorLineNumbers(s.editor.lineNumbers);
 			setEditorTabSize(s.editor.tabSize);
+			setEditorMinimap(s.editor.minimap);
+			setEditorStickyScroll(s.editor.stickyScroll);
 			setTerminalFontSize(s.terminal.fontSize);
 			setTerminalFontFamily(s.terminal.fontFamily);
 			setTerminalCursorStyle(s.terminal.cursorStyle);
@@ -344,6 +353,16 @@ export default function SettingsPage() {
 	async function handleEditorTabSizeChange(value: number) {
 		setEditorTabSize(value);
 		await persistSettings({ editor: { tabSize: value } });
+	}
+
+	async function handleEditorMinimapChange(value: boolean) {
+		setEditorMinimap(value);
+		await persistSettings({ editor: { minimap: value } });
+	}
+
+	async function handleEditorStickyScrollChange(value: boolean) {
+		setEditorStickyScroll(value);
+		await persistSettings({ editor: { stickyScroll: value } });
 	}
 
 	async function handleTerminalFontSizeChange(value: number) {
@@ -463,6 +482,14 @@ export default function SettingsPage() {
 			title: "Tab Size",
 			description: "Controls how many columns a tab occupies.",
 		},
+		{
+			title: "Minimap",
+			description: "Shows a compact overview of the file on desktop.",
+		},
+		{
+			title: "Sticky Scroll",
+			description: "Keeps the current scope visible while scrolling.",
+		},
 	]);
 	const showTerminalSettings = matchesSettingsSearch(searchQuery, [
 		{
@@ -535,7 +562,10 @@ export default function SettingsPage() {
 					</div>
 
 					{/* Categories */}
-					<div className="flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto p-3 gap-1 custom-scroll">
+					<div
+						className="flex flex-row gap-1 overflow-x-auto p-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-col md:overflow-y-auto"
+						onWheel={(event) => redirectVerticalWheelToHorizontal(event)}
+					>
 						{sidebarCategories.map((category) => (
 							<button
 								key={category.id}
@@ -659,6 +689,26 @@ export default function SettingsPage() {
 												onChange={handleEditorTabSizeChange}
 												min={1}
 												max={8}
+											/>
+										}
+									/>
+									<SettingsItem
+										title="Minimap"
+										description="Shows a compact overview of the file on desktop."
+										control={
+											<Switch
+												checked={editorMinimap}
+												onChange={handleEditorMinimapChange}
+											/>
+										}
+									/>
+									<SettingsItem
+										title="Sticky Scroll"
+										description="Keeps the current scope visible while scrolling."
+										control={
+											<Switch
+												checked={editorStickyScroll}
+												onChange={handleEditorStickyScrollChange}
 											/>
 										}
 									/>

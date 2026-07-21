@@ -28,7 +28,7 @@ final class Bridge: NSObject, WKScriptMessageHandler {
     private var services: [String: ServiceProtocol] = [:]
     func setup(webView: WKWebView, viewController: WebViewController) {
         self.webView = webView; self.viewController = viewController
-        services = ["Native":NativeService(bridge:self), "FileHandler":FileHandlerService(bridge:self), "Device":DeviceService(bridge:self), "Dialog":DialogService(bridge:self), "Encryption":EncryptionService(bridge:self), "Notification":NotificationService.sharedInstance(bridge:self), "SecureStore":SecureStoreService(bridge:self), "Scanner":ScannerService(bridge:self), "Browser":BrowserService(bridge:self), "EmbeddedProxy":EmbeddedProxyService(bridge:self), "SocketService":SocketService(bridge:self), "LocalCLI":LocalCLIService(bridge:self)]
+        services = ["Native":NativeService(bridge:self), "ContextMenu":ContextMenuService(bridge:self), "FileHandler":FileHandlerService(bridge:self), "Device":DeviceService(bridge:self), "Dialog":DialogService(bridge:self), "Encryption":EncryptionService(bridge:self), "Notification":NotificationService.sharedInstance(bridge:self), "SecureStore":SecureStoreService(bridge:self), "Scanner":ScannerService(bridge:self), "Browser":BrowserService(bridge:self), "EmbeddedProxy":EmbeddedProxyService(bridge:self), "SocketService":SocketService(bridge:self), "LocalCLI":LocalCLIService(bridge:self)]
     }
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.frameInfo.isMainFrame, isTrusted(origin: message.frameInfo.securityOrigin) else {

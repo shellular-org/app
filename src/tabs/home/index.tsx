@@ -8,6 +8,7 @@ import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
 import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
+import SemanticStatusIcon from "components/SemanticStatusIcon";
 import { AnimatePresence, motion } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
@@ -37,6 +38,7 @@ import {
 import { tryOpenChatSurface, tryOpenUtilitySurface } from "workbench/openers";
 import ConnectionInfo from "./ConnectionInfo";
 import SavedHostItem from "./SavedHostItem";
+import { getSessionStatusPresentation } from "./sessionStatusPresentation";
 
 export default function HomeTab({
 	showAccount = true,
@@ -123,27 +125,36 @@ export default function HomeTab({
 
 	return (
 		<div className="home-tab">
-			<div className="home-hero">
-				<div className="home-hero-brand">
-					<span className="icon-shellular" aria-hidden="true" />
-					<h1>Shellular</h1>
-					<span className="home-hero-beta-badge">Beta</span>
+			{!process.env.IS_DESKTOP_UI && (
+				<div className="home-hero">
+					<div className="home-hero-brand">
+						<span className="icon-shellular" aria-hidden="true" />
+						<h1>Shellular</h1>
+						<span className="home-hero-beta-badge">Beta</span>
+					</div>
+					{showAccount && <AccountAvatarButton onClick={openAccountPage} />}
 				</div>
-				{showAccount && <AccountAvatarButton onClick={openAccountPage} />}
-			</div>
+			)}
 
 			<div className={clsx("px-4", { hidden: isOnline })}>
 				<OfflineBanner onChange={setIsOnline} />
 			</div>
-			{isOnline &&
-				hostInfo &&
-				(isLocalConnection ? (
-					<LocalConnectionInfo onDisconnect={disconnect} />
-				) : (
-					<ConnectionInfo hostInfo={hostInfo} />
-				))}
+			{isOnline && hostInfo && (
+				<div
+					className={clsx(
+						process.env.IS_DESKTOP_UI &&
+							"pt-[var(--workbench-sidebar-gutter,18px)]",
+					)}
+				>
+					{isLocalConnection ? (
+						<LocalConnectionInfo onDisconnect={disconnect} />
+					) : (
+						<ConnectionInfo hostInfo={hostInfo} />
+					)}
+				</div>
+			)}
 			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
-				<div className="px-[18px] pt-0.5 pb-[18px]">
+				<div className="px-[var(--workbench-sidebar-gutter,18px)] pt-0.5 pb-[var(--workbench-sidebar-gutter,18px)]">
 					<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
 						Active Sessions
 					</h2>
@@ -151,6 +162,7 @@ export default function HomeTab({
 						{visibleActiveSessions.map((session) => {
 							const agent = agents[session.agentId];
 							const dismissible = isDismissible(session);
+							const status = getSessionStatusPresentation(session.status);
 							return (
 								<li
 									key={`${session.agentId}:${session.sessionId}`}
@@ -158,7 +170,7 @@ export default function HomeTab({
 								>
 									<button
 										type="button"
-										className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-0 text-left"
+										className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-1 text-left"
 										onClick={() => openSession(session, agent)}
 									>
 										<span
@@ -178,41 +190,51 @@ export default function HomeTab({
 													.join(" · ")}
 											</span>
 										</span>
-										<span
-											className={clsx(
-												"ml-2 shrink-0 truncate text-[11px] font-bold",
-												statusColor(session.status),
-												!dismissible && "pr-3.5",
-											)}
-										>
-											{statusLabel(session)}
-										</span>
 									</button>
-									{dismissible && (
-										<AppMenu
-											ariaLabel="Session options"
-											buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
-											placement="bottom end"
-											items={[
-												{
-													key: "copy-id",
-													icon: "icon-copy",
-													label: "Copy Session ID",
-													onClick: () => copySessionId(session.sessionId),
-												},
-												{
-													key: "dismiss",
-													icon: "icon-eye-off",
-													label: "Dismiss",
-													onClick: () =>
-														dismissSessionActivity(
-															session.agentId,
-															session.sessionId,
-														),
-												},
-											]}
+									<div
+										className={clsx(
+											"flex shrink-0 items-center gap-1",
+											dismissible ? "pr-1.5" : "pr-3",
+										)}
+									>
+										<SemanticStatusIcon
+											icon={status.icon}
+											label={status.label}
+											tone={status.tone}
+											animated={status.animated}
+											className="pointer-events-none"
 										/>
-									)}
+										{dismissible && (
+											<AppMenu
+												ariaLabel="Session options"
+												buttonClassName="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md bg-surface-soft text-secondary-text hover:bg-surface-strong hover:text-primary-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent"
+												placement="bottom end"
+												items={[
+													{
+														key: "copy-id",
+														icon: "icon-copy",
+														label: "Copy Session ID",
+														onClick: () => copySessionId(session.sessionId),
+													},
+													{
+														key: "dismiss",
+														icon: "icon-eye-off",
+														label: "Dismiss",
+														onClick: () =>
+															dismissSessionActivity(
+																session.agentId,
+																session.sessionId,
+															),
+													},
+												]}
+											>
+												<span
+													className="icon-more-horizontal text-[14px] leading-none"
+													aria-hidden="true"
+												/>
+											</AppMenu>
+										)}
+									</div>
 								</li>
 							);
 						})}
@@ -421,43 +443,6 @@ function isDismissible(session: SessionActivity): boolean {
 			return false;
 		default:
 			return true;
-	}
-}
-
-function statusColor(status: SessionActivity["status"]): string {
-	switch (status) {
-		case "starting":
-		case "running":
-			return "text-info";
-		case "waiting_for_permission":
-			return "text-warning";
-		case "error":
-			return "text-danger";
-		case "finished":
-			return "text-success";
-		default:
-			return "text-secondary-text opacity-70";
-	}
-}
-
-function statusLabel(session: SessionActivity) {
-	switch (session.status) {
-		case "starting":
-			return "Starting";
-		case "running":
-			return "Working";
-		case "waiting_for_permission":
-			return "Permission";
-		case "stopping":
-			return "Stopping";
-		case "stopped":
-			return "Stopped";
-		case "cancelled":
-			return "Cancelled";
-		case "error":
-			return "Error";
-		default:
-			return "Finished";
 	}
 }
 

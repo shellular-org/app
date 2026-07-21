@@ -1,7 +1,10 @@
 import dialog from "bridge/dialog";
 import file from "bridge/file";
 import native from "bridge/native";
-import AppMenu from "components/AppMenu";
+import AppMenu, {
+	type AppMenuItem,
+	showAppMenuItems,
+} from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import { getFileIcon } from "lib/fileIcon";
 import { joinRemotePath } from "lib/remotePath";
@@ -63,6 +66,58 @@ export default function FileList({
 			? entry.name
 			: joinRemotePath(currentPath, entry.name ?? "");
 	};
+	const fileMenuItems = (entry: FileEntry): AppMenuItem[] => [
+		{
+			icon: "icon-trash",
+			label: "Delete",
+			onClick: async () => {
+				const serverPath = resolvePath(entry);
+				const confirmed = await dialog.confirm(
+					`Delete "${entry.name}"? This cannot be undone.`,
+					"Delete File",
+				);
+				if (!confirmed) return;
+				await deleteEntry(serverPath);
+				onRefresh?.();
+			},
+			danger: true,
+		},
+		{
+			icon: "icon-download",
+			label: "Download",
+			onClick: async () => {
+				try {
+					const serverPath = resolvePath(entry);
+					const bytes = await readFileBytes(serverPath);
+					const localPath = `__share__/download/${entry.name}`;
+					await file.writeBinary(localPath, bytes);
+					await file.saveToDevice(localPath, entry.name);
+					toast(`Downloaded to ${localPath}`);
+				} catch (error) {
+					console.error(error);
+					toast("Failed to download");
+				}
+			},
+		},
+		{
+			icon: "icon-share",
+			label: "Share",
+			onClick: async () => {
+				try {
+					const serverPath = resolvePath(entry);
+					const bytes = await readFileBytes(serverPath);
+					const localPath = `__share__/share/${entry.name}`;
+					await file.writeBinary(localPath, bytes);
+					const resolved = await file.resolve(localPath);
+					await native.shareFile(resolved, entry.name);
+					toast("Shared successfully");
+				} catch (error) {
+					toast("Failed to share");
+					console.error(error);
+				}
+			},
+		},
+	];
 
 	if (!entries.length) {
 		return <EmptyState message="Empty directory" mascot="idle" />;
@@ -76,6 +131,26 @@ export default function FileList({
 					data-active={activeItem === entry.name || undefined}
 					data-git-status={entry.gitStatus ?? undefined}
 					className="file-item"
+					onContextMenu={(event) => {
+						if (
+							!process.env.IS_DESKTOP_UI ||
+							mode === "picker" ||
+							entry.type !== "file"
+						) {
+							return;
+						}
+						event.preventDefault();
+						event.stopPropagation();
+						setActiveItem(entry.name);
+						void showAppMenuItems(
+							fileMenuItems(entry),
+							{ kind: "point", x: event.clientX, y: event.clientY },
+							event.currentTarget,
+							"context",
+						).finally(() => {
+							if (activeItemRef.current === entry.name) setActiveItem(null);
+						});
+					}}
 				>
 					<button
 						className="file-item-info"
@@ -109,58 +184,7 @@ export default function FileList({
 									setActiveItem(null);
 								}
 							}}
-							items={[
-								{
-									icon: "icon-trash",
-									label: "Delete",
-									onClick: async () => {
-										const serverPath = resolvePath(entry);
-										const confirmed = await dialog.confirm(
-											`Delete "${entry.name}"? This cannot be undone.`,
-											"Delete File",
-										);
-										if (!confirmed) return;
-										await deleteEntry(serverPath);
-										onRefresh?.();
-									},
-									danger: true,
-								},
-								{
-									icon: "icon-download",
-									label: "Download",
-									onClick: async () => {
-										try {
-											const serverPath = resolvePath(entry);
-											const bytes = await readFileBytes(serverPath);
-											const localPath = `__share__/download/${entry.name}`;
-											await file.writeBinary(localPath, bytes);
-											await file.saveToDevice(localPath, entry.name);
-											toast(`Downloaded to ${localPath}`);
-										} catch (error) {
-											console.error(error);
-											toast("Failed to download");
-										}
-									},
-								},
-								{
-									icon: "icon-share",
-									label: "Share",
-									onClick: async () => {
-										try {
-											const serverPath = resolvePath(entry);
-											const bytes = await readFileBytes(serverPath);
-											const localPath = `__share__/share/${entry.name}`;
-											await file.writeBinary(localPath, bytes);
-											const resolved = await file.resolve(localPath);
-											await native.shareFile(resolved, entry.name);
-											toast("Shared successfully");
-										} catch (error) {
-											toast("Failed to share");
-											console.error(error);
-										}
-									},
-								},
-							]}
+							items={fileMenuItems(entry)}
 							ariaLabel="File option"
 						/>
 					)}

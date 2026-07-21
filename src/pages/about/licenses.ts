@@ -58,6 +58,16 @@ const licenses: LicenseGroup[] = [
 		icon: "icon-file-text",
 		entries: [
 			{
+				name: "Monaco Editor",
+				license: "MIT",
+				url: "https://github.com/microsoft/monaco-editor",
+			},
+			{
+				name: "Monaco Editor Webpack Plugin",
+				license: "MIT",
+				url: "https://github.com/microsoft/monaco-editor/tree/main/webpack-plugin",
+			},
+			{
 				name: "CodeMirror",
 				license: "MIT",
 				url: "https://github.com/codemirror/dev",

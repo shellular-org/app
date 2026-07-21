@@ -2,6 +2,10 @@
   > .page-content {
     padding-bottom: calc(var(--chat-input-offset, 180px) + var(--keyboard-height, 0px)) !important;
     overflow-y: scroll;
+
+	@include desktop-ui {
+		overflow-y: auto;
+	}
   }
 
   // Tighten the back → agent-icon → title spacing so the three read as one

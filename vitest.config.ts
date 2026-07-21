@@ -12,6 +12,7 @@ export default defineConfig({
 			bridge: resolve(srcDir, "bridge"),
 			classes: resolve(srcDir, "classes"),
 			components: resolve(srcDir, "components"),
+			"context-menu": resolve(srcDir, "context-menu"),
 			lang: resolve(srcDir, "lang"),
 			lib: resolve(srcDir, "lib"),
 			listeners: resolve(srcDir, "listeners"),
@@ -22,6 +23,7 @@ export default defineConfig({
 			state: resolve(srcDir, "state"),
 			tabs: resolve(srcDir, "tabs"),
 			themes: resolve(srcDir, "themes"),
+			workbench: resolve(srcDir, "workbench"),
 		},
 	},
 	test: {

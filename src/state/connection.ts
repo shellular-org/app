@@ -26,6 +26,7 @@ import {
 import { getBaseServerUrl } from "lib/settings";
 import * as store from "lib/store";
 import { nanoid } from "nanoid";
+import { parseProjectTreeResult } from "./projectTreeProtocol";
 
 type OutgoingMsg = ClientToHostMsg | ClientToServerMsg;
 export type SendableMsg = {
@@ -143,7 +144,7 @@ const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 20_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
 
-class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
+class MessageEvent<TMsg = ClientIncomingMsg> extends Event {
 	readonly msg: TMsg;
 
 	constructor(type: string, msg: TMsg) {
@@ -214,7 +215,10 @@ export class Connection extends EventTarget {
 			}
 		}
 
-		const parsed = parseMessage(msgRaw, ClientIncomingMsgSchema);
+		const extensionMessage = parseProjectTreeResult(msgRaw);
+		const parsed = extensionMessage
+			? { data: extensionMessage, error: null }
+			: parseMessage(msgRaw, ClientIncomingMsgSchema);
 		if (!parsed.data) {
 			console.error("Received invalid message:", {
 				error: parsed.error,

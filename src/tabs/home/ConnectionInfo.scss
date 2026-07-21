@@ -1,5 +1,5 @@
 .connection-info {
-  margin: 0 18px 20px;
+  margin: 0 var(--workbench-sidebar-gutter, 18px) var(--workbench-sidebar-gutter, 18px);
   background: var(--popup-background);
   border-radius: 18px;
   padding: 18px;

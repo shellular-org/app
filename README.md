@@ -5,7 +5,7 @@ Use your dev machine from your phone. Connect to your Mac, PC, or VPS and ship f
 ## Features
 
 - **Remote terminal** — xterm.js-based shell access over WebSocket
-- **File browser & editor** — browse, edit, and diff files with CodeMirror 6
+- **File browser & editor** — browse, edit, and diff files with Monaco on desktop and CodeMirror 6 on mobile
 - **Project management** — Git integration for your remote projects
 - **AI agents** — chat and task execution via ACP
 - **System monitoring** — CPU, memory, and battery dashboards
@@ -87,7 +87,7 @@ That's it — no Xcode setup needed; the project is already wired to read this f
 
 ## Tech Stack
 
-React 19 / TypeScript / Webpack 5 / Tailwind CSS 4 / xterm.js 6 / CodeMirror 6 / Chart.js / Framer Motion / libsodium / Bio
+React 19 / TypeScript / Webpack 5 / Tailwind CSS 4 / xterm.js 6 / Monaco Editor / CodeMirror 6 (mobile) / Chart.js / Framer Motion / libsodium / Bio
 
 ## License
 

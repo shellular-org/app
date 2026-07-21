@@ -278,6 +278,22 @@ export default class Theme {
 		return "rgba(0, 0, 0, 0.05)";
 	}
 
+	get scrollbarTrack() {
+		return "transparent";
+	}
+
+	get scrollbarThumb() {
+		return "rgba(255, 255, 255, 0.14)";
+	}
+
+	get scrollbarThumbHover() {
+		return "rgba(255, 255, 255, 0.24)";
+	}
+
+	get scrollbarThumbActive() {
+		return "rgba(255, 255, 255, 0.34)";
+	}
+
 	get json() {
 		const json: Record<string, string> = {};
 		const prototype = Object.getPrototypeOf(Object.getPrototypeOf(this));
@@ -349,6 +365,10 @@ export default class Theme {
 			cursorAccent: this.primary,
 			selectionBackground: "rgba(255, 255, 255, 0.18)",
 			selectionInactiveBackground: "rgba(255, 255, 255, 0.12)",
+			scrollbarSliderBackground: this.scrollbarThumb,
+			scrollbarSliderHoverBackground: this.scrollbarThumbHover,
+			scrollbarSliderActiveBackground: this.scrollbarThumbActive,
+			overviewRulerBorder: this.lineSoft,
 		};
 	}
 }

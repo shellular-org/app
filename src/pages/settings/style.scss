@@ -21,12 +21,16 @@
 	}
 
 	&::-webkit-scrollbar-thumb {
-		background: var(--card-border);
+		background: var(--scrollbar-thumb);
 		border-radius: 4px;
 	}
 
 	&::-webkit-scrollbar-thumb:hover {
-		background: var(--secondary-text);
+		background: var(--scrollbar-thumb-hover);
+	}
+
+	&::-webkit-scrollbar-thumb:active {
+		background: var(--scrollbar-thumb-active);
 	}
 }
 

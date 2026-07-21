@@ -1,12 +1,38 @@
 import type { AiBackend } from "@shellular/protocol";
-import type { GitFileStatus } from "state";
+import type { GitDiffTarget, GitFileStatus } from "state";
 
 interface SurfaceBase {
 	id: string;
 	title: string;
 	icon: string;
 	showConnectionBanner?: boolean;
+	/** Runtime presentation state. It is deliberately omitted from persistence. */
+	dirty?: boolean;
+	/** False for surfaces whose payload must not be written to persisted storage. */
+	restorable?: boolean;
 }
+
+export type EditorComparison =
+	| {
+			kind: "working-tree";
+			projectPath: string;
+			relativePath: string;
+			target: GitDiffTarget;
+	  }
+	| {
+			kind: "commit";
+			projectPath: string;
+			relativePath: string;
+			hash: string;
+	  }
+	| {
+			kind: "inline";
+			workspacePath: string;
+			relativePath: string;
+			sourceId: string;
+			oldText: string;
+			newText: string;
+	  };
 
 export interface ChatSurface extends SurfaceBase {
 	kind: "chat";
@@ -19,6 +45,7 @@ export interface ChatSurface extends SurfaceBase {
 export interface TerminalSurface extends SurfaceBase {
 	kind: "terminal";
 	terminalId: string;
+	workspacePath?: string;
 }
 
 export type UtilityPage =
@@ -27,7 +54,10 @@ export type UtilityPage =
 	| "about"
 	| "reach-out"
 	| "account"
-	| "system-monitor";
+	| "system-monitor"
+	| "agents"
+	| "manage-agents"
+	| "bookmarked-sessions";
 
 export interface UtilitySurface extends SurfaceBase {
 	kind: "utility";
@@ -53,6 +83,13 @@ export interface EditorSurface extends SurfaceBase {
 	initialLine?: number;
 	initialColumn?: number;
 	readOnly?: boolean;
+	comparison?: EditorComparison;
+	/** Backward-compatible shape for restored pre-Monaco Git diff tabs. */
+	gitComparison?: {
+		projectPath: string;
+		relativePath: string;
+		target: GitDiffTarget;
+	};
 }
 
 export interface AgentSessionsSurface extends SurfaceBase {

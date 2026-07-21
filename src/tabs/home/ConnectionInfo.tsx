@@ -18,7 +18,6 @@ import {
 	onMessage,
 	sendMessage,
 } from "state/connection";
-import { tryOpenUtilitySurface } from "workbench/openers";
 
 const COLLAPSED_AGENT_COUNT = 5;
 
@@ -40,20 +39,6 @@ export default function ConnectionInfo({
 		[agentsExpanded, availableAgents],
 	);
 	const hiddenAgentCount = availableAgents.length - visibleAgents.length;
-
-	const openSysmon = useCallback(async () => {
-		if (
-			tryOpenUtilitySurface(
-				"system-monitor",
-				"System Monitor",
-				"icon-activity",
-				true,
-			)
-		)
-			return;
-		const SysmonPage = await import("pages/sysmon");
-		pushPage("system-monitor", <SysmonPage.default />);
-	}, []);
 
 	const onDisconnect = useCallback(async () => {
 		const ok = await dialog.confirm(
@@ -139,14 +124,6 @@ export default function ConnectionInfo({
 				<Mascot state="success" size={22} tone="inline" label="Connected" />
 				<span>Connected</span>
 
-				<button
-					type="button"
-					className="connection-icon-btn"
-					onClick={openSysmon}
-					aria-label="System Monitor"
-				>
-					<span className="icon-activity" aria-hidden="true" />
-				</button>
 				<button
 					type="button"
 					className="connection-disconnect-btn danger"

@@ -105,6 +105,18 @@ const darkTheme = new (class extends Theme {
 		return "rgba(245, 241, 232, 0.05)";
 	}
 
+	get scrollbarThumb() {
+		return "rgba(222, 214, 200, 0.16)";
+	}
+
+	get scrollbarThumbHover() {
+		return "rgba(214, 194, 161, 0.28)";
+	}
+
+	get scrollbarThumbActive() {
+		return "rgba(214, 194, 161, 0.4)";
+	}
+
 	get xtermTheme() {
 		return {
 			background: "transparent",
@@ -113,9 +125,10 @@ const darkTheme = new (class extends Theme {
 			cursorAccent: "#0D0D0F",
 			selectionBackground: "rgba(214, 194, 161, 0.28)",
 			selectionInactiveBackground: "rgba(222, 214, 200, 0.14)",
-			scrollbarSliderBackground: "rgba(222, 214, 200, 0.14)",
-			scrollbarSliderHoverBackground: "rgba(214, 194, 161, 0.22)",
-			scrollbarSliderActiveBackground: "rgba(214, 194, 161, 0.32)",
+			scrollbarSliderBackground: this.scrollbarThumb,
+			scrollbarSliderHoverBackground: this.scrollbarThumbHover,
+			scrollbarSliderActiveBackground: this.scrollbarThumbActive,
+			overviewRulerBorder: this.lineSoft,
 			black: "#1B1B1F",
 			red: "#C96B5C",
 			green: "#91C58A",

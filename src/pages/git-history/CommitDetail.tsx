@@ -3,10 +3,15 @@ import EmptyState from "components/EmptyState";
 import Page from "components/Page";
 import { getFileIcon } from "lib/fileIcon";
 import { formatRelativeTime } from "lib/utils";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { type GitCommit, type GitCommitFile, useShellular } from "state";
-import CommitFileDiffPage from "./CommitFileDiff";
+import { openWorkbenchSurface } from "workbench/store";
+import { createEditorSurface } from "workbench/surfaces";
 import "./style.scss";
+
+const CommitFileDiffPage = process.env.IS_DESKTOP_UI
+	? null
+	: lazy(() => import("./CommitFileDiff"));
 
 const STATUS_LABEL: Record<GitCommitFile["status"], string> = {
 	modified: "M",
@@ -50,13 +55,31 @@ export default function CommitDetailPage({ projectPath, commit }: Props) {
 
 	const openFileDiff = useCallback(
 		(file: GitCommitFile) => {
+			if (process.env.IS_DESKTOP_UI) {
+				const filePath = `${projectPath.replace(/\/$/, "")}/${file.path}`;
+				openWorkbenchSurface(
+					createEditorSurface({
+						filePath,
+						comparison: {
+							kind: "commit",
+							projectPath,
+							hash: commit.hash,
+							relativePath: file.path,
+						},
+					}),
+				);
+				return;
+			}
+			if (!CommitFileDiffPage) return;
 			pushPage(
 				`commit-diff-${commit.hash}-${file.path}`,
-				<CommitFileDiffPage
-					projectPath={projectPath}
-					hash={commit.hash}
-					filePath={file.path}
-				/>,
+				<Suspense fallback={null}>
+					<CommitFileDiffPage
+						projectPath={projectPath}
+						hash={commit.hash}
+						filePath={file.path}
+					/>
+				</Suspense>,
 			);
 		},
 		[commit.hash, projectPath],

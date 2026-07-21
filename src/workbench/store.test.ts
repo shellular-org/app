@@ -11,14 +11,20 @@ vi.mock("lib/store", () => ({
 
 import {
 	activateWorkbenchSurface,
+	canExecuteWorkbenchSurfaceCommand,
 	closeWorkbenchDialog,
 	closeWorkbenchSurface,
+	executeWorkbenchSurfaceCommand,
 	getWorkbenchSnapshot,
 	openWorkbenchDialog,
 	openWorkbenchSurface,
 	registerWorkbenchCloseGuard,
+	registerWorkbenchCommandHandlers,
+	registerWorkbenchSaveHandler,
 	resetWorkbench,
 	restoreWorkbench,
+	saveWorkbenchSurface,
+	updateWorkbenchSurface,
 } from "./store";
 
 const settings = {
@@ -67,6 +73,67 @@ describe("desktop workbench store", () => {
 		expect(getWorkbenchSnapshot().dialog?.id).toBe(settings.id);
 		closeWorkbenchDialog(settings.id);
 		expect(getWorkbenchSnapshot().dialog).toBeNull();
+	});
+
+	it("dispatches Save only to the registered active surface handler", async () => {
+		const save = vi.fn();
+		openWorkbenchSurface(settings);
+		const unregister = registerWorkbenchSaveHandler(settings.id, save);
+		expect(await saveWorkbenchSurface(settings.id)).toBe(true);
+		expect(save).toHaveBeenCalledOnce();
+		unregister();
+		expect(await saveWorkbenchSurface(settings.id)).toBe(false);
+	});
+
+	it("tracks enabled editing commands per workbench surface", async () => {
+		const undo = vi.fn();
+		let enabled = false;
+		const unregister = registerWorkbenchCommandHandlers(settings.id, {
+			undo: { run: undo, enabled: () => enabled },
+		});
+		expect(canExecuteWorkbenchSurfaceCommand(settings.id, "undo")).toBe(false);
+		expect(await executeWorkbenchSurfaceCommand(settings.id, "undo")).toBe(
+			false,
+		);
+		enabled = true;
+		expect(canExecuteWorkbenchSurfaceCommand(settings.id, "undo")).toBe(true);
+		expect(await executeWorkbenchSurfaceCommand(settings.id, "undo")).toBe(
+			true,
+		);
+		expect(undo).toHaveBeenCalledOnce();
+		unregister();
+		expect(canExecuteWorkbenchSurfaceCommand(settings.id, "undo")).toBe(false);
+	});
+
+	it("does not persist dirty runtime state or transient comparison payloads", async () => {
+		persisted.set("shellular:desktop-workbench:host-1", { tabs: [] });
+		await restoreWorkbench("host-1");
+		openWorkbenchSurface(settings);
+		updateWorkbenchSurface(settings.id, { dirty: true });
+		openWorkbenchSurface({
+			kind: "editor",
+			id: "agent-diff:1",
+			title: "app.ts",
+			icon: "icon-file",
+			filePath: "app.ts",
+			restorable: false,
+			comparison: {
+				kind: "inline",
+				workspacePath: "/repo",
+				relativePath: "app.ts",
+				sourceId: "1",
+				oldText: "large old payload",
+				newText: "large new payload",
+			},
+		});
+		await vi.waitFor(() => {
+			const saved = persisted.get("shellular:desktop-workbench:host-1") as {
+				tabs: Array<Record<string, unknown>>;
+			};
+			expect(saved.tabs).toHaveLength(1);
+			expect(saved.tabs[0].id).toBe(settings.id);
+			expect(saved.tabs[0]).not.toHaveProperty("dirty");
+		});
 	});
 
 	it("restores utility, files, and live terminal tabs while dropping dead terminals", async () => {

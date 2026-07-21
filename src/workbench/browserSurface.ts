@@ -2,7 +2,7 @@ import browser from "bridge/browser";
 import { openWorkbenchSurface } from "./store";
 
 export function openBrowserSurface(url: string, title?: string) {
-	if (!process.env.IS_DESKTOP_UI) {
+	if (!process.env.IS_DESKTOP_UI || process.env.IS_MACOS) {
 		return browser.open(url);
 	}
 	openWorkbenchSurface({

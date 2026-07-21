@@ -9,6 +9,7 @@ import chess69Icon from "res/chess69.png";
 import licenses from "./licenses";
 import "./style.scss";
 import { openBrowserSurface } from "workbench/browserSurface";
+import { tryOpenUtilitySurface } from "workbench/openers";
 
 export default function AboutPage() {
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -43,11 +44,19 @@ export default function AboutPage() {
 					<button
 						type="button"
 						className="about-link-item"
-						onClick={() =>
+						onClick={() => {
+							if (
+								tryOpenUtilitySurface(
+									"reach-out",
+									"Reach Out",
+									"icon-message-circle",
+								)
+							)
+								return;
 							pushPage("reach-out", <ReachOutPage />, {
 								showConnectionBanner: false,
-							})
-						}
+							});
+						}}
 					>
 						<span
 							className="icon-message-circle about-link-icon"

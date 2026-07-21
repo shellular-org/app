@@ -138,6 +138,8 @@ async function load() {
 	);
 	document.addEventListener("backbutton", actionStack.pop);
 	window.addEventListener("resize", windowResize);
+	window.addEventListener("shellular:native-resize-start", windowResize.start);
+	window.addEventListener("shellular:native-resize-end", windowResize.end);
 	keyboard.on("show", whenKeyboardShow);
 	keyboard.on("hide", whenKeyboardHide);
 	document.addEventListener("click", externalLinks);

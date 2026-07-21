@@ -37,6 +37,7 @@ dev/terminals.config
 *.xcarchive
 xcuserdata
 *.xcuserstate
+.build
 
 *.xcconfig
 

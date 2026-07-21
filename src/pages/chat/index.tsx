@@ -15,9 +15,9 @@ import Loader from "components/Loader";
 import Page from "components/Page";
 import actionStack from "lib/actionStack";
 import { getAgentIcon } from "lib/agents";
-import { registerShellularDiffThemes } from "lib/diffsTheme";
 import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
+import windowResize from "lib/windowResize";
 import EditorPage from "pages/editor";
 import type React from "react";
 import {
@@ -107,8 +107,6 @@ function isRealTitle(value: unknown): value is string {
 		typeof value === "string" && value.length > 0 && value !== PLACEHOLDER_TITLE
 	);
 }
-
-registerShellularDiffThemes();
 
 export interface ChatConversationPageProps {
 	sessionId: string;
@@ -202,6 +200,7 @@ export default function ChatConversationPage({
 	const autoScrollFrameRef = useRef(0);
 	const autoScrollSuppressedRef = useRef(false);
 	const autoScrollSuppressionCountRef = useRef(0);
+	const resizeWasAtBottomRef = useRef(false);
 	const cleanupRef = useRef<(() => void) | null>(null);
 	const cleanupSendRef = useRef<(() => void) | null>(null);
 	const attachedSessionIdRef = useRef<string | null>(null);
@@ -513,6 +512,32 @@ export default function ChatConversationPage({
 	}, [scrollToBottomNow]);
 
 	useEffect(() => {
+		if (!process.env.IS_DESKTOP_UI) return;
+		const onResizeStart = () => {
+			resizeWasAtBottomRef.current = stickToBottomRef.current;
+			startAutoScrollSuppression();
+		};
+		const onResizeEnd = () => {
+			endAutoScrollSuppression();
+			if (resizeWasAtBottomRef.current) stickToBottomRef.current = true;
+			updateInputOffset();
+			if (resizeWasAtBottomRef.current) scrollToBottom();
+			resizeWasAtBottomRef.current = false;
+		};
+		windowResize.on("resizeStart", onResizeStart);
+		windowResize.on("resize", onResizeEnd);
+		return () => {
+			windowResize.off("resizeStart", onResizeStart);
+			windowResize.off("resize", onResizeEnd);
+		};
+	}, [
+		endAutoScrollSuppression,
+		scrollToBottom,
+		startAutoScrollSuppression,
+		updateInputOffset,
+	]);
+
+	useEffect(() => {
 		const sentinel = sentinelRef.current;
 		const container = scrollRef.current;
 		if (!sentinel || !container || !hasMore || !historyScrollReady) return;
@@ -794,6 +819,7 @@ export default function ChatConversationPage({
 			const height = entries[0].contentRect.height;
 			if (height === lastHeight) return;
 			lastHeight = height;
+			if (autoScrollSuppressedRef.current) return;
 			if (frame) cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(pinToBottom);
 		});
@@ -818,6 +844,7 @@ export default function ChatConversationPage({
 			const height = entries[0].contentRect.height;
 			if (height === lastInputHeight) return;
 			lastInputHeight = height;
+			if (autoScrollSuppressedRef.current) return;
 			if (observerFrame) cancelAnimationFrame(observerFrame);
 			observerFrame = requestAnimationFrame(updateInputOffset);
 		});
@@ -1192,6 +1219,7 @@ export default function ChatConversationPage({
 						<ChatBubble
 							key={renderKey}
 							messageKey={messageKey}
+							workspacePath={resolvedWorkspacePath}
 							parts={msg.parts}
 							messageRole={msg.role}
 							assistantName={assistantName}
@@ -1207,6 +1235,7 @@ export default function ChatConversationPage({
 					<ChatBubble
 						key="assistant-streaming-placeholder"
 						messageKey="assistant-streaming-placeholder"
+						workspacePath={resolvedWorkspacePath}
 						parts={[]}
 						messageRole="assistant"
 						assistantName={assistantName}

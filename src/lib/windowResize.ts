@@ -24,14 +24,29 @@ const event: Record<ResizeEvent, ResizeEventListener[]> = {
  */
 
 export default function windowResize() {
-	if (!resizeTimeout) {
-		document.body.classList.add("resizing");
-		emit("resizeStart");
-	}
+	startResize();
 
 	if (resizeTimeout) clearTimeout(resizeTimeout);
 	resizeTimeout = setTimeout(onResize, 100);
 }
+
+function startResize() {
+	if (document.body.classList.contains("resizing")) return;
+	document.body.classList.add("resizing");
+	emit("resizeStart");
+}
+
+windowResize.start = () => {
+	if (resizeTimeout) clearTimeout(resizeTimeout);
+	resizeTimeout = null;
+	startResize();
+};
+
+windowResize.end = () => {
+	if (resizeTimeout) clearTimeout(resizeTimeout);
+	resizeTimeout = null;
+	onResize();
+};
 
 /**
  * Add event listener for window done resizing.
@@ -64,6 +79,7 @@ windowResize.off = (eventName: ResizeEvent, callback: ResizeEventListener) => {
  */
 function onResize() {
 	resizeTimeout = null;
+	if (!document.body.classList.contains("resizing")) return;
 	emit("resize");
 	document.body.classList.remove("resizing");
 }
