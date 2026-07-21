@@ -14,10 +14,6 @@
     margin-inline: auto;
   }
 
-  @include android {
-    padding-right: var(--sab, 0px);
-  }
-
   .scan-label {
     font-size: 12px;
     color: var(--secondary-text);
