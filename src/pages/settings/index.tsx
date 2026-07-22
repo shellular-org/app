@@ -1,18 +1,16 @@
 import { ONBOARDING_KEY } from "App";
 import AppSelect from "components/AppSelect";
 import Page from "components/Page";
+import AccessoryToolbarEditor from "components/AccessoryToolbarEditor";
 import {
 	DEFAULT_EDITOR_SETTINGS,
 	DEFAULT_SERVER_SETTINGS,
 	DEFAULT_TERMINAL_SETTINGS,
-	DEFAULT_TERMINAL_TOOLBAR_ROWS,
 	loadSettings,
 	MONOSPACE_FONT_FAMILY_OPTIONS,
 	type ServerProtocol,
 	saveSettings,
-	TERMINAL_TOOLBAR_KEY_IDS,
 	type TerminalKeyboardMode,
-	type TerminalToolbarKeyId,
 	type TerminalCursorStyle,
 } from "lib/settings";
 import * as store from "lib/store";
@@ -214,128 +212,6 @@ const KEYBOARD_MODE_OPTIONS: Array<{
 		description: "Shows a number-focused keyboard layout.",
 	},
 ];
-
-const TOOLBAR_KEY_LABELS: Record<TerminalToolbarKeyId, string> = {
-	esc: "Esc",
-	tab: "Tab",
-	ctrl: "Ctrl",
-	alt: "Alt",
-	shift: "Shift",
-	home: "Home",
-	end: "End",
-	up: "Up",
-	down: "Down",
-	left: "Left",
-	right: "Right",
-	pageup: "Page Up",
-	pagedown: "Page Down",
-	interrupt: "Interrupt",
-	switchTerminal: "Switch Terminal",
-	del: "Delete",
-};
-
-function ToolbarOrganizer({
-	rows,
-	onChange,
-}: {
-	rows: string[][];
-	onChange: (rows: string[][]) => void;
-}) {
-	const [addKey, setAddKey] = useState<string>("");
-	const selectedIds = rows.flat();
-	const availableIds = TERMINAL_TOOLBAR_KEY_IDS.filter(
-		(id) => !selectedIds.includes(id),
-	);
-	const selectedAddKey = availableIds.includes(addKey as TerminalToolbarKeyId)
-		? addKey
-		: (availableIds[0] ?? "");
-
-	function moveKey(rowIndex: number, keyIndex: number, direction: string) {
-		const next = rows.map((row) => [...row]);
-		if (direction === "left" || direction === "right") {
-			const targetIndex = keyIndex + (direction === "left" ? -1 : 1);
-			[next[rowIndex][keyIndex], next[rowIndex][targetIndex]] = [
-				next[rowIndex][targetIndex],
-				next[rowIndex][keyIndex],
-			];
-		} else {
-			const targetRow = direction === "up" ? rowIndex - 1 : rowIndex + 1;
-			const [id] = next[rowIndex].splice(keyIndex, 1);
-			next[targetRow].splice(Math.min(keyIndex, next[targetRow].length), 0, id);
-		}
-		onChange(next);
-	}
-
-	function removeKey(rowIndex: number, keyIndex: number) {
-		const next = rows.map((row) => [...row]);
-		next[rowIndex].splice(keyIndex, 1);
-		onChange(next);
-	}
-
-	function addKeyToRow(rowIndex: number) {
-		if (!selectedAddKey) return;
-		const next = rows.map((row) => [...row]);
-		next[rowIndex].push(selectedAddKey);
-		onChange(next);
-	}
-
-	return (
-		<div className="toolbar-organizer">
-			<div className="toolbar-rows" aria-label="Accessory control row order">
-				{rows.map((row, rowIndex) => (
-					<div className="toolbar-row-editor" key={`toolbar-row-${rowIndex + 1}`}>
-						<div className="toolbar-row-heading">
-							<span>Row {rowIndex + 1}</span>
-							<span>{row.length} controls</span>
-						</div>
-						<ol className="toolbar-key-list" aria-label={`Row ${rowIndex + 1} controls`}>
-							{row.map((id, keyIndex) => {
-								const label = TOOLBAR_KEY_LABELS[id as TerminalToolbarKeyId] ?? id;
-								return (
-									<li className="toolbar-key-card" key={id}>
-										<span className="toolbar-key-position" aria-hidden="true">
-											{keyIndex + 1}
-										</span>
-										<span className="toolbar-key-name">{label}</span>
-										<div className="toolbar-key-actions">
-											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "left")} disabled={keyIndex === 0} aria-label={`Move ${label} left`} title="Move left">←</button>
-											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "right")} disabled={keyIndex === row.length - 1} aria-label={`Move ${label} right`} title="Move right">→</button>
-											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "up")} disabled={rowIndex === 0 || row.length === 1} aria-label={`Move ${label} to row 1`} title="Move up">↑</button>
-											<button type="button" onClick={() => moveKey(rowIndex, keyIndex, "down")} disabled={rowIndex === 1 || row.length === 1} aria-label={`Move ${label} to row 2`} title="Move down">↓</button>
-											<button className="toolbar-remove-key" type="button" onClick={() => removeKey(rowIndex, keyIndex)} disabled={row.length === 1} aria-label={`Remove ${label}`} title="Remove">×</button>
-										</div>
-									</li>
-								);
-							})}
-						</ol>
-					</div>
-				))}
-			</div>
-			<div className="toolbar-add-controls">
-				<label htmlFor="toolbar-add-key">Add a control</label>
-				<div>
-					<select id="toolbar-add-key" value={selectedAddKey} onChange={(event) => setAddKey(event.target.value)} disabled={availableIds.length === 0}>
-						{availableIds.length === 0 ? (
-							<option value="">All controls are added</option>
-						) : (
-							availableIds.map((id) => <option value={id} key={id}>{TOOLBAR_KEY_LABELS[id]}</option>)
-						)}
-					</select>
-					<button type="button" onClick={() => addKeyToRow(0)} disabled={!selectedAddKey}>Add to row 1</button>
-					<button type="button" onClick={() => addKeyToRow(1)} disabled={!selectedAddKey}>Add to row 2</button>
-				</div>
-			</div>
-			<button
-				className="toolbar-reset-button"
-				type="button"
-				onClick={() => onChange(DEFAULT_TERMINAL_TOOLBAR_ROWS.map((row) => [...row]))}
-				disabled={JSON.stringify(rows) === JSON.stringify(DEFAULT_TERMINAL_TOOLBAR_ROWS)}
-			>
-				Restore default controls
-			</button>
-		</div>
-	);
-}
 
 type SettingSearchEntry = {
 	title: string;
@@ -967,9 +843,14 @@ export default function SettingsPage() {
 									/>
 									<SettingsItem
 										title="Accessory Controls"
-										description="Choose and arrange the controls shown above the keyboard. Changes apply immediately."
+										description="Tap keys on the demo toolbar to rearrange, replace, or remove them. Add unused controls from the palette. Changes apply immediately."
 										vertical
-										control={<ToolbarOrganizer rows={terminalToolbarRows} onChange={handleTerminalToolbarRowsChange} />}
+										control={
+											<AccessoryToolbarEditor
+												rows={terminalToolbarRows}
+												onChange={handleTerminalToolbarRowsChange}
+											/>
+										}
 									/>
 								</SettingsGroup>
 							</div>

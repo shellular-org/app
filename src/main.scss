@@ -74,6 +74,8 @@
   --sar: env(safe-area-inset-right, 0px);
   --tabbar-h: calc(96px + var(--sab, 0px));
   --page-header-height: calc(48px + var(--sat, 0px));
+  // Measured from KeyboardToolbar rows; fallback matches 2×36px + paddings.
+  --keyboard-toolbar-h: 79px;
 
   @include tablet {
     --tabbar-h: 0px !important;

@@ -1,16 +1,29 @@
 .terminal-tab {
   display: flex;
   flex-direction: column;
-  height: calc(var(--vh) - var(--tabbar-h));
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  // Sit above the floating tab bar without making the page shell scrollable.
+  // When the keyboard is open, --tabbar-h is 0.
+  height: 100%;
+  max-height: 100%;
+  padding-bottom: var(--tabbar-h);
+  box-sizing: border-box;
   overflow: hidden;
+  overscroll-behavior: none;
   position: relative;
+  touch-action: pan-y;
 
   * {
     scrollbar-width: none;
   }
 
   &--empty {
-    height: calc(var(--vh) - var(--tabbar-h));
+    flex: 1 1 auto;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
   }
 
   .terminal-paste-textarea {
@@ -124,8 +137,10 @@
 }
 
 .terminal-container {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   position: relative;
 
   >* {
@@ -134,12 +149,16 @@
     left: 4px;
     right: 4px;
     bottom: 0;
+    // Also clamp any nested scroll chaining from xterm.
+    overscroll-behavior: none;
     transition: bottom 0.2s ease-out;
   }
 
+  // Leave room for the accessory keyboard toolbar only (not the soft keyboard —
+  // --vh already shrinks for that). Height is measured from the live toolbar.
   @include keyboard-visible {
     >* {
-      bottom: 79px;
+      bottom: var(--keyboard-toolbar-h, 79px);
     }
   }
 
@@ -198,13 +217,23 @@
     }
 
     .xterm-viewport {
-      overflow-y: scroll !important;
-      overscroll-behavior: contain;
+      overflow-y: auto !important;
+      overscroll-behavior: none;
       scroll-behavior: auto !important;
       -webkit-overflow-scrolling: auto !important;
       touch-action: none;
       background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
       user-select: text;
+      // xterm draws its own scrollbar; hide the native one so only one shows.
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+
+      &::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
+        display: none !important;
+        background: transparent;
+      }
     }
 
     .xterm-scrollable-element {

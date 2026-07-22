@@ -30,9 +30,23 @@
 
   .tab-view-content {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     padding-bottom: var(--tabbar-h);
+
+    // Terminal owns scrolling via xterm. The shell must not be a second
+    // scroll container — padding-bottom for the floating tab bar was creating
+    // empty space users could scroll into.
+    &--terminals {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      overscroll-behavior: none;
+      // Clearance for the floating tab bar is applied inside .terminal-tab so
+      // this shell has no scrollable trailing padding.
+      padding-bottom: 0;
+    }
 
     @include tablet {
       @include ios {

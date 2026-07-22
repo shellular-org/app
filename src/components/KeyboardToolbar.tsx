@@ -1,6 +1,6 @@
 import "./KeyboardToolbar.scss";
 import native from "bridge/native";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 export type KeyHandler = (e: KeyboardEvent) => void;
 
@@ -105,6 +105,30 @@ export default function KeyboardToolbar({
 	const keydownTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
 		new Map(),
 	);
+
+	// Publish the accessory bar height so the terminal can pad above it when
+	// the keyboard is open (avoids content sliding under the toolbar).
+	useEffect(() => {
+		const rowsEl = rowsRef.current;
+		if (!rowsEl) return;
+
+		const publishHeight = () => {
+			const height = Math.ceil(rowsEl.getBoundingClientRect().height);
+			if (height > 0) {
+				document.documentElement.style.setProperty(
+					"--keyboard-toolbar-h",
+					`${height}px`,
+				);
+			}
+		};
+
+		publishHeight();
+		const observer = new ResizeObserver(publishHeight);
+		observer.observe(rowsEl);
+		return () => {
+			observer.disconnect();
+		};
+	}, [rows]);
 
 	// Prevent focus loss when clicking buttons
 	const preventFocusLoss = (e: React.MouseEvent | React.TouchEvent) => {

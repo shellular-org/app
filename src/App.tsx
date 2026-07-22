@@ -230,7 +230,9 @@ function TabView() {
 			className="tab-view"
 			style={{ display: tabViewHidden ? "none" : undefined }}
 		>
-			<div className="tab-view-content">
+			<div
+				className={`tab-view-content${activeTab === "terminals" ? " tab-view-content--terminals" : ""}`}
+			>
 				<Suspense
 					fallback={<EmptyState mascot="loading" message="loading..." />}
 				>
