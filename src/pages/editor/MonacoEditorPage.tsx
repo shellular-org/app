@@ -474,8 +474,10 @@ export default function MonacoEditorPage(props: EditorPageProps) {
 		updateWorkbenchSurface(pageId, { dirty });
 		return registerWorkbenchCloseGuard(
 			pageId,
-			async () =>
-				!dirty || dialog.confirm("Discard unsaved changes?", "Unsaved Changes"),
+			async (context) =>
+				!dirty ||
+				context?.destructiveConfirmed === true ||
+				dialog.confirm("Discard unsaved changes?", "Unsaved Changes"),
 		);
 	}, [dirty, pageId]);
 

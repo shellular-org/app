@@ -45,6 +45,11 @@ describe("DesktopProfileMenu", () => {
 				.getAllByRole("menuitem")
 				.map((item) => item.textContent),
 		).toEqual(["Profile", "Agents", "Settings", "Reach Out", "About"]);
+		expect(
+			within(menu)
+				.getByRole("menuitem", { name: "Agents" })
+				.querySelector(".icon-ai-chat"),
+		).not.toBeNull();
 
 		fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
 		expect(onOpen).toHaveBeenCalledWith("settings");

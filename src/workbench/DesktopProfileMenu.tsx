@@ -7,6 +7,7 @@ import {
 } from "@headlessui/react";
 import { useAuth } from "lib/auth";
 import { getInitials } from "lib/utils";
+import { AGENTS_NAVIGATION_ICON } from "./navigationIcons";
 
 export type DesktopProfileDestination =
 	| "account"
@@ -22,7 +23,7 @@ const ITEMS: Array<{
 	divider?: boolean;
 }> = [
 	{ id: "account", label: "Profile", icon: "icon-user" },
-	{ id: "agents", label: "Agents", icon: "icon-ai-chat" },
+	{ id: "agents", label: "Agents", icon: AGENTS_NAVIGATION_ICON },
 	{ id: "settings", label: "Settings", icon: "icon-settings" },
 	{
 		id: "reach-out",

@@ -1,7 +1,11 @@
 import type { ProjectInfo } from "state";
 import type { WorkbenchSurface } from "./types";
 
-export type WorkbenchContextActivity = "home" | "remote" | "projects" | "git";
+export type WorkbenchContextActivity =
+	| "home"
+	| "remote"
+	| "projects"
+	| "git";
 
 const ACTIVITY_TITLES: Record<WorkbenchContextActivity, string> = {
 	home: "Home",

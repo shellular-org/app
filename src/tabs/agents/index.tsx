@@ -5,11 +5,21 @@ import Loader from "components/Loader";
 import TabPageHeader from "components/TabPageHeader";
 import type { ReactElement } from "react";
 import { useShellular } from "state";
+import type { AcpAgentInfo } from "state/acp";
 import { useBookmarkedSessions } from "state/bookmarkSessions";
 import { tryOpenUtilitySurface } from "workbench/openers";
+import { showBookmarkedChatsSidebar } from "workbench/secondarySidebar";
 import AgentTile from "./AgentTile";
 
-export default function AgentsTab({ compact = false }: { compact?: boolean }) {
+export default function AgentsTab({
+	compact = false,
+	onSelectAgent,
+	onOpenBookmarked,
+}: {
+	compact?: boolean;
+	onSelectAgent?: (agent: AcpAgentInfo) => void;
+	onOpenBookmarked?: () => void;
+}) {
 	const { connectionStatus, loadingAgents, agents, loadAgents } =
 		useShellular();
 	const { bookmarked } = useBookmarkedSessions();
@@ -27,6 +37,14 @@ export default function AgentsTab({ compact = false }: { compact?: boolean }) {
 	}
 
 	const openBookmarked = async () => {
+		if (onOpenBookmarked) {
+			onOpenBookmarked();
+			return;
+		}
+		if (process.env.IS_DESKTOP_UI) {
+			showBookmarkedChatsSidebar();
+			return;
+		}
 		if (
 			tryOpenUtilitySurface(
 				"bookmarked-sessions",
@@ -117,7 +135,11 @@ export default function AgentsTab({ compact = false }: { compact?: boolean }) {
 			{!loadingAgents && Object.keys(agents).length > 0 && (
 				<ul className="agents-list">
 					{Object.values(agents).map((agent) => (
-						<AgentTile key={agent.id} agent={agent} />
+						<AgentTile
+							key={agent.id}
+							agent={agent}
+							onSelect={onSelectAgent}
+						/>
 					))}
 				</ul>
 			)}

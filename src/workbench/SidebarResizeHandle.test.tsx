@@ -38,6 +38,12 @@ describe("SidebarResizeHandle", () => {
 		const secondEnd = vi.fn();
 		const view = render(<Harness onEnd={firstEnd} />);
 		const separator = startDrag();
+		expect(separator).toHaveClass(
+			"workbench-divider",
+			"is-interactive",
+			"workbench-sidebar-resizer",
+		);
+		expect(separator).toHaveAttribute("data-orientation", "vertical");
 
 		fireEvent.pointerMove(window, { pointerId: 7, clientX: 320 });
 		expect(separator).toHaveAttribute("aria-valuenow", "320");
@@ -89,6 +95,39 @@ describe("SidebarResizeHandle", () => {
 		view.unmount();
 		expect(onEnd).toHaveBeenCalledWith(330);
 		expect(document.documentElement).not.toHaveClass("workbench-is-resizing");
+	});
+
+	it("inverts pointer and keyboard movement for a left-edge handle", () => {
+		const onEnd = vi.fn();
+		function LeftEdgeHarness() {
+			const [width, setWidth] = useState(300);
+			return (
+				<SidebarResizeHandle
+					edge="left"
+					value={width}
+					min={240}
+					max={480}
+					onResize={setWidth}
+					onResizeEnd={onEnd}
+				/>
+			);
+		}
+		render(<LeftEdgeHarness />);
+		const separator = screen.getByRole("separator", {
+			name: "Resize sidebar",
+		});
+		expect(separator).toHaveAttribute("data-resize-edge", "left");
+		fireEvent.keyDown(separator, { key: "ArrowLeft" });
+		expect(separator).toHaveAttribute("aria-valuenow", "310");
+		fireEvent.pointerDown(separator, {
+			button: 0,
+			pointerId: 9,
+			clientX: 300,
+		});
+		fireEvent.pointerMove(window, { pointerId: 9, clientX: 280 });
+		expect(separator).toHaveAttribute("aria-valuenow", "330");
+		fireEvent.pointerUp(window, { pointerId: 9 });
+		expect(onEnd).toHaveBeenLastCalledWith(330);
 	});
 });
 

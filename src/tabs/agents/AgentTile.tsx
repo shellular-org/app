@@ -11,12 +11,14 @@ import {
 } from "state/sessions";
 import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
 import { openInWorkbench } from "workbench/navigation";
+import { showSessionsSidebar } from "workbench/secondarySidebar";
 
 interface AgentTileProps {
 	agent: AcpAgentInfo;
+	onSelect?: (agent: AcpAgentInfo) => void;
 }
 
-export default function AgentTile({ agent }: AgentTileProps) {
+export default function AgentTile({ agent, onSelect }: AgentTileProps) {
 	const [isStreaming, setIsStreaming] = useState(getAgentStreaming(agent.id));
 	const [installing, setInstalling] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -126,6 +128,14 @@ export default function AgentTile({ agent }: AgentTileProps) {
 				className="agent-tile haptic-trigger"
 				onClick={async () => {
 					if (!agent.id) return;
+					if (onSelect) {
+						onSelect(agent);
+						return;
+					}
+					if (process.env.IS_DESKTOP_UI) {
+						showSessionsSidebar({ agentId: agent.id });
+						return;
+					}
 					if (
 						openInWorkbench({
 							kind: "agent-sessions",

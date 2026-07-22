@@ -1,4 +1,13 @@
-import { createContext, type ReactNode, useContext, useMemo } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useCallback,
+	useContext,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 
 export interface WorkbenchChromeButton {
 	id: string;
@@ -9,18 +18,26 @@ export interface WorkbenchChromeButton {
 }
 
 export interface WorkbenchPageChromeTargets {
-	title: HTMLElement | null;
 	actions: HTMLElement | null;
 	navigation: HTMLElement | null;
 }
 
+export interface PageSecondaryPanelController {
+	isOpen: boolean;
+	panelId: string;
+	open: () => void;
+	close: () => void;
+	toggle: () => void;
+}
+
 interface WorkbenchPageChromeContextValue {
-	active: boolean;
+	embedded: boolean;
+	visible: boolean;
+	focused: boolean;
 	targets: WorkbenchPageChromeTargets;
 }
 
 const EMPTY_TARGETS: WorkbenchPageChromeTargets = {
-	title: null,
 	actions: null,
 	navigation: null,
 };
@@ -29,20 +46,26 @@ const WorkbenchPageChromeContext =
 	createContext<WorkbenchPageChromeContextValue | null>(null);
 
 export function WorkbenchPageChromeProvider({
-	active,
+	embedded = true,
+	visible,
+	focused,
 	targets,
 	children,
 }: {
-	active: boolean;
+	embedded?: boolean;
+	visible: boolean;
+	focused: boolean;
 	targets: WorkbenchPageChromeTargets;
 	children: ReactNode;
 }) {
 	const value = useMemo(
 		() => ({
-			active,
-			targets: active ? targets : EMPTY_TARGETS,
+			embedded,
+			visible,
+			focused,
+			targets: visible ? targets : EMPTY_TARGETS,
 		}),
-		[active, targets],
+		[embedded, focused, targets, visible],
 	);
 	return (
 		<WorkbenchPageChromeContext.Provider value={value}>
@@ -56,5 +79,44 @@ export function useWorkbenchPageChromeTargets() {
 }
 
 export function useIsWorkbenchPageChromeActive() {
-	return Boolean(useContext(WorkbenchPageChromeContext)?.active);
+	return Boolean(useContext(WorkbenchPageChromeContext)?.embedded);
+}
+
+export function usePageSecondaryPanel(
+	key: string,
+): PageSecondaryPanelController {
+	const reactId = useId();
+	const panelId = `page-secondary-panel-${safeId(key)}-${safeId(reactId)}`;
+	const [isOpen, setIsOpen] = useState(false);
+	const focusTargetRef = useRef<HTMLElement | null>(null);
+
+	const open = useCallback(() => {
+		const active = document.activeElement;
+		focusTargetRef.current = active instanceof HTMLElement ? active : null;
+		setIsOpen(true);
+	}, []);
+	const close = useCallback(() => {
+		setIsOpen(false);
+		requestAnimationFrame(() => focusTargetRef.current?.focus());
+	}, []);
+	const toggle = useCallback(() => {
+		setIsOpen((current) => {
+			if (current) {
+				requestAnimationFrame(() => focusTargetRef.current?.focus());
+				return false;
+			}
+			const active = document.activeElement;
+			focusTargetRef.current = active instanceof HTMLElement ? active : null;
+			return true;
+		});
+	}, []);
+
+	return useMemo(
+		() => ({ isOpen, panelId, open, close, toggle }),
+		[close, isOpen, open, panelId, toggle],
+	);
+}
+
+function safeId(value: string) {
+	return value.replace(/[^a-zA-Z0-9_-]/g, "");
 }

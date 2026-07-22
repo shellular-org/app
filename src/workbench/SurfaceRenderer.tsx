@@ -62,7 +62,7 @@ export default function SurfaceRenderer({
 						projectPath={surface.projectPath}
 						projectName={surface.projectName}
 					/>
-				) : null)}
+					) : null)}
 			{surface.kind === "editor" && (
 				<EditorPage
 					filePath={surface.filePath}

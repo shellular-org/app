@@ -45,7 +45,23 @@ export default function LocalCliDashboard() {
 			</div>
 			{error && (
 				<div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
-					<div>{error}</div>
+					<div className="flex items-start gap-2">
+						<div className="min-w-0 flex-1 break-words">{error}</div>
+						<button
+							type="button"
+							className="flex size-6 shrink-0 items-center justify-center rounded-md border border-danger/30"
+							aria-label="Copy error"
+							title="Copy error"
+							onClick={() =>
+								void copyToClipboard({
+									text: error,
+									successMessage: "Error copied",
+								})
+							}
+						>
+							<span className="icon-copy" aria-hidden="true" />
+						</button>
+					</div>
 					<button
 						type="button"
 						className="mt-2 rounded-md border border-danger/30 px-2 py-1 text-[11px] font-bold"
@@ -168,7 +184,8 @@ export default function LocalCliDashboard() {
 					)}
 				</>
 			) : (
-				!busy && (
+				!busy &&
+				!error && (
 					<button
 						type="button"
 						className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-text-invert"

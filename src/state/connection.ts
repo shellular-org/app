@@ -14,7 +14,7 @@ import {
 } from "@shellular/protocol";
 import localCli from "bridge/localCli";
 import native from "bridge/native";
-import { getAccessTokenForAuth } from "lib/auth";
+import { getAccessTokenForAuth, getAuthenticatedUserForAuth } from "lib/auth";
 import {
 	decryptMessage,
 	decryptProxyBinaryFrame,
@@ -26,7 +26,6 @@ import {
 import { getBaseServerUrl } from "lib/settings";
 import * as store from "lib/store";
 import { nanoid } from "nanoid";
-import { parseProjectTreeResult } from "./projectTreeProtocol";
 
 type OutgoingMsg = ClientToHostMsg | ClientToServerMsg;
 export type SendableMsg = {
@@ -35,6 +34,11 @@ export type SendableMsg = {
 		"id" | "clientId"
 	>;
 }[OutgoingMsg["type"]];
+
+export interface RequestOptions {
+	timeoutMs?: number;
+	signal?: AbortSignal;
+}
 
 export type ConnectionStatus =
 	| "disconnected"
@@ -175,7 +179,10 @@ export async function getClientId(): Promise<string> {
 
 export class Connection extends EventTarget {
 	private ws: WebSocket | null = null;
-	private pendingResponses = new Map<string, (msg: unknown) => void>();
+	private pendingResponses = new Map<
+		string,
+		{ resolve: (msg: unknown) => void; cleanup: () => void }
+	>();
 	private encryptionKey: Uint8Array | null = null;
 	private clientId: string | null = null;
 	// The CENTRAL base that actually worked for this host (new or old server),
@@ -215,10 +222,7 @@ export class Connection extends EventTarget {
 			}
 		}
 
-		const extensionMessage = parseProjectTreeResult(msgRaw);
-		const parsed = extensionMessage
-			? { data: extensionMessage, error: null }
-			: parseMessage(msgRaw, ClientIncomingMsgSchema);
+		const parsed = parseMessage(msgRaw, ClientIncomingMsgSchema);
 		if (!parsed.data) {
 			console.error("Received invalid message:", {
 				error: parsed.error,
@@ -233,7 +237,8 @@ export class Connection extends EventTarget {
 			const pending = this.pendingResponses.get(msg.respTo);
 			if (pending) {
 				this.pendingResponses.delete(msg.respTo);
-				pending(msg);
+				pending.cleanup();
+				pending.resolve(msg);
 			}
 		}
 
@@ -474,9 +479,10 @@ export class Connection extends EventTarget {
 	}
 
 	private failPendingRequests(error: string): void {
-		for (const [requestId, resolve] of [...this.pendingResponses]) {
+		for (const [requestId, pending] of [...this.pendingResponses]) {
 			this.pendingResponses.delete(requestId);
-			resolve({
+			pending.cleanup();
+			pending.resolve({
 				id: `closed_${requestId}`,
 				type: MsgType.SESSION_ERROR,
 				respTo: requestId,
@@ -485,8 +491,19 @@ export class Connection extends EventTarget {
 		}
 	}
 
-	sendRequest<TMsg = unknown>(msgObj: SendableMsg): Promise<TMsg> {
+	sendRequest<TMsg = unknown>(
+		msgObj: SendableMsg,
+		options: RequestOptions = {},
+	): Promise<TMsg> {
 		return new Promise((resolve) => {
+			if (options.signal?.aborted) {
+				resolve({
+					id: "aborted",
+					type: MsgType.SESSION_ERROR,
+					error: "Request aborted",
+				} as TMsg);
+				return;
+			}
 			const msgId = this.send(msgObj);
 			if (!msgId) {
 				resolve({
@@ -496,20 +513,37 @@ export class Connection extends EventTarget {
 				} as TMsg);
 				return;
 			}
-			const timeout = setTimeout(() => {
+			const finish = (message: unknown) => {
+				const pending = this.pendingResponses.get(msgId);
+				if (!pending) return;
 				this.pendingResponses.delete(msgId);
+				pending.cleanup();
+				resolve(message as TMsg);
+			};
+			const timeout = setTimeout(() => {
 				console.error("Request timed out", msgObj);
-				resolve({
+				finish({
 					id: `timeout_${msgId}`,
 					type: MsgType.SESSION_ERROR,
 					respTo: msgId,
 					error: "Request timed out",
 				} as TMsg);
-			}, RECV_TIMEOUT);
+			}, options.timeoutMs ?? RECV_TIMEOUT);
+			const abort = () =>
+				finish({
+					id: `aborted_${msgId}`,
+					type: MsgType.SESSION_ERROR,
+					respTo: msgId,
+					error: "Request aborted",
+				});
+			options.signal?.addEventListener("abort", abort, { once: true });
 
-			this.pendingResponses.set(msgId, (msg) => {
-				clearTimeout(timeout);
-				resolve(msg as TMsg);
+			this.pendingResponses.set(msgId, {
+				resolve: (message) => resolve(message as TMsg),
+				cleanup: () => {
+					clearTimeout(timeout);
+					options.signal?.removeEventListener("abort", abort);
+				},
 			});
 		});
 	}
@@ -635,7 +669,10 @@ class ConnectionManager {
 		return this.connection.send(msg) ?? null;
 	}
 
-	sendRequest<TMsg = unknown>(msg: SendableMsg): Promise<TMsg> {
+	sendRequest<TMsg = unknown>(
+		msg: SendableMsg,
+		options?: RequestOptions,
+	): Promise<TMsg> {
 		if (!this.connection) {
 			return Promise.resolve({
 				id: "offline",
@@ -643,7 +680,7 @@ class ConnectionManager {
 				error: "Not connected",
 			} as TMsg);
 		}
-		return this.connection.sendRequest<TMsg>(msg);
+		return this.connection.sendRequest<TMsg>(msg, options);
 	}
 
 	connectToServer(
@@ -770,6 +807,10 @@ class ConnectionManager {
 	}
 
 	async connectToLocal(status: ConnectionStatus = "connecting"): Promise<void> {
+		const user = getAuthenticatedUserForAuth();
+		if (!user) {
+			throw new Error("Sign in again to connect locally.");
+		}
 		await localCli.ensureRunning();
 		const deviceInfo = await native.getDeviceInfo();
 		const clientId = await getClientId();
@@ -780,6 +821,7 @@ class ConnectionManager {
 			deviceModel: deviceInfo.model,
 			deviceIsEmulator: deviceInfo.isEmulator,
 			deviceManufacturer: deviceInfo.manufacturer,
+			user: { id: user.id, email: user.email },
 		});
 		return this.connectToServer(
 			ticket.wsUrl,
@@ -1198,8 +1240,11 @@ export function sendMessage(msg: SendableMsg): string | null {
 	return connectionManager.sendMessage(msg);
 }
 
-export function sendRequest<TMsg = unknown>(msg: SendableMsg): Promise<TMsg> {
-	return connectionManager.sendRequest<TMsg>(msg);
+export function sendRequest<TMsg = unknown>(
+	msg: SendableMsg,
+	options?: RequestOptions,
+): Promise<TMsg> {
+	return connectionManager.sendRequest<TMsg>(msg, options);
 }
 
 export function connectToServer(

@@ -18,12 +18,8 @@ import {
 	MsgType,
 	type ProjectFileSearchResultMsg,
 } from "@shellular/protocol";
-import type { SendableMsg } from "./connection";
+import type { RequestOptions, SendableMsg } from "./connection";
 import { sendRequest } from "./connection";
-import {
-	PROJECT_TREE_MESSAGE,
-	type ProjectTreeResult,
-} from "./projectTreeProtocol";
 
 export const GIT_WORKTREE_CHANGED_EVENT = "shellular:git-worktree-changed";
 
@@ -178,31 +174,31 @@ export async function listDir(
 	}));
 }
 
-export async function loadProjectTreePage(input: {
-	path: string;
-	snapshotId?: string;
-	cursor?: number;
-	pageSize?: number;
-	refresh?: boolean;
-}): Promise<{
-	path: string;
-	snapshotId: string;
-	entries: ProjectTreeEntry[];
-	nextCursor?: number;
-}> {
-	const response = await sendRequest<ProjectTreeResult>({
-		type: PROJECT_TREE_MESSAGE,
-		data: input,
-	} as unknown as SendableMsg);
-	if (response.error) throw new Error(response.error);
-	if (!response.data) throw new Error("No project tree data received");
-	return {
-		...response.data,
-		entries: response.data.entries.map((entry) => ({
-			...entry,
-			gitStatus: entry.gitStatus ?? undefined,
-		})),
-	};
+/**
+ * Lightweight, backwards-compatible listing used by the project explorer.
+ * Older CLIs ignore the extra flags and still return an ordinary FS_LIST result.
+ */
+export async function listProjectDirectory(
+	path: string,
+	options: RequestOptions = {},
+): Promise<FileEntry[]> {
+	const res = await sendRequest<FsListResultMsg>(
+		{
+			type: MsgType.FS_LIST,
+			data: {
+				path,
+				showHidden: true,
+				includeMetadata: false,
+				includeGitStatus: false,
+			},
+		} as unknown as SendableMsg,
+		options,
+	);
+	if (res.error) throw new Error(res.error);
+	return (res.data?.entries ?? []).map((entry) => ({
+		...entry,
+		gitStatus: entry.gitStatus ?? undefined,
+	}));
 }
 
 export async function searchProjectFiles(
@@ -213,19 +209,23 @@ export async function searchProjectFiles(
 		selectedPath?: string;
 		includeHistory?: boolean;
 		refresh?: boolean;
+		request?: RequestOptions;
 	} = {},
 ): Promise<ProjectFileSearchResult> {
-	const res = await sendRequest<ProjectFileSearchResultMsg>({
-		type: MsgType.PROJECT_FILE_SEARCH,
-		data: {
-			path,
-			query,
-			limit: options.limit,
-			selectedPath: options.selectedPath,
-			includeHistory: options.includeHistory,
-			refresh: options.refresh,
+	const res = await sendRequest<ProjectFileSearchResultMsg>(
+		{
+			type: MsgType.PROJECT_FILE_SEARCH,
+			data: {
+				path,
+				query,
+				limit: options.limit,
+				selectedPath: options.selectedPath,
+				includeHistory: options.includeHistory,
+				refresh: options.refresh,
+			},
 		},
-	});
+		options.request,
+	);
 	if (res.error) throw new Error(res.error);
 	return {
 		entries: (res.data?.entries ?? []).map((entry) => ({

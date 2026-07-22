@@ -57,9 +57,9 @@ else
 fi
 
 if [ -n "$SSH_USER" ]; then
-    WSS_SERVER="wss://${SSH_USER}.${SSH_HOST}"
+    WSS_SERVER="https://${SSH_USER}.${SSH_HOST}"
 else
-    WSS_SERVER="wss://${SSH_HOST}"
+    WSS_SERVER="https://${SSH_HOST}"
 fi
 
 LEFT_X=$DISPLAY_OFFSET_X

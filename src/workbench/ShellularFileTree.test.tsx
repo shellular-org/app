@@ -139,6 +139,72 @@ describe("ShellularFileTree", () => {
 		).toMatchObject({ revision: 3, resetCount: 1 });
 	});
 
+	it("batches lazy additions and updates Git decorations without resetting", async () => {
+		const cacheKey = "project:test:/lazy";
+		const view = render(
+			<div style={{ height: 300 }}>
+				<ShellularFileTree
+					ariaLabel="Lazy files"
+					cacheKey={cacheKey}
+					revision={1}
+					incremental
+					presorted
+					entries={[{ path: "src", type: "directory" }]}
+					onActivate={vi.fn()}
+				/>
+			</div>,
+		);
+		await waitFor(() =>
+			expect(getShellularFileTreeCacheStats(cacheKey)).toMatchObject({
+				revision: 1,
+				resetCount: 1,
+			}),
+		);
+
+		view.rerender(
+			<div style={{ height: 300 }}>
+				<ShellularFileTree
+					ariaLabel="Lazy files"
+					cacheKey={cacheKey}
+					revision={2}
+					incremental
+					presorted
+					entries={[
+						{ path: "src", type: "directory" },
+						{ path: "src/main.ts", type: "file" },
+					]}
+					onActivate={vi.fn()}
+				/>
+			</div>,
+		);
+		await waitFor(() =>
+			expect(getShellularFileTreeCacheStats(cacheKey)).toMatchObject({
+				revision: 2,
+				resetCount: 1,
+			}),
+		);
+
+		view.rerender(
+			<div style={{ height: 300 }}>
+				<ShellularFileTree
+					ariaLabel="Lazy files"
+					cacheKey={cacheKey}
+					revision={2}
+					incremental
+					presorted
+					entries={[
+						{ path: "src", type: "directory", gitStatus: "modified" },
+						{ path: "src/main.ts", type: "file", gitStatus: "modified" },
+					]}
+					onActivate={vi.fn()}
+				/>
+			</div>,
+		);
+		await waitFor(() =>
+			expect(getShellularFileTreeCacheStats(cacheKey)?.resetCount).toBe(1),
+		);
+	});
+
 	it("searches nested pnpm paths without duplicating directory segments", async () => {
 		const model = { current: null as ShellularFileTreeModel | null };
 		const base =

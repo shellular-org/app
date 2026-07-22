@@ -615,8 +615,9 @@ export default function EditorPage({
 	useEffect(() => {
 		if (!pageId) return;
 		if (process.env.IS_DESKTOP_UI) {
-			return registerWorkbenchCloseGuard(pageId, async () => {
+			return registerWorkbenchCloseGuard(pageId, async (context) => {
 				if (!dirty || readOnly) return true;
+				if (context?.destructiveConfirmed) return true;
 				return dialog.confirm("Discard unsaved changes?", "Unsaved Changes");
 			});
 		}

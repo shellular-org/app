@@ -10,12 +10,22 @@ describe("macOS project pane layout", () => {
 
 		expect(layout).toEqual({
 			"/alpha": { expanded: false, mode: "sessions", weight: 2.5 },
-			"/beta": { expanded: true, mode: "tree", weight: 1 },
+			"/beta": { expanded: false, mode: "tree", weight: 1 },
+		});
+	});
+
+	it("opens only the first project when no layout has been saved", () => {
+		expect(normalizeProjectLayout(["/alpha", "/beta"])).toEqual({
+			"/alpha": { expanded: true, mode: "tree", weight: 1 },
+			"/beta": { expanded: false, mode: "tree", weight: 1 },
 		});
 	});
 
 	it("resizes adjacent expanded panes while preserving their total height", () => {
-		const layout = normalizeProjectLayout(["/alpha", "/beta"]);
+		const layout = normalizeProjectLayout(["/alpha", "/beta"], {
+			"/alpha": { expanded: true },
+			"/beta": { expanded: true },
+		});
 		const resized = resizePanePair(layout, "/alpha", "/beta", 0.4, 0.2);
 
 		expect(resized["/alpha"].weight).toBeCloseTo(1.4);
@@ -24,7 +34,10 @@ describe("macOS project pane layout", () => {
 	});
 
 	it("clamps pane resizing and ignores collapsed pairs", () => {
-		const layout = normalizeProjectLayout(["/alpha", "/beta"]);
+		const layout = normalizeProjectLayout(["/alpha", "/beta"], {
+			"/alpha": { expanded: true },
+			"/beta": { expanded: true },
+		});
 		const clamped = resizePanePair(layout, "/alpha", "/beta", 10, 0.25);
 		expect(clamped["/alpha"].weight).toBe(1.75);
 		expect(clamped["/beta"].weight).toBe(0.25);

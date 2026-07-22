@@ -41,7 +41,7 @@ describe("desktop New Chat dialog", () => {
 		expect(screen.getByLabelText("Project")).toHaveValue(project.path);
 		expect(screen.getByLabelText("Agent")).toHaveValue(agent.id);
 		fireEvent.click(screen.getByRole("button", { name: "Start Chat" }));
-		expect(getWorkbenchSnapshot().tabs[0]).toMatchObject({
+		expect(getWorkbenchSnapshot().surfaces[0]).toMatchObject({
 			kind: "chat",
 			workspacePath: project.path,
 			agentId: agent.id,

@@ -25,12 +25,41 @@ describe("ResizablePaneStack", () => {
 
 		expect(screen.getAllByRole("separator")).toHaveLength(1);
 		const separator = screen.getByRole("separator");
-		expect(separator).toHaveClass("border-0", "bg-transparent");
+		expect(separator.tagName).toBe("DIV");
+		expect(separator).toHaveClass("workbench-divider", "is-interactive");
+		expect(separator).toHaveAttribute("data-orientation", "horizontal");
+		expect(separator).toHaveAttribute("data-extend-hit-area", "true");
+		const dividers = view.container.querySelectorAll(".workbench-divider");
+		expect(dividers).toHaveLength(2);
+		expect(dividers[1]).toHaveAttribute("aria-hidden", "true");
 		fireEvent.keyDown(separator, { key: "ArrowDown" });
-		expect(resize).toHaveBeenCalledWith("a", "c", 0.05, (130 / 462) * 2);
+		expect(resize).toHaveBeenCalledWith("a", "c", 0.05, (130 / 461) * 2);
 		expect(screen.getByText("b").parentElement).toHaveStyle({
 			flex: "0 0 34px",
 		});
+	});
+
+	it("renders quiet decorative boundaries between adjacent collapsed tiles", () => {
+		const view = render(
+			<ResizablePaneStack
+				items={[
+					{ id: "a", expanded: true, weight: 1 },
+					{ id: "b", expanded: false, weight: 1 },
+					{ id: "c", expanded: false, weight: 1 },
+					{ id: "d", expanded: true, weight: 1 },
+				]}
+				onResize={vi.fn()}
+				renderPane={(item) => <div>{item.id}</div>}
+			/>,
+		);
+
+		expect(view.container.querySelectorAll(".workbench-divider")).toHaveLength(
+			3,
+		);
+		expect(screen.getAllByRole("separator")).toHaveLength(1);
+		expect(
+			view.container.querySelectorAll('.workbench-divider[aria-hidden="true"]'),
+		).toHaveLength(2);
 	});
 
 	it("reports pointer movement incrementally instead of compounding drag delta", () => {

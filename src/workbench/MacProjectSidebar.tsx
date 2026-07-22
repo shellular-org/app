@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ProjectInfo, useShellular } from "state";
 import { getHostInfo } from "state/connection";
 import { focusDesktopGit } from "./desktopGitNavigation";
+import type { DesktopGitRepositoryState } from "./gitWorkspace";
 import {
 	type WorkspaceCapabilities,
 	workspaceIntegration,
@@ -27,6 +28,7 @@ import {
 	type ProjectPaneMode,
 	resizePanePair,
 } from "./projectLayout";
+import { pruneProjectTreeWorkspace } from "./projectTreeWorkspace";
 import { buildProjectViewMenuItems } from "./projectViewMenu";
 import ResizablePaneStack from "./ResizablePaneStack";
 import { pruneShellularFileTreeCache } from "./ShellularFileTree";
@@ -48,7 +50,11 @@ export function readDesktopProjectLayout(hostId: string) {
 	}
 }
 
-export default function DesktopProjectSidebar() {
+export default function DesktopProjectSidebar({
+	gitStates = {},
+}: {
+	gitStates?: Record<string, DesktopGitRepositoryState>;
+}) {
 	const { connectionStatus, projects, loadingProjects } = useShellular();
 	const hostId = getHostInfo()?.id ?? "disconnected";
 	const paths = useMemo(
@@ -76,7 +82,8 @@ export default function DesktopProjectSidebar() {
 
 	useEffect(() => {
 		pruneShellularFileTreeCache("project", projectTreeCacheKeys);
-	}, [projectTreeCacheKeys]);
+		pruneProjectTreeWorkspace(paths);
+	}, [projectTreeCacheKeys, paths]);
 
 	if (connectionStatus !== "connected") {
 		return <EmptyState mascot="sleep" message="Connect to browse projects" />;
@@ -112,6 +119,7 @@ export default function DesktopProjectSidebar() {
 					renderPane={({ project, ...state }) => (
 						<DesktopProjectPane
 							project={project}
+							gitStatus={gitStates[project.path]?.status}
 							state={state}
 							onExpanded={(expanded) =>
 								setLayout((current) => ({
@@ -135,11 +143,13 @@ export default function DesktopProjectSidebar() {
 
 export function DesktopProjectPane({
 	project,
+	gitStatus,
 	state,
 	onExpanded,
 	onMode,
 }: {
 	project: ProjectInfo;
+	gitStatus?: DesktopGitRepositoryState["status"];
 	state: ProjectLayoutState[string];
 	onExpanded: (expanded: boolean) => void;
 	onMode: (mode: ProjectPaneMode) => void;
@@ -263,6 +273,7 @@ export function DesktopProjectPane({
 						>
 							<ProjectExplorerTree
 								project={project}
+								gitStatus={gitStatus}
 								refreshToken={treeRefreshToken}
 								searchToken={treeSearchToken}
 							/>

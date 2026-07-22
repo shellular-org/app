@@ -329,7 +329,7 @@ describe("DesktopGitSidebar", () => {
 		const stagedButton = screen.getByText("staged.ts").closest("button");
 		expect(stagedButton).toBeInstanceOf(HTMLButtonElement);
 		fireEvent.click(stagedButton as HTMLButtonElement);
-		expect(getWorkbenchSnapshot().tabs[0]).toMatchObject({
+		expect(getWorkbenchSnapshot().surfaces[0]).toMatchObject({
 			id: "git-diff:/work/alpha:head-to-index:src/staged.ts",
 			comparison: {
 				kind: "working-tree",
@@ -342,7 +342,7 @@ describe("DesktopGitSidebar", () => {
 		const changedButton = screen.getByText("changed.ts").closest("button");
 		expect(changedButton).toBeInstanceOf(HTMLButtonElement);
 		fireEvent.click(changedButton as HTMLButtonElement);
-		expect(getWorkbenchSnapshot().tabs[1]).toMatchObject({
+		expect(getWorkbenchSnapshot().surfaces[1]).toMatchObject({
 			id: "git-diff:/work/alpha:index-to-worktree:src/changed.ts",
 			comparison: {
 				kind: "working-tree",

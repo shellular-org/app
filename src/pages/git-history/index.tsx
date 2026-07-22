@@ -4,6 +4,7 @@ import Loader from "components/Loader";
 import Page from "components/Page";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type GitCommit, useShellular } from "state";
+import { openDesktopSecondarySidebar } from "workbench/secondarySidebar";
 import CommitDetailPage from "./CommitDetail";
 import "./style.scss";
 
@@ -12,15 +13,25 @@ const PAGE_SIZE = 30;
 interface Props {
 	projectPath: string;
 	projectName: string;
+	embedded?: boolean;
+	onSelectCommit?: (commit: GitCommit) => void;
 }
 
-export default function GitHistoryPage({ projectPath, projectName }: Props) {
+export default function GitHistoryPage({
+	projectPath,
+	projectName,
+	embedded = false,
+	onSelectCommit,
+}: Props) {
 	const { connectionStatus, getGitLog } = useShellular();
 	const [commits, setCommits] = useState<GitCommit[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [hasMore, setHasMore] = useState(false);
+	const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(
+		null,
+	);
 	const skipRef = useRef(0);
 
 	const loadInitial = useCallback(async () => {
@@ -66,19 +77,36 @@ export default function GitHistoryPage({ projectPath, projectName }: Props) {
 
 	const openCommit = useCallback(
 		(commit: GitCommit) => {
+			setSelectedCommitHash(commit.hash);
+			if (onSelectCommit) {
+				onSelectCommit(commit);
+				return;
+			}
+			if (process.env.IS_DESKTOP_UI) {
+				openDesktopSecondarySidebar([
+					{ view: "git-history", projectPath, projectName },
+					{
+						view: "git-commit",
+						projectPath,
+						projectName,
+						commit,
+					},
+				]);
+				return;
+			}
 			pushPage(
 				`commit-${commit.hash}`,
 				<CommitDetailPage projectPath={projectPath} commit={commit} />,
 			);
 		},
-		[projectPath],
+		[onSelectCommit, projectName, projectPath],
 	);
 
 	return (
 		<Page
 			title="Git History"
 			subtitle={projectName}
-			className="git-history-page"
+			className={`git-history-page${embedded ? " is-sidebar-embedded" : ""}`}
 		>
 			{loading ? (
 				<EmptyState message="Loading commits..." mascot="loading" />
@@ -96,6 +124,10 @@ export default function GitHistoryPage({ projectPath, projectName }: Props) {
 									key={commit.hash}
 									type="button"
 									className="commit-item"
+									data-selected={selectedCommitHash === commit.hash}
+									aria-current={
+										selectedCommitHash === commit.hash ? "true" : undefined
+									}
 									onClick={() => openCommit(commit)}
 								>
 									<div className="commit-item-icon">

@@ -38,7 +38,7 @@ describe("desktop chat file changes", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: /app\.ts/i }));
 
-		expect(getWorkbenchSnapshot().tabs[0]).toMatchObject({
+		expect(getWorkbenchSnapshot().surfaces[0]).toMatchObject({
 			id: "agent-diff:message-7:part-2:src/app.ts",
 			restorable: false,
 			comparison: {

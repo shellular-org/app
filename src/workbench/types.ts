@@ -113,10 +113,42 @@ export type WorkbenchSurface =
 	| AgentSessionsSurface
 	| BrowserSurface;
 
-export type CloseGuard = () => boolean | Promise<boolean>;
+export interface WorkbenchCloseContext {
+	reason: "tab" | "pane" | "tile-group" | "bulk";
+	destructiveConfirmed?: boolean;
+}
+
+export type CloseGuard = (
+	context?: WorkbenchCloseContext,
+) => boolean | Promise<boolean>;
+
+export interface WorkbenchTabRef {
+	surfaceId: string;
+	pinned: boolean;
+}
+
+export interface WorkbenchGroupNode {
+	type: "group";
+	id: string;
+	tabs: WorkbenchTabRef[];
+	activeId: string | null;
+}
+
+export interface WorkbenchSplitNode {
+	type: "split";
+	id: string;
+	orientation: "horizontal" | "vertical";
+	ratio: number;
+	first: WorkbenchLayoutNode;
+	second: WorkbenchLayoutNode;
+}
+
+export type WorkbenchLayoutNode = WorkbenchGroupNode | WorkbenchSplitNode;
 
 export interface WorkbenchSnapshot {
-	tabs: WorkbenchSurface[];
+	surfaces: WorkbenchSurface[];
+	root: WorkbenchLayoutNode;
+	focusedGroupId: string;
 	activeId: string | null;
 	hostId: string;
 	dialog: WorkbenchSurface | null;

@@ -229,6 +229,9 @@ export default (_, { env = {}, mode = "development" }) => {
 				},
 			],
 		},
+		dotenv: {
+			prefix: "DEV_",
+		},
 		plugins: [
 			...(isDesktopUI
 				? [

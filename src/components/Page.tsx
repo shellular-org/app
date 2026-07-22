@@ -6,13 +6,17 @@ import {
 	type WorkbenchChromeButton,
 } from "../workbench/pageChrome";
 import PageHeader from "./PageHeader";
+import PageSecondaryPanelFrame, {
+	type PageSecondaryPanel,
+} from "./PageSecondaryPanel";
 
 interface Props {
 	title: string;
 	subtitle?: string;
 	rightSlot?: ReactNode;
 	titleSlot?: ReactNode;
-	desktopTitleSlotInteractive?: boolean;
+	toolbarSlot?: ReactNode;
+	secondaryPanel?: PageSecondaryPanel;
 	children: ReactNode;
 	footerSlot?: ReactNode;
 	className?: string;
@@ -29,7 +33,8 @@ export default function Page({
 	subtitle,
 	rightSlot,
 	titleSlot,
-	desktopTitleSlotInteractive = false,
+	toolbarSlot,
+	secondaryPanel,
 	children,
 	footerSlot,
 	className,
@@ -41,7 +46,7 @@ export default function Page({
 	desktopNavigationControls,
 }: Props) {
 	const workbenchChrome = useWorkbenchPageChromeTargets();
-	const renderInWorkbenchChrome = workbenchChrome?.active;
+	const renderInWorkbenchChrome = workbenchChrome?.embedded;
 
 	return (
 		<div
@@ -50,7 +55,8 @@ export default function Page({
 		>
 			{renderInWorkbenchChrome ? (
 				<>
-					{desktopNavigationControls?.length &&
+					{workbenchChrome.visible &&
+						desktopNavigationControls?.length &&
 						workbenchChrome.targets.navigation &&
 						createPortal(
 							<div className="workbench-page-nav-controls">
@@ -70,14 +76,8 @@ export default function Page({
 							</div>,
 							workbenchChrome.targets.navigation,
 						)}
-					{desktopTitleSlotInteractive &&
-						titleSlot &&
-						workbenchChrome.targets.title &&
-						createPortal(
-							<div className="workbench-page-title-slot">{titleSlot}</div>,
-							workbenchChrome.targets.title,
-						)}
-					{rightSlot &&
+					{workbenchChrome.visible &&
+						rightSlot &&
 						workbenchChrome.targets.actions &&
 						createPortal(
 							<div className="workbench-page-actions">{rightSlot}</div>,
@@ -93,10 +93,14 @@ export default function Page({
 					reverseTruncate={reverseTruncate}
 				/>
 			)}
+			{toolbarSlot ? <div className="page-toolbar">{toolbarSlot}</div> : null}
 			<div className="page-content" ref={scrollRef}>
 				{children}
 			</div>
 			{footerSlot}
+			{secondaryPanel && !renderInWorkbenchChrome && (
+				<PageSecondaryPanelFrame panel={secondaryPanel} />
+			)}
 		</div>
 	);
 }

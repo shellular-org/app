@@ -5,9 +5,12 @@ import {
 	type PaneLayoutEntry,
 } from "./paneLayout";
 import { beginWorkbenchResize } from "./resizeInteraction";
+import WorkbenchDivider from "./WorkbenchDivider";
 
 export const PANE_HEADER_HEIGHT = 34;
 export const PANE_MIN_BODY_HEIGHT = 96;
+const INTERACTIVE_DIVIDER_HEIGHT = 4;
+const DECORATIVE_DIVIDER_HEIGHT = 1;
 
 interface PaneItem extends PaneLayoutEntry {
 	id: string;
@@ -38,9 +41,13 @@ export default function ResizablePaneStack<T extends PaneItem>({
 		(sum, item) => sum + item.weight,
 		0,
 	);
+	const boundaryCount = Math.max(0, items.length - 1);
+	const interactiveBoundaryCount = Math.max(0, expandedItems.length - 1);
+	const decorativeBoundaryCount = boundaryCount - interactiveBoundaryCount;
 	const fixedHeight =
 		(items.length - expandedItems.length) * headerHeight +
-		Math.max(0, expandedItems.length - 1) * 4;
+		interactiveBoundaryCount * INTERACTIVE_DIVIDER_HEIGHT +
+		decorativeBoundaryCount * DECORATIVE_DIVIDER_HEIGHT;
 	return (
 		<div
 			ref={containerRef}
@@ -50,6 +57,9 @@ export default function ResizablePaneStack<T extends PaneItem>({
 				const nextExpanded = items
 					.slice(index + 1)
 					.find((entry) => entry.expanded);
+				const hasFollowingItem = index < items.length - 1;
+				const resizableBoundary =
+					hasFollowingItem && item.expanded && Boolean(nextExpanded);
 				const style: CSSProperties = item.expanded
 					? {
 							flexGrow: normalizedWeights.get(item) ?? 1,
@@ -65,7 +75,7 @@ export default function ResizablePaneStack<T extends PaneItem>({
 						>
 							{renderPane(item)}
 						</div>
-						{item.expanded && nextExpanded && (
+						{resizableBoundary && nextExpanded ? (
 							<PaneSash
 								before={item}
 								after={nextExpanded}
@@ -76,7 +86,12 @@ export default function ResizablePaneStack<T extends PaneItem>({
 								minimumBodyHeight={minimumBodyHeight}
 								onResize={onResize}
 							/>
-						)}
+						) : hasFollowingItem ? (
+							<WorkbenchDivider
+								className="h-px w-full shrink-0"
+								orientation="horizontal"
+							/>
+						) : null}
 					</div>
 				);
 			})}
@@ -141,15 +156,16 @@ function PaneSash({
 		window.addEventListener("blur", onUp);
 	};
 	return (
-		<hr
-			aria-orientation="horizontal"
+		<WorkbenchDivider
+			interactive
+			extendHitArea
+			orientation="horizontal"
 			aria-valuemin={0}
 			aria-valuemax={100}
 			aria-valuenow={Math.round(
 				(before.weight / (before.weight + after.weight)) * 100,
 			)}
-			tabIndex={0}
-			className="relative z-20 h-1 shrink-0 cursor-row-resize border-0 bg-transparent before:absolute before:inset-x-0 before:-inset-y-0.5 hover:before:bg-accent/60 focus-visible:before:bg-accent/60"
+			className="z-20 h-1 w-full shrink-0 cursor-row-resize"
 			onPointerDown={(event) => {
 				if (event.button !== 0) return;
 				event.preventDefault();

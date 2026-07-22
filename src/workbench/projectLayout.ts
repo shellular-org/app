@@ -23,8 +23,9 @@ export function normalizeProjectLayout(
 	saved?: unknown,
 ): ProjectLayoutState {
 	const source = isRecord(saved) ? saved : {};
+	const hasSavedLayout = paths.some((path) => isRecord(source[path]));
 	return Object.fromEntries(
-		paths.map((path) => {
+		paths.map((path, index) => {
 			const entry = isRecord(source[path]) ? source[path] : {};
 			return [
 				path,
@@ -32,7 +33,7 @@ export function normalizeProjectLayout(
 					expanded:
 						typeof entry.expanded === "boolean"
 							? entry.expanded
-							: DEFAULT_PROJECT_PANE.expanded,
+							: !hasSavedLayout && index === 0,
 					mode:
 						entry.mode === "sessions" || entry.mode === "tree"
 							? entry.mode

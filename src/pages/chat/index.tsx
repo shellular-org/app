@@ -13,7 +13,6 @@ import BottomSheet from "components/BottomSheet";
 import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import Page from "components/Page";
-import actionStack from "lib/actionStack";
 import { getAgentIcon } from "lib/agents";
 import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
@@ -28,6 +27,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import { useShellular } from "state";
 import type {
@@ -58,6 +58,14 @@ import {
 	subscribeSessionActivities,
 } from "state/sessions";
 import { tryOpenEditorSurface } from "workbench/openers";
+import { usePageSecondaryPanel } from "workbench/pageChrome";
+import {
+	closeDesktopSecondarySidebar,
+	DESKTOP_SECONDARY_SIDEBAR_ID,
+	getDesktopSecondarySidebarSnapshot,
+	showSessionsSidebar,
+	subscribeDesktopSecondarySidebar,
+} from "workbench/secondarySidebar";
 import { updateWorkbenchSurface } from "workbench/store";
 import {
 	ChatComposer,
@@ -142,7 +150,21 @@ export default function ChatConversationPage({
 	chatTabId,
 }: ChatConversationPageProps) {
 	const { connectionStatus, hostDir } = useShellular();
-	const [showSidebar, setShowSidebar] = useState(false);
+	const mobileChatPanel = usePageSecondaryPanel("chat-navigation");
+	const secondarySidebar = useSyncExternalStore(
+		subscribeDesktopSecondarySidebar,
+		getDesktopSecondarySidebarSnapshot,
+	);
+	const secondaryRoute =
+		secondarySidebar.stack[secondarySidebar.stack.length - 1];
+	const chatNavigationOpen = process.env.IS_DESKTOP_UI
+		? Boolean(
+				secondarySidebar.open &&
+					secondaryRoute?.view === "sessions" &&
+					secondaryRoute.agentId === agentId &&
+					secondaryRoute.workspacePath === workspacePath,
+			)
+		: mobileChatPanel.isOpen;
 	const resolvedWorkspacePath = useMemo(
 		() => normalizeRemoteWorkspacePath(workspacePath, hostDir),
 		[hostDir, workspacePath],
@@ -1051,20 +1073,6 @@ export default function ChatConversationPage({
 		displayTitle,
 	]);
 
-	// Let the device/back gesture close the sidebar before popping the page.
-	useEffect(() => {
-		if (!showSidebar) return;
-		actionStack.push({
-			id: "chat-sidebar",
-			action: () => {
-				setShowSidebar(false);
-			},
-		});
-		return () => {
-			actionStack.remove("chat-sidebar");
-		};
-	}, [showSidebar]);
-
 	useEffect(() => {
 		upsertAcpMessageRef.current = (incomingMessage: AcpMessage) => {
 			const msg = incomingMessage;
@@ -1173,6 +1181,28 @@ export default function ChatConversationPage({
 			noBottomSafeArea
 			className="chat-page"
 			scrollRef={scrollRef}
+			secondaryPanel={
+				!process.env.IS_DESKTOP_UI && chatTabId
+					? {
+							key: "chat-navigation",
+							ariaLabel: "Chats",
+							title: (
+								<span className="truncate">
+									{workspacePath.split("/").filter(Boolean).pop() ||
+										workspacePath}
+								</span>
+							),
+							body: (
+								<ChatSidebar
+									workspacePath={workspacePath}
+									activeTabId={chatTabId}
+									onNavigate={mobileChatPanel.close}
+								/>
+							),
+							controller: mobileChatPanel,
+						}
+					: undefined
+			}
 			titleSlot={
 				<span
 					className={`chat-header-agent-icon ${getAgentIcon(agentId)}`}
@@ -1188,8 +1218,27 @@ export default function ChatConversationPage({
 						<button
 							type="button"
 							className="chat-sidebar-toggle haptic-trigger"
-							onClick={() => setShowSidebar(true)}
-							aria-label="Open chats"
+							onClick={() => {
+								if (!process.env.IS_DESKTOP_UI) {
+									mobileChatPanel.toggle();
+								} else if (chatNavigationOpen) {
+									closeDesktopSecondarySidebar();
+								} else {
+									showSessionsSidebar({
+										agentId,
+										workspacePath,
+										activeChatId: chatTabId,
+									});
+								}
+							}}
+							data-active={chatNavigationOpen}
+							aria-expanded={chatNavigationOpen}
+							aria-controls={
+								process.env.IS_DESKTOP_UI
+									? DESKTOP_SECONDARY_SIDEBAR_ID
+									: mobileChatPanel.panelId
+							}
+							aria-label={chatNavigationOpen ? "Close chats" : "Open chats"}
 						>
 							<span className="icon-menu" aria-hidden="true" />
 						</button>
@@ -1380,14 +1429,6 @@ export default function ChatConversationPage({
 					<ContextWindowDetails usage={contextWindowUsage} />
 				)}
 			</BottomSheet>
-			{chatTabId && (
-				<ChatSidebar
-					open={showSidebar}
-					onClose={() => setShowSidebar(false)}
-					workspacePath={workspacePath}
-					activeTabId={chatTabId}
-				/>
-			)}
 		</Page>
 	);
 

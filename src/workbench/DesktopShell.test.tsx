@@ -20,6 +20,7 @@ const shellularState = vi.hoisted(() => ({
 	agents: {},
 	projects: [],
 	runGitOperation: vi.fn(),
+	profileDestination: "settings" as "settings" | "agents",
 }));
 const localCliSnapshot = vi.hoisted(() => ({
 	capability: { available: true, sandboxed: false, protocolVersion: 1 },
@@ -62,10 +63,14 @@ vi.mock("bridge/native", () => ({
 	},
 }));
 vi.mock("./DesktopProfileMenu", () => ({
-	default: ({ onOpen }: { onOpen: (page: "settings") => void }) => (
+	default: ({
+		onOpen,
+	}: {
+		onOpen: (page: "settings" | "agents") => void;
+	}) => (
 		<button
 			type="button"
-			onClick={() => onOpen("settings")}
+			onClick={() => onOpen(shellularState.profileDestination)}
 			aria-label="User menu"
 		>
 			AK
@@ -102,7 +107,12 @@ vi.mock("tabs/agents", () => ({
 	),
 }));
 vi.mock("./ProjectSidebar", () => ({
-	default: () => <div>Projects sidebar</div>,
+	default: () => (
+		<div>
+			Projects sidebar
+			<input aria-label="Project filter" />
+		</div>
+	),
 }));
 vi.mock("./ShellularFileIcon", () => ({
 	ShellularFileIcon: ({ path }: { path: string }) => (
@@ -129,9 +139,11 @@ vi.mock("./SurfaceRenderer", async () => {
 	};
 });
 
+import dialog from "bridge/dialog";
 import native from "bridge/native";
 import DesktopShell from "./DesktopShell";
 import {
+	getWorkbenchSnapshot,
 	openWorkbenchSurface,
 	registerWorkbenchCommandHandlers,
 	resetWorkbench,
@@ -150,7 +162,9 @@ beforeEach(() => {
 	);
 	nativeMocks.commandHandler = null;
 	shellularState.connectionStatus = "disconnected";
+	shellularState.activeTerminals = [];
 	shellularState.projects = [];
+	shellularState.profileDestination = "settings";
 	resetWorkbench();
 	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 		configurable: true,
@@ -169,6 +183,17 @@ afterEach(() => {
 });
 
 describe("desktop shell", () => {
+	it("opens Agents in the global secondary sidebar without creating a tab", () => {
+		shellularState.profileDestination = "agents";
+		render(<DesktopShell />);
+		fireEvent.click(screen.getByRole("button", { name: "User menu" }));
+		expect(screen.getByLabelText("Secondary sidebar")).toBeVisible();
+		expect(
+			screen.getByRole("heading", { name: "Agents" }),
+		).toBeVisible();
+		expect(screen.queryByRole("tab", { name: "Agents" })).toBeNull();
+	});
+
 	it("renders the streamlined activity rail and welcome workspace", () => {
 		render(<DesktopShell />);
 		const navigation = screen.getByRole("navigation", {
@@ -198,6 +223,19 @@ describe("desktop shell", () => {
 		expect(screen.queryByText("Home sidebar")).toBeNull();
 		fireEvent.click(within(navigation).getByRole("button", { name: "Home" }));
 		expect(screen.getByText("Home sidebar")).toBeVisible();
+	});
+
+	it("keeps the Projects activity mounted while switching sidebars", () => {
+		render(<DesktopShell />);
+		fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+		const filter = screen.getByRole("textbox", { name: "Project filter" });
+		fireEvent.change(filter, { target: { value: "src" } });
+		fireEvent.click(screen.getByRole("button", { name: "Home" }));
+		expect(filter).not.toBeVisible();
+		fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+		expect(screen.getByRole("textbox", { name: "Project filter" })).toHaveValue(
+			"src",
+		);
 	});
 
 	it("suppresses text selection while resizing the sidebar", () => {
@@ -430,7 +468,7 @@ describe("desktop shell", () => {
 		);
 	});
 
-	it("shows a close control only for the active tab", () => {
+	it("reserves every close slot while exposing the control for the active tab", () => {
 		render(<DesktopShell />);
 		act(() => {
 			openWorkbenchSurface({
@@ -449,13 +487,72 @@ describe("desktop shell", () => {
 			});
 		});
 
+		const firstTab = screen.getByRole("tab", { name: "First" });
+		const secondTab = screen.getByRole("tab", { name: "Second" });
+		const firstClose = firstTab
+			.closest(".workbench-tab")
+			?.querySelector<HTMLButtonElement>(".workbench-tab-close");
+		const secondClose = secondTab
+			.closest(".workbench-tab")
+			?.querySelector<HTMLButtonElement>(".workbench-tab-close");
+
+		expect(firstClose).toBeInTheDocument();
+		expect(firstClose).toHaveAttribute("aria-hidden", "true");
+		expect(firstClose).toHaveAttribute("tabindex", "-1");
+		expect(secondClose).toBeInTheDocument();
+		expect(secondClose).toHaveAttribute("aria-hidden", "false");
+		expect(secondClose).toHaveAttribute("tabindex", "0");
 		expect(screen.getByRole("button", { name: "Close Second" })).toBeVisible();
 		expect(screen.queryByRole("button", { name: "Close First" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "New terminal" })).toBeNull();
 
-		fireEvent.click(screen.getByRole("tab", { name: "First" }));
+		fireEvent.click(firstTab);
+		expect(firstClose).toHaveAttribute("aria-hidden", "false");
+		expect(firstClose).toHaveAttribute("tabindex", "0");
+		expect(secondClose).toHaveAttribute("aria-hidden", "true");
+		expect(secondClose).toHaveAttribute("tabindex", "-1");
 		expect(screen.getByRole("button", { name: "Close First" })).toBeVisible();
 		expect(screen.queryByRole("button", { name: "Close Second" })).toBeNull();
+	});
+
+	it("preflights a pane close before killing terminals or changing layout", async () => {
+		shellularState.activeTerminals = [{ terminalId: "live" }] as never[];
+		vi.mocked(dialog.confirm).mockResolvedValueOnce(false);
+		render(<DesktopShell />);
+		act(() => {
+			openWorkbenchSurface({
+				kind: "terminal",
+				id: "terminal:live",
+				title: "Terminal",
+				icon: "icon-terminal",
+				terminalId: "live",
+			});
+			openWorkbenchSurface({
+				kind: "utility",
+				id: "settings",
+				page: "settings",
+				title: "Settings",
+				icon: "icon-settings",
+			});
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Pane actions" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Close Pane" }),
+		);
+		await waitFor(() => expect(dialog.confirm).toHaveBeenCalledOnce());
+		expect(getWorkbenchSnapshot().surfaces).toHaveLength(2);
+		expect(shellularState.closeTerminal).not.toHaveBeenCalled();
+
+		vi.mocked(dialog.confirm).mockResolvedValueOnce(true);
+		fireEvent.click(screen.getByRole("button", { name: "Pane actions" }));
+		fireEvent.click(
+			await screen.findByRole("menuitem", { name: "Close Pane" }),
+		);
+		await waitFor(() =>
+			expect(getWorkbenchSnapshot().surfaces).toHaveLength(0),
+		);
+		expect(shellularState.closeTerminal).toHaveBeenCalledWith("live");
 	});
 
 	it("routes native View utilities to main-area tabs", () => {

@@ -1,81 +1,148 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-	loadPage: vi.fn(),
+	listDirectory: vi.fn(),
 }));
 
 vi.mock("state/connection", () => ({
 	getHostInfo: () => ({ id: "test-host" }),
 }));
-vi.mock("state/filesystem", () => ({
-	loadProjectTreePage: mocks.loadPage,
+vi.mock("state/filesystem", async (importOriginal) => ({
+	...(await importOriginal<typeof import("state/filesystem")>()),
+	listProjectDirectory: mocks.listDirectory,
 }));
 
 import {
 	applyProjectTreeMutation,
-	ensureProjectTree,
+	ensureProjectDirectory,
 	getProjectTreeSnapshot,
+	hydrateProjectTreeSearchResults,
+	refreshProjectDirectory,
+	refreshProjectExplorer,
 	resetProjectTreeWorkspace,
 } from "./projectTreeWorkspace";
 
 beforeEach(() => {
-	mocks.loadPage.mockReset();
+	mocks.listDirectory.mockReset();
 	resetProjectTreeWorkspace();
 });
 
-describe("project tree workspace", () => {
-	it("deduplicates mounted consumers and caches a completed tree", async () => {
-		mocks.loadPage.mockResolvedValue({
-			snapshotId: "one",
-			entries: [{ relativePath: "README.md", type: "file" }],
-		});
+describe("lazy project tree workspace", () => {
+	it("loads only the root until a directory is explicitly expanded", async () => {
+		mocks.listDirectory.mockImplementation(async (path: string) =>
+			path.endsWith("/src")
+				? [file("main.ts")]
+				: [directory("src"), file("README.md"), directory(".git")],
+		);
 
-		const first = ensureProjectTree("/work/project");
-		const second = ensureProjectTree("/work/project");
-		await Promise.all([first, second]);
-		await ensureProjectTree("/work/project");
-
-		expect(mocks.loadPage).toHaveBeenCalledTimes(1);
-		expect(getProjectTreeSnapshot("/work/project")).toMatchObject({
-			loading: false,
-			error: null,
-			entries: [{ relativePath: "README.md", type: "file" }],
-		});
-	});
-
-	it("restarts a paged scan once when its snapshot expires", async () => {
-		mocks.loadPage
-			.mockResolvedValueOnce({
-				snapshotId: "expired",
-				entries: [{ relativePath: "old.ts", type: "file" }],
-				nextCursor: 1,
-			})
-			.mockRejectedValueOnce(new Error("Project tree snapshot expired"))
-			.mockResolvedValueOnce({
-				snapshotId: "fresh",
-				entries: [{ relativePath: "fresh.ts", type: "file" }],
-			});
-
-		await ensureProjectTree("/work/project");
-
-		expect(mocks.loadPage).toHaveBeenCalledTimes(3);
-		expect(mocks.loadPage.mock.calls[2][0]).toMatchObject({ refresh: true });
+		await ensureProjectDirectory("/work/project");
+		expect(mocks.listDirectory).toHaveBeenCalledTimes(1);
 		expect(getProjectTreeSnapshot("/work/project").entries).toEqual([
-			{ relativePath: "fresh.ts", type: "file" },
+			{ relativePath: "src", type: "directory", gitStatus: undefined },
+			{ relativePath: "README.md", type: "file", gitStatus: undefined },
 		]);
+
+		await ensureProjectDirectory("/work/project", "src", {
+			priority: "user",
+		});
+		expect(mocks.listDirectory).toHaveBeenCalledTimes(2);
+		expect(
+			getProjectTreeSnapshot("/work/project").entries.map(
+				(entry) => entry.relativePath,
+			),
+		).toEqual(["src", "src/main.ts", "README.md"]);
 	});
 
-	it("applies successful add, move, and recursive remove mutations", async () => {
-		mocks.loadPage.mockResolvedValue({
-			snapshotId: "one",
-			entries: [
-				{ relativePath: "src", type: "directory" },
-				{ relativePath: "src/main.ts", type: "file" },
-				{ relativePath: "README.md", type: "file" },
-			],
+	it("deduplicates folder reads and runs at most two globally", async () => {
+		const pending = [
+			deferred<ReturnType<typeof file>[]>(),
+			deferred(),
+			deferred(),
+		];
+		let active = 0;
+		let maximum = 0;
+		mocks.listDirectory.mockImplementation(() => {
+			const request = pending[mocks.listDirectory.mock.calls.length - 1];
+			active += 1;
+			maximum = Math.max(maximum, active);
+			return request.promise.finally(() => {
+				active -= 1;
+			});
 		});
-		await ensureProjectTree("/work/project");
 
+		const first = ensureProjectDirectory("/one");
+		const duplicate = ensureProjectDirectory("/one");
+		const second = ensureProjectDirectory("/two");
+		const third = ensureProjectDirectory("/three");
+		await vi.waitFor(() =>
+			expect(mocks.listDirectory).toHaveBeenCalledTimes(2),
+		);
+		expect(maximum).toBe(2);
+		pending[0].resolve([]);
+		await vi.waitFor(() =>
+			expect(mocks.listDirectory).toHaveBeenCalledTimes(3),
+		);
+		pending[1].resolve([]);
+		pending[2].resolve([]);
+		await Promise.all([first, duplicate, second, third]);
+		expect(maximum).toBe(2);
+		expect(first).toBe(duplicate);
+	});
+
+	it("preserves loaded children on error and supports a folder retry", async () => {
+		mocks.listDirectory
+			.mockResolvedValueOnce([directory("src")])
+			.mockResolvedValueOnce([file("one.ts")])
+			.mockRejectedValueOnce(new Error("Remote read timed out"))
+			.mockResolvedValueOnce([file("two.ts")]);
+		await ensureProjectDirectory("/work/project");
+		await ensureProjectDirectory("/work/project", "src");
+		await refreshProjectDirectory("/work/project", "src");
+
+		expect(
+			getProjectTreeSnapshot("/work/project").directories.get("src"),
+		).toMatchObject({ status: "error", error: "Remote read timed out" });
+		expect(
+			getProjectTreeSnapshot("/work/project").entryByPath.has("src/one.ts"),
+		).toBe(true);
+
+		await refreshProjectDirectory("/work/project", "src");
+		expect(
+			getProjectTreeSnapshot("/work/project").entries.map(
+				(entry) => entry.relativePath,
+			),
+		).toEqual(["src", "src/two.ts"]);
+	});
+
+	it("ignores a stale root response after Refresh Explorer", async () => {
+		const stale = deferred<ReturnType<typeof file>[]>();
+		mocks.listDirectory
+			.mockReturnValueOnce(stale.promise)
+			.mockResolvedValueOnce([file("fresh.ts")]);
+		const original = ensureProjectDirectory("/work/project");
+		await vi.waitFor(() =>
+			expect(mocks.listDirectory).toHaveBeenCalledTimes(1),
+		);
+		const refreshed = refreshProjectExplorer("/work/project");
+		await vi.waitFor(() =>
+			expect(mocks.listDirectory).toHaveBeenCalledTimes(2),
+		);
+		stale.resolve([file("stale.ts")]);
+		await Promise.all([original, refreshed]);
+		expect(
+			getProjectTreeSnapshot("/work/project").entryByPath.has("fresh.ts"),
+		).toBe(true);
+		expect(
+			getProjectTreeSnapshot("/work/project").entryByPath.has("stale.ts"),
+		).toBe(false);
+	});
+
+	it("applies add, move, and recursive remove mutations", async () => {
+		mocks.listDirectory
+			.mockResolvedValueOnce([directory("src"), file("README.md")])
+			.mockResolvedValueOnce([file("main.ts")]);
+		await ensureProjectDirectory("/work/project");
+		await ensureProjectDirectory("/work/project", "src");
 		applyProjectTreeMutation("/work/project", {
 			type: "add",
 			path: "src/file2.ts",
@@ -99,31 +166,45 @@ describe("project tree workspace", () => {
 			entryType: "directory",
 		});
 		expect(getProjectTreeSnapshot("/work/project").entries).toEqual([
-			{ relativePath: "README.md", type: "file" },
+			{ relativePath: "README.md", type: "file", gitStatus: undefined },
 		]);
 	});
 
-	it("normalizes duplicate pages and rejects unsafe or conflicting paths", async () => {
-		mocks.loadPage.mockResolvedValueOnce({
-			snapshotId: "one",
-			entries: [
-				{ relativePath: "src\\main.ts", type: "file" },
-				{ relativePath: "src/main.ts", type: "file" },
-			],
-		});
-		await ensureProjectTree("/work/project");
-		expect(getProjectTreeSnapshot("/work/project").entries).toEqual([
-			{ relativePath: "src/main.ts", type: "file" },
+	it("hydrates global search matches and their unloaded ancestors", async () => {
+		mocks.listDirectory.mockResolvedValue([file("README.md")]);
+		await ensureProjectDirectory("/work/project");
+		hydrateProjectTreeSearchResults("/work/project", [
+			{
+				name: "button.tsx",
+				path: "/work/project/src/ui/button.tsx",
+				relativePath: "src/ui/button.tsx",
+				type: "file",
+				size: 0,
+				modified: 0,
+			},
 		]);
-
-		mocks.loadPage.mockResolvedValueOnce({
-			snapshotId: "two",
-			entries: [{ relativePath: "../outside", type: "file" }],
-		});
-		await ensureProjectTree("/work/project", true);
-		expect(getProjectTreeSnapshot("/work/project")).toMatchObject({
-			entries: [{ relativePath: "src/main.ts", type: "file" }],
-			error: 'Invalid project tree path: "../outside"',
-		});
+		expect(
+			getProjectTreeSnapshot("/work/project").entries.map(
+				(entry) => entry.relativePath,
+			),
+		).toEqual(["src", "src/ui", "src/ui/button.tsx", "README.md"]);
 	});
 });
+
+function file(name: string) {
+	return { name, type: "file" as const, size: 0, modified: 0 };
+}
+
+function directory(name: string) {
+	return { name, type: "directory" as const, size: 0, modified: 0 };
+}
+
+function deferred<T = ReturnType<typeof file>[]>() {
+	let resolve!: (value: T) => void;
+	let reject!: (error: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}

@@ -1,5 +1,7 @@
+import clsx from "clsx";
 import { useCallback, useEffect, useRef } from "react";
 import { beginWorkbenchResize } from "./resizeInteraction";
+import WorkbenchDivider from "./WorkbenchDivider";
 
 interface SidebarResizeHandleProps {
 	value: number;
@@ -7,6 +9,9 @@ interface SidebarResizeHandleProps {
 	max: number;
 	onResize: (width: number) => void;
 	onResizeEnd: (width: number) => void;
+	ariaLabel?: string;
+	className?: string;
+	edge?: "left" | "right";
 }
 
 interface ActiveDrag {
@@ -24,6 +29,9 @@ export default function SidebarResizeHandle({
 	max,
 	onResize,
 	onResizeEnd,
+	ariaLabel = "Resize sidebar",
+	className,
+	edge = "right",
 }: SidebarResizeHandleProps) {
 	const dragRef = useRef<ActiveDrag | null>(null);
 	const valueRef = useRef(value);
@@ -56,7 +64,10 @@ export default function SidebarResizeHandle({
 			const drag = dragRef.current;
 			if (!drag || drag.pointerId !== event.pointerId) return;
 			event.preventDefault();
-			const width = clamp(drag.startWidth + event.clientX - drag.startX);
+			const delta = event.clientX - drag.startX;
+			const width = clamp(
+				drag.startWidth + (edge === "left" ? -delta : delta),
+			);
 			if (width === drag.width) return;
 			drag.width = width;
 			valueRef.current = width;
@@ -75,18 +86,18 @@ export default function SidebarResizeHandle({
 			window.removeEventListener("blur", blur);
 			finish();
 		};
-	}, [clamp, finish]);
+	}, [clamp, edge, finish]);
 
 	return (
-		// biome-ignore lint/a11y/useSemanticElements: the interactive separator must support pointer capture and keyboard resizing.
-		<div
-			className="workbench-sidebar-resizer"
-			role="separator"
-			aria-label="Resize sidebar"
-			aria-orientation="vertical"
+		<WorkbenchDivider
+			className={clsx("workbench-sidebar-resizer", className)}
+			interactive
+			orientation="vertical"
+			aria-label={ariaLabel}
 			aria-valuemin={min}
 			aria-valuemax={max}
 			aria-valuenow={value}
+			data-resize-edge={edge}
 			tabIndex={0}
 			onPointerDown={(event) => {
 				if (event.button !== 0) return;
@@ -106,8 +117,9 @@ export default function SidebarResizeHandle({
 			onKeyDown={(event) => {
 				if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
 				event.preventDefault();
+				const direction = event.key === "ArrowRight" ? 1 : -1;
 				const width = clamp(
-					valueRef.current + (event.key === "ArrowRight" ? 10 : -10),
+					valueRef.current + (edge === "left" ? -direction : direction) * 10,
 				);
 				valueRef.current = width;
 				callbacksRef.current.onResize(width);

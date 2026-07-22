@@ -35,6 +35,7 @@ import ShellularFileTree, {
 } from "./ShellularFileTree";
 import { openWorkbenchSurface } from "./store";
 import { createEditorSurface } from "./surfaces";
+import { showGitHistorySidebar } from "./secondarySidebar";
 
 function layoutKey(hostId: string) {
 	return `shellular:desktop-git-layout:v1:${hostId}`;
@@ -53,7 +54,10 @@ export default function DesktopGitSidebar({
 	focusRequest,
 }: {
 	workspace: DesktopGitWorkspace;
-	focusRequest?: { projectPath: string; id: number };
+	focusRequest?: {
+		projectPath: string;
+		id: number;
+	};
 }) {
 	const hostId = getHostInfo()?.id ?? "disconnected";
 	const paths = useMemo(
@@ -172,6 +176,10 @@ function GitRepositoryTitle({
 			}
 		/>
 	);
+}
+
+function openHistory(project: ProjectInfo) {
+	showGitHistorySidebar(project.path, project.name);
 }
 
 function GitBranchRow({
@@ -1146,15 +1154,4 @@ function GitFileRow({
 			</span>
 		</div>
 	);
-}
-
-function openHistory(project: ProjectInfo) {
-	openWorkbenchSurface({
-		kind: "git",
-		id: `git:${project.path}`,
-		title: `${project.name} · History`,
-		icon: "icon-git-branch",
-		projectPath: project.path,
-		projectName: project.name,
-	});
 }

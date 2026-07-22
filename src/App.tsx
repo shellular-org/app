@@ -182,7 +182,7 @@ function AuthenticatedApp() {
 	// tabs and pushed pages alike. A pushed page can opt out (e.g. flows that
 	// manage their own connection UI) via showConnectionBanner: false, which
 	// only applies while that page is the top-most one.
-	const activeWorkbenchSurface = workbench.tabs.find(
+	const activeWorkbenchSurface = workbench.surfaces.find(
 		(surface) => surface.id === workbench.activeId,
 	);
 	const shellShowsConnectionOverlay = process.env.IS_DESKTOP_UI

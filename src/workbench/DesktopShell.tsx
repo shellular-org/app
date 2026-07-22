@@ -4,11 +4,7 @@ import dialog from "bridge/dialog";
 import native, { type DesktopCommand } from "bridge/native";
 import LocalCliDashboard from "components/LocalCliDashboard";
 import ContextMenuHost from "context-menu/ContextMenuHost";
-import { showContextMenuForEvent } from "context-menu/service";
-import { getAgentIcon } from "lib/agents";
-import { copyToClipboard } from "lib/clipboard";
 import { textifyEmoji } from "lib/emoji";
-import { redirectVerticalWheelToHorizontal } from "lib/horizontalWheel";
 import toast from "lib/toast";
 import {
 	useCallback,
@@ -19,7 +15,6 @@ import {
 } from "react";
 import appLogo from "res/logo.svg";
 import { useShellular } from "state";
-import { type ChatTab, getChatTabs, subscribeChatTabs } from "state/chatTabs";
 import {
 	getConnectionSnapshot,
 	getHostInfo,
@@ -34,32 +29,36 @@ import DesktopDialogHost from "./DesktopDialogHost";
 import DesktopGitSidebar from "./DesktopGitSidebar";
 import DesktopMenuBar, { type DesktopMenuCommand } from "./DesktopMenuBar";
 import DesktopProfileMenu from "./DesktopProfileMenu";
-import { subscribeDesktopGitFocus } from "./desktopGitNavigation";
+import DesktopSecondarySidebar from "./DesktopSecondarySidebar";
 import {
 	canRunDomEditCommand,
 	runDomEditCommand,
 	type WorkbenchEditCommand,
 } from "./domEditCommands";
 import { useDesktopGitWorkspace } from "./gitWorkspace";
+import { subscribeDesktopGitFocus } from "./desktopGitNavigation";
+import { findWorkbenchTab } from "./layoutTree";
 import NewChatDialog from "./NewChatDialog";
 import { setWorkbenchOpenHandler } from "./navigation";
 import { requestNewChat, subscribeNewChat } from "./newChat";
 import ProjectSidebar from "./ProjectSidebar";
 import {
-	WorkbenchPageChromeProvider,
-	type WorkbenchPageChromeTargets,
-} from "./pageChrome";
+	closeDesktopSecondarySidebar,
+	getDesktopSecondarySidebarSnapshot,
+	resetDesktopSecondarySidebar,
+	showAgentsSidebar,
+	subscribeDesktopSecondarySidebar,
+} from "./secondarySidebar";
 import {
-	ShellularFileIcon,
 	ShellularFileIconSprite,
 	TREE_ICON_THEME_STYLE,
 } from "./ShellularFileIcon";
 import SidebarResizeHandle from "./SidebarResizeHandle";
 import SurfaceRenderer from "./SurfaceRenderer";
 import {
-	activateWorkbenchSurface,
+	canCloseWorkbenchSurfaces,
 	canExecuteWorkbenchSurfaceCommand,
-	closeWorkbenchSurface,
+	commitCloseWorkbenchSurfaces,
 	executeWorkbenchSurfaceCommand,
 	getWorkbenchCommandRevision,
 	getWorkbenchSnapshot,
@@ -73,18 +72,40 @@ import {
 } from "./store";
 import { createEditorSurface, utilityMetadata } from "./surfaces";
 import type { UtilityPage, WorkbenchSurface } from "./types";
+import WorkbenchLayout from "./WorkbenchLayout";
+import WorkbenchWelcome from "./WorkbenchWelcome";
 import {
 	formatWorkbenchDocumentTitle,
 	resolveWorkbenchContextTitle,
 } from "./windowTitle";
 
-type PrimaryActivity = "home" | "remote" | "projects" | "git";
 const SIDEBAR_WIDTH_KEY = "shellular:desktop-sidebar-width";
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 480;
+const SECONDARY_SIDEBAR_WIDTH_KEY = "shellular:desktop-secondary-sidebar-width";
+const SECONDARY_SIDEBAR_MIN = 240;
+const SECONDARY_SIDEBAR_MAX = 480;
+const SECONDARY_SIDEBAR_DEFAULT = 320;
+const MIN_INLINE_WORKBENCH_WIDTH = 480;
 
-const ACTIVITIES: Array<{ id: PrimaryActivity; label: string; icon: string }> =
-	[
+function secondarySidebarWidthKey(hostId: string) {
+	return `${SECONDARY_SIDEBAR_WIDTH_KEY}:v1:${hostId}`;
+}
+
+function readSecondarySidebarWidth(hostId: string) {
+	const saved = Number(localStorage.getItem(secondarySidebarWidthKey(hostId)));
+	return saved >= SECONDARY_SIDEBAR_MIN && saved <= SECONDARY_SIDEBAR_MAX
+		? saved
+		: SECONDARY_SIDEBAR_DEFAULT;
+}
+
+type PrimaryActivity = "home" | "remote" | "projects" | "git";
+
+const ACTIVITIES: Array<{
+	id: PrimaryActivity;
+	label: string;
+	icon: string;
+}> = [
 		{
 			id: "home",
 			label: "Home",
@@ -116,6 +137,10 @@ export default function DesktopShell({
 		subscribeWorkbenchCommands,
 		getWorkbenchCommandRevision,
 	);
+	const secondarySidebar = useSyncExternalStore(
+		subscribeDesktopSecondarySidebar,
+		getDesktopSecondarySidebarSnapshot,
+	);
 	const {
 		activeTerminals,
 		connectionStatus,
@@ -128,6 +153,7 @@ export default function DesktopShell({
 		projects,
 	} = useShellular();
 	const [activity, setActivity] = useState<PrimaryActivity>("home");
+	const [projectsVisited, setProjectsVisited] = useState(false);
 	const [showNewChat, setShowNewChat] = useState(false);
 	const [newChatProjectPath, setNewChatProjectPath] = useState<string>();
 	const [gitFocusRequest, setGitFocusRequest] = useState<{
@@ -136,26 +162,34 @@ export default function DesktopShell({
 	}>();
 	const [collapsed, setCollapsed] = useState(false);
 	const [compact, setCompact] = useState(() => window.innerWidth < 900);
-	const [chromeTargets, setChromeTargets] =
-		useState<WorkbenchPageChromeTargets>({
-			title: null,
-			actions: null,
-			navigation: null,
-		});
+	const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
 	const [width, setWidth] = useState(() => {
 		const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
 		return saved >= SIDEBAR_MIN && saved <= SIDEBAR_MAX ? saved : 300;
 	});
+	const hostId = getHostInfo()?.id ?? "local";
+	const [secondarySidebarWidth, setSecondarySidebarWidth] = useState(() =>
+		readSecondarySidebarWidth(hostId),
+	);
+	const secondarySidebarOverlay =
+		compact ||
+		viewportWidth -
+			48 -
+			(collapsed ? 0 : width + 8) -
+			secondarySidebarWidth -
+			8 <
+			MIN_INLINE_WORKBENCH_WIDTH;
 	const { openProjectPicker } = useProjectPicker();
 	const observedRestoreRef = useRef(false);
-	const activeTabRef = useRef<HTMLButtonElement>(null);
+	const activeTerminalsRef = useRef(activeTerminals);
+	activeTerminalsRef.current = activeTerminals;
 	const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 	const nativeCommandHandlerRef = useRef<(command: DesktopCommand) => void>(
 		() => {},
 	);
 	const [, setFocusRevision] = useState(0);
 	const gitWorkspace = useDesktopGitWorkspace();
-	const activeSurface = workbench.tabs.find(
+	const activeSurface = workbench.surfaces.find(
 		(surface) => surface.id === workbench.activeId,
 	);
 	const activeSurfaceTitle = activeSurface
@@ -166,26 +200,6 @@ export default function DesktopShell({
 		projects,
 		activeSurfaceTitle,
 		activity,
-	);
-	const setChromeTarget = useCallback(
-		(key: keyof WorkbenchPageChromeTargets, element: HTMLElement | null) => {
-			setChromeTargets((current) =>
-				current[key] === element ? current : { ...current, [key]: element },
-			);
-		},
-		[],
-	);
-	const setChromeNavigationTarget = useCallback(
-		(element: HTMLElement | null) => setChromeTarget("navigation", element),
-		[setChromeTarget],
-	);
-	const setChromeTitleTarget = useCallback(
-		(element: HTMLElement | null) => setChromeTarget("title", element),
-		[setChromeTarget],
-	);
-	const setChromeActionsTarget = useCallback(
-		(element: HTMLElement | null) => setChromeTarget("actions", element),
-		[setChromeTarget],
 	);
 
 	useEffect(() => {
@@ -246,13 +260,27 @@ export default function DesktopShell({
 	useEffect(() => {
 		const media = window.matchMedia("(max-width: 899px)");
 		const update = () => {
+			setViewportWidth(window.innerWidth);
 			setCompact(media.matches);
 			if (media.matches) setCollapsed(true);
 		};
 		update();
 		media.addEventListener("change", update);
-		return () => media.removeEventListener("change", update);
+		window.addEventListener("resize", update);
+		return () => {
+			media.removeEventListener("change", update);
+			window.removeEventListener("resize", update);
+		};
 	}, []);
+
+	useEffect(() => {
+		setSecondarySidebarWidth(readSecondarySidebarWidth(hostId));
+		resetDesktopSecondarySidebar();
+	}, [hostId]);
+
+	useEffect(() => {
+		if (compact && secondarySidebar.open) setCollapsed(true);
+	}, [compact, secondarySidebar.open]);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -261,17 +289,6 @@ export default function DesktopShell({
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [collapsed]);
-
-	useEffect(() => {
-		if (!workbench.activeId) return;
-		const frame = requestAnimationFrame(() => {
-			activeTabRef.current?.scrollIntoView({
-				block: "nearest",
-				inline: "nearest",
-			});
-		});
-		return () => cancelAnimationFrame(frame);
-	}, [workbench.activeId]);
 
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
@@ -292,6 +309,10 @@ export default function DesktopShell({
 	}, [activeTerminals, connectionStatus, terminalsRestoring]);
 
 	const showActivity = useCallback((next: PrimaryActivity) => {
+		if (getDesktopSecondarySidebarSnapshot().open && window.innerWidth < 900) {
+			closeDesktopSecondarySidebar();
+		}
+		if (next === "projects") setProjectsVisited(true);
 		setActivity(next);
 		setCollapsed(false);
 	}, []);
@@ -332,31 +353,131 @@ export default function DesktopShell({
 
 	const closeSurface = useCallback(
 		async (surface: WorkbenchSurface) => {
-			if (surface.kind === "terminal") {
-				const live = activeTerminals.some(
+			const liveTerminal =
+				surface.kind === "terminal" &&
+				activeTerminalsRef.current.some(
 					(terminal) => terminal.terminalId === surface.terminalId,
 				);
-				if (live) {
-					const confirmed = await dialog.confirm(
-						"Close this tab and kill the terminal process?",
-						"Close Terminal",
-					);
-					if (!confirmed) return false;
+			if (
+				liveTerminal &&
+				!(await dialog.confirm(
+					"Close this tab and kill the terminal process?",
+					"Close Terminal",
+				))
+			) {
+				return false;
+			}
+			if (
+				!(await canCloseWorkbenchSurfaces([surface.id], {
+					reason: "tab",
+					destructiveConfirmed: liveTerminal,
+				}))
+			) {
+				return false;
+			}
+			if (liveTerminal && surface.kind === "terminal") {
+				closeTerminal(surface.terminalId);
+			}
+			return commitCloseWorkbenchSurfaces([surface.id]);
+		},
+		[closeTerminal],
+	);
+	const closeSurfaces = useCallback(
+		async (
+			surfaces: WorkbenchSurface[],
+			reason: "pane" | "tile-group" | "bulk" = "bulk",
+		) => {
+			const capturedIds = [...new Set(surfaces.map((surface) => surface.id))];
+			if (capturedIds.length === 0) return true;
+			const current = getWorkbenchSnapshot();
+			const captured = capturedIds
+				.map((id) => current.surfaces.find((surface) => surface.id === id))
+				.filter((surface): surface is WorkbenchSurface => Boolean(surface));
+			const warningIds = (state = current) =>
+				new Set(
+					captured
+						.filter((surface) => {
+							const latest = state.surfaces.find(
+								(item) => item.id === surface.id,
+							);
+							const pinned = findWorkbenchTab(state.root, surface.id)?.tab
+								.pinned;
+							const liveTerminal =
+								latest?.kind === "terminal" &&
+								activeTerminalsRef.current.some(
+									(terminal) => terminal.terminalId === latest.terminalId,
+								);
+							return Boolean(latest?.dirty || pinned || liveTerminal);
+						})
+						.map((surface) => surface.id),
+				);
+			const dirtyCount = captured.filter((surface) => surface.dirty).length;
+			const terminalCount = captured.filter(
+				(surface) =>
+					surface.kind === "terminal" &&
+					activeTerminalsRef.current.some(
+						(terminal) => terminal.terminalId === surface.terminalId,
+					),
+			).length;
+			const pinnedCount = captured.filter(
+				(surface) => findWorkbenchTab(current.root, surface.id)?.tab.pinned,
+			).length;
+			const paneCount = new Set(
+				captured
+					.map(
+						(surface) => findWorkbenchTab(current.root, surface.id)?.group.id,
+					)
+					.filter(Boolean),
+			).size;
+			const structural = reason === "pane" || reason === "tile-group";
+			const needsConfirmation =
+				structural || dirtyCount > 0 || terminalCount > 0 || pinnedCount > 0;
+			const initialWarnings = warningIds();
+			if (needsConfirmation) {
+				const confirmed = await dialog.confirm(
+					`Close ${captured.length} ${captured.length === 1 ? "tab" : "tabs"} across ${paneCount} ${paneCount === 1 ? "pane" : "panes"}?\n\nUnsaved: ${dirtyCount} · Live terminals: ${terminalCount} · Pinned: ${pinnedCount}`,
+					reason === "tile-group"
+						? "Close Tile Group"
+						: reason === "pane"
+							? "Close Pane"
+							: "Close Tabs",
+				);
+				if (!confirmed) return false;
+			}
+			if (
+				!(await canCloseWorkbenchSurfaces(capturedIds, {
+					reason,
+					destructiveConfirmed: needsConfirmation,
+				}))
+			) {
+				return false;
+			}
+			const latestWarnings = warningIds(getWorkbenchSnapshot());
+			const newlyDestructive = [...latestWarnings].some(
+				(id) => !initialWarnings.has(id),
+			);
+			if (
+				newlyDestructive &&
+				!(await dialog.confirm(
+					"One or more tabs became destructive while confirmation was open. Review and close the captured tabs?",
+					"Tabs Changed",
+				))
+			) {
+				return false;
+			}
+			for (const surface of captured) {
+				if (
+					surface.kind === "terminal" &&
+					activeTerminalsRef.current.some(
+						(terminal) => terminal.terminalId === surface.terminalId,
+					)
+				) {
 					closeTerminal(surface.terminalId);
 				}
 			}
-			return closeWorkbenchSurface(surface.id);
+			return commitCloseWorkbenchSurfaces(capturedIds);
 		},
-		[activeTerminals, closeTerminal],
-	);
-	const closeSurfaces = useCallback(
-		async (surfaces: WorkbenchSurface[]) => {
-			for (const surface of surfaces) {
-				if (!(await closeSurface(surface))) return false;
-			}
-			return true;
-		},
-		[closeSurface],
+		[closeTerminal],
 	);
 
 	const runDesktopMenuCommand = useCallback(
@@ -405,7 +526,7 @@ export default function DesktopShell({
 					await saveWorkbenchSurface(snapshot.activeId);
 					break;
 				case "close-tab": {
-					const surface = snapshot.tabs.find(
+					const surface = snapshot.surfaces.find(
 						(candidate) => candidate.id === snapshot.activeId,
 					);
 					if (surface) await closeSurface(surface);
@@ -472,6 +593,15 @@ export default function DesktopShell({
 	const persistSidebarWidth = useCallback((nextWidth: number) => {
 		localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
 	}, []);
+	const persistSecondarySidebarWidth = useCallback(
+		(nextWidth: number) => {
+			localStorage.setItem(
+				secondarySidebarWidthKey(hostId),
+				String(nextWidth),
+			);
+		},
+		[hostId],
+	);
 
 	nativeCommandHandlerRef.current = (command) => {
 		if (command === "settings") {
@@ -585,7 +715,12 @@ export default function DesktopShell({
 						)}
 					</div>
 					<div className="workbench-activity-footer">
-						<DesktopProfileMenu onOpen={(page) => openUtility(page)} />
+						<DesktopProfileMenu
+							onOpen={(page) => {
+								if (page === "agents") showAgentsSidebar();
+								else openUtility(page);
+							}}
+						/>
 					</div>
 				</nav>
 
@@ -597,7 +732,16 @@ export default function DesktopShell({
 						<div className="workbench-sidebar-content">
 							{activity === "remote" && <LocalCliDashboard />}
 							{activity === "home" && <HomeTab showAccount={false} />}
-							{activity === "projects" && <ProjectSidebar />}
+							{projectsVisited && (
+								<div
+									className="h-full min-h-0"
+									hidden={activity !== "projects"}
+									inert={activity !== "projects"}
+									aria-hidden={activity !== "projects"}
+								>
+									<ProjectSidebar gitStates={gitWorkspace.states} />
+								</div>
+							)}
 							{activity === "git" && (
 								<DesktopGitSidebar
 									workspace={gitWorkspace}
@@ -626,158 +770,36 @@ export default function DesktopShell({
 				)}
 
 				<main className="workbench-main">
-					<div className="workbench-tab-strip">
-						<div
-							className="workbench-tabs-scroll"
-							role="tablist"
-							aria-label="Open views"
-							onWheel={(event) => {
-								redirectVerticalWheelToHorizontal(event);
-							}}
-						>
-							{workbench.tabs.map((surface) => (
-								<div
-									key={surface.id}
-									className={`workbench-tab${workbench.activeId === surface.id ? " active" : ""}${surface.dirty ? " is-dirty" : ""}`}
-									onContextMenu={(event) => {
-										const index = workbench.tabs.findIndex(
-											(candidate) => candidate.id === surface.id,
-										);
-										const path =
-											surface.kind === "editor" ? surface.filePath : null;
-										void showContextMenuForEvent(event, {
-											menuId: "workbench-tab",
-											target: {
-												handlers: {
-													"tab.close": { run: () => closeSurface(surface) },
-													"tab.closeOthers": {
-														run: () =>
-															closeSurfaces(
-																workbench.tabs.filter(
-																	(candidate) => candidate.id !== surface.id,
-																),
-															),
-														enabled: workbench.tabs.length > 1,
-													},
-													"tab.closeRight": {
-														run: () =>
-															closeSurfaces(workbench.tabs.slice(index + 1)),
-														enabled:
-															index >= 0 && index < workbench.tabs.length - 1,
-													},
-													"tab.closeAll": {
-														run: () => closeSurfaces([...workbench.tabs]),
-														enabled: workbench.tabs.length > 0,
-													},
-													"resource.copyPath": {
-														run: () => path && copyToClipboard({ text: path }),
-														visible: Boolean(path),
-													},
-													"resource.reveal": {
-														run: () => path && native.revealLocalPath(path),
-														visible: Boolean(
-															path &&
-																getConnectionSnapshot().transport === "local",
-														),
-													},
-												},
-											},
-										});
-									}}
-								>
-									<button
-										ref={
-											workbench.activeId === surface.id
-												? activeTabRef
-												: undefined
-										}
-										type="button"
-										role="tab"
-										aria-selected={workbench.activeId === surface.id}
-										onClick={() => activateWorkbenchSurface(surface.id)}
-									>
-										{surface.kind === "editor" ? (
-											<ShellularFileIcon
-												path={surface.filePath}
-												className="workbench-file-icon size-4 shrink-0"
-											/>
-										) : (
-											<span className={surface.icon} />
-										)}
-										<span>
-											{surfaceTitle(surface, terminalNames, terminalProcesses)}
-										</span>
-									</button>
-									{workbench.activeId === surface.id ? (
-										<button
-											type="button"
-											className="workbench-tab-close"
-											aria-label={`Close ${surface.title}`}
-											onClick={() => closeSurface(surface)}
-										>
-											{surface.dirty ? (
-												<>
-													<span className="workbench-tab-dirty-icon icon-circle" />
-													<span className="workbench-tab-dirty-close icon-x" />
-												</>
-											) : (
-												<span className="icon-x" />
-											)}
-										</button>
-									) : surface.dirty ? (
-										<span
-											className="workbench-tab-dirty-indicator icon-circle"
-											role="img"
-											aria-label={`${surface.title} has unsaved changes`}
-										/>
-									) : null}
-								</div>
-							))}
-						</div>
-						<div
-							className="workbench-page-title-target"
-							ref={setChromeTitleTarget}
-						/>
-						<div
-							className="workbench-page-nav-slot"
-							ref={setChromeNavigationTarget}
-						/>
-						<div
-							className="workbench-page-actions-target"
-							ref={setChromeActionsTarget}
-						/>
-					</div>
-					<div className="workbench-editor-area">
-						{workbench.tabs.length === 0 && (
+					<WorkbenchLayout
+						snapshot={workbench}
+						compact={compact}
+						surfaceTitle={(surface) =>
+							surfaceTitle(surface, terminalNames, terminalProcesses)
+						}
+						renderSurface={(surface) => <SurfaceRenderer surface={surface} />}
+						renderWelcome={() => (
 							<WorkbenchWelcome
+								projects={projects}
+								agents={agents}
 								onNewTerminal={newTerminal}
 								onNewChat={() => requestNewChat()}
 								onOpenProject={() => {
 									openProjectPicker();
 									showActivity("projects");
 								}}
+								onOpenSettings={() => openUtility("settings")}
 							/>
 						)}
-						{workbench.tabs.map((surface) => (
-							<section
-								key={surface.id}
-								className="workbench-surface"
-								aria-hidden={workbench.activeId !== surface.id}
-								style={{
-									display:
-										workbench.activeId === surface.id ? undefined : "none",
-								}}
-							>
-								<WorkbenchPageChromeProvider
-									active={workbench.activeId === surface.id}
-									targets={chromeTargets}
-								>
-									<SurfaceRenderer surface={surface} />
-								</WorkbenchPageChromeProvider>
-							</section>
-						))}
-					</div>
+						onCloseSurface={closeSurface}
+						onCloseSurfaces={closeSurfaces}
+					/>
 				</main>
+				<DesktopSecondarySidebar
+					width={secondarySidebarWidth}
+					overlay={secondarySidebarOverlay}
+					onResize={setSecondarySidebarWidth}
+					onResizeEnd={persistSecondarySidebarWidth}
+				/>
 				<DesktopDialogHost surface={workbench.dialog} />
 				<ContextMenuHost />
 				{showNewChat && (
@@ -854,87 +876,6 @@ function ActivityButton({
 				</span>
 			) : null}
 		</button>
-	);
-}
-
-function WorkbenchWelcome({
-	onNewTerminal,
-	onNewChat,
-	onOpenProject,
-}: {
-	onNewTerminal: () => void;
-	onNewChat: () => void;
-	onOpenProject: () => void;
-}) {
-	const { projects } = useShellular();
-	const [recent, setRecent] = useState<
-		Array<ChatTab & { projectPath: string }>
-	>([]);
-	useEffect(() => {
-		const refresh = () => {
-			setRecent(
-				projects
-					.flatMap((project) =>
-						getChatTabs(project.path).map((tab) => ({
-							...tab,
-							projectPath: project.path,
-						})),
-					)
-					.sort((a, b) => b.updatedAt - a.updatedAt)
-					.slice(0, 5),
-			);
-		};
-		refresh();
-		return subscribeChatTabs(refresh);
-	}, [projects]);
-	const openRecent = (tab: ChatTab & { projectPath: string }) => {
-		openWorkbenchSurface({
-			kind: "chat",
-			id: tab.id,
-			title: tab.title,
-			icon: getAgentIcon(tab.agentId),
-			agentId: tab.agentId,
-			sessionId: tab.sessionId,
-			workspacePath: tab.projectPath,
-			createOnFirstMessage: !tab.sessionId,
-		});
-	};
-	return (
-		<div className="workbench-welcome">
-			<span className="icon-shellular workbench-welcome-logo" />
-			<h1>Shellular</h1>
-			<p>Your projects, agents, chats, and terminals in one workspace.</p>
-			<div className="workbench-welcome-actions">
-				<button type="button" onClick={onNewTerminal}>
-					<span className="icon-terminal" />
-					New Terminal
-				</button>
-				<button type="button" onClick={onNewChat}>
-					<span className="icon-ai-chat" />
-					New Chat
-				</button>
-				<button type="button" onClick={onOpenProject}>
-					<span className="icon-folder" />
-					Open Project
-				</button>
-				<button type="button" onClick={() => openUtility("settings")}>
-					<span className="icon-settings" />
-					Settings
-				</button>
-			</div>
-			{recent.length > 0 && (
-				<div className="workbench-recent">
-					<h2>Recent chats</h2>
-					{recent.map((tab) => (
-						<button type="button" key={tab.id} onClick={() => openRecent(tab)}>
-							<span className={getAgentIcon(tab.agentId)} />
-							<span>{tab.title}</span>
-							<small>{tab.projectPath.split("/").pop()}</small>
-						</button>
-					))}
-				</div>
-			)}
-		</div>
 	);
 }
 

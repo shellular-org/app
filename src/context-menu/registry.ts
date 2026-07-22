@@ -124,6 +124,48 @@ const DEFINITIONS: CommandDefinition[] = [
 		danger: true,
 	},
 	{
+		id: "tab.pin",
+		label: "Pin Tab",
+		icon: "icon-pin",
+		macSymbol: "pin",
+	},
+	{
+		id: "tab.unpin",
+		label: "Unpin Tab",
+		icon: "icon-pin-off",
+		macSymbol: "pin.slash",
+	},
+	{
+		id: "tab.moveToPane",
+		label: "Move to Pane…",
+		icon: "icon-arrow-right",
+		macSymbol: "rectangle.portrait.and.arrow.right",
+	},
+	{
+		id: "tab.splitLeft",
+		label: "Split Left",
+		icon: "icon-panel-left",
+		macSymbol: "rectangle.split.2x1",
+	},
+	{
+		id: "tab.splitRight",
+		label: "Split Right",
+		icon: "icon-panel-right",
+		macSymbol: "rectangle.split.2x1",
+	},
+	{
+		id: "tab.splitUp",
+		label: "Split Up",
+		icon: "icon-panel-top",
+		macSymbol: "rectangle.split.1x2",
+	},
+	{
+		id: "tab.splitDown",
+		label: "Split Down",
+		icon: "icon-panel-bottom",
+		macSymbol: "rectangle.split.1x2",
+	},
+	{
 		id: "tab.close",
 		label: "Close",
 		icon: "icon-x",
@@ -147,6 +189,20 @@ const DEFINITIONS: CommandDefinition[] = [
 		label: "Close All",
 		icon: "icon-x-circle",
 		macSymbol: "xmark.rectangle",
+	},
+	{
+		id: "pane.close",
+		label: "Close Pane",
+		icon: "icon-x-square",
+		macSymbol: "rectangle.badge.xmark",
+		danger: true,
+	},
+	{
+		id: "pane.closeTileGroup",
+		label: "Close Tile Group",
+		icon: "icon-grid",
+		macSymbol: "rectangle.split.2x1",
+		danger: true,
 	},
 	{
 		id: "resource.open",
@@ -339,7 +395,16 @@ const MENUS: Record<ContextMenuId, readonly (readonly CommandId[])[]> = {
 		["terminal.rename", "terminal.kill"],
 	],
 	"workbench-tab": [
+		["tab.pin", "tab.unpin"],
+		[
+			"tab.moveToPane",
+			"tab.splitLeft",
+			"tab.splitRight",
+			"tab.splitUp",
+			"tab.splitDown",
+		],
 		["tab.close", "tab.closeOthers", "tab.closeRight", "tab.closeAll"],
+		["pane.close", "pane.closeTileGroup"],
 		["resource.copyPath", "resource.reveal"],
 	],
 	"project-tree-file": [

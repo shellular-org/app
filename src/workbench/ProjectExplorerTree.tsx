@@ -9,24 +9,30 @@ import {
 	useEffect,
 	useMemo,
 	useRef,
+	useState,
 	useSyncExternalStore,
 } from "react";
-import type { ProjectInfo } from "state";
+import type { GitWorkingTreeStatus, ProjectInfo } from "state";
 import { getConnectionSnapshot, getHostInfo } from "state/connection";
 import {
 	createDir,
 	deleteEntry,
 	type FileEntry,
 	renameEntry,
+	searchProjectFiles,
 	writeFile,
 } from "state/filesystem";
 import { tryOpenEditorSurface } from "./openers";
+import { deriveProjectTreeGitStatus } from "./projectTreeGitStatus";
 import {
 	applyProjectTreeMutation,
-	ensureProjectTree,
+	ensureProjectDirectory,
 	getProjectTreeSnapshot,
+	hydrateProjectTreeSearchResults,
 	type ProjectTreeMutation,
-	subscribeProjectTrees,
+	refreshProjectDirectory,
+	refreshProjectExplorer,
+	subscribeProjectTree,
 } from "./projectTreeWorkspace";
 import ShellularFileTree, {
 	type ShellularFileTreeModel,
@@ -36,26 +42,32 @@ export default function ProjectExplorerTree({
 	project,
 	refreshToken,
 	searchToken,
+	gitStatus,
 }: {
 	project: ProjectInfo;
 	refreshToken: number;
 	searchToken: number;
+	gitStatus?: GitWorkingTreeStatus | null;
 }) {
 	const isLocal = getConnectionSnapshot().transport === "local";
+	const subscribe = useCallback(
+		(listener: () => void) => subscribeProjectTree(project.path, listener),
+		[project.path],
+	);
 	const getSnapshot = useCallback(
 		() => getProjectTreeSnapshot(project.path),
 		[project.path],
 	);
-	const snapshot = useSyncExternalStore(
-		subscribeProjectTrees,
-		getSnapshot,
-		getSnapshot,
-	);
-	const refresh = useCallback(
-		() => void ensureProjectTree(project.path, true),
+	const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+	const refreshExplorer = useCallback(
+		() => void refreshProjectExplorer(project.path),
 		[project.path],
 	);
 	const treeModel = useRef<ShellularFileTreeModel | null>(null);
+	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const searchController = useRef<AbortController | null>(null);
+	const searchGeneration = useRef(0);
+	const [searchCompatibility, setSearchCompatibility] = useState(false);
 	const lastRefreshToken = useRef(refreshToken);
 	const lastSearchToken = useRef(searchToken);
 	const attachTreeModel = useCallback(
@@ -70,24 +82,79 @@ export default function ProjectExplorerTree({
 	const onChanged = useCallback(
 		(mutation?: AbsoluteProjectTreeMutation) => {
 			if (!mutation) {
-				refresh();
+				refreshExplorer();
 				return;
 			}
 			const relativeMutation = toRelativeMutation(project.path, mutation);
 			const revision = applyProjectTreeMutation(project.path, relativeMutation);
 			applyModelMutation(treeModel.current, relativeMutation, revision);
 		},
-		[project.path, refresh],
+		[project.path, refreshExplorer],
+	);
+	const refreshEntry = useCallback(
+		(relativePath: string, type: "directory" | "file") => {
+			const directory =
+				type === "directory" ? relativePath : relativeParent(relativePath);
+			void refreshProjectDirectory(project.path, directory);
+		},
+		[project.path],
+	);
+	const loadDirectory = useCallback(
+		(relativePath: string) => {
+			void ensureProjectDirectory(project.path, relativePath, {
+				priority: "user",
+			});
+		},
+		[project.path],
+	);
+	const search = useCallback(
+		(value: string | null) => {
+			if (searchTimer.current) clearTimeout(searchTimer.current);
+			searchController.current?.abort();
+			const generation = ++searchGeneration.current;
+			const query = value?.trim() ?? "";
+			if (!query) {
+				hydrateProjectTreeSearchResults(project.path, []);
+				setSearchCompatibility(false);
+				return;
+			}
+			searchTimer.current = setTimeout(() => {
+				const controller = new AbortController();
+				searchController.current = controller;
+				void searchProjectFiles(project.path, query, {
+					limit: 200,
+					request: { timeoutMs: 15_000, signal: controller.signal },
+				})
+					.then((result) => {
+						if (searchGeneration.current !== generation) return;
+						hydrateProjectTreeSearchResults(project.path, result.entries);
+						setSearchCompatibility(false);
+					})
+					.catch(() => {
+						if (searchGeneration.current !== generation) return;
+						setSearchCompatibility(true);
+					});
+			}, 150);
+		},
+		[project.path],
 	);
 
 	useEffect(() => {
-		void ensureProjectTree(project.path);
+		void ensureProjectDirectory(project.path, "", { priority: "background" });
 	}, [project.path]);
+
+	useEffect(
+		() => () => {
+			if (searchTimer.current) clearTimeout(searchTimer.current);
+			searchController.current?.abort();
+		},
+		[],
+	);
 
 	useEffect(() => {
 		if (lastRefreshToken.current === refreshToken) return;
 		lastRefreshToken.current = refreshToken;
-		void ensureProjectTree(project.path, true);
+		void refreshProjectExplorer(project.path);
 	}, [project.path, refreshToken]);
 
 	useEffect(() => {
@@ -96,35 +163,43 @@ export default function ProjectExplorerTree({
 		treeModel.current.openSearch();
 	}, [searchToken]);
 
+	const gitDecorations = useMemo(
+		() => deriveProjectTreeGitStatus(gitStatus, project.path),
+		[gitStatus, project.path],
+	);
 	const entries = useMemo(
 		() =>
 			snapshot.entries.map((entry) => ({
 				path: entry.relativePath,
 				type: entry.type,
-				gitStatus: entry.gitStatus,
+				gitStatus: gitDecorations.get(entry.relativePath) ?? entry.gitStatus,
 			})),
-		[snapshot.entries],
+		[gitDecorations, snapshot.entries],
 	);
-	const entryByPath = useMemo(
-		() => new Map(snapshot.entries.map((entry) => [entry.relativePath, entry])),
-		[snapshot.entries],
+	const entryByPath = snapshot.entryByPath;
+	const root = snapshot.directories.get("");
+	const loadingDirectories = [...snapshot.directories.entries()].filter(
+		([path, state]) => path && state.status === "loading",
+	);
+	const failedDirectory = [...snapshot.directories.entries()].find(
+		([path, state]) => path && state.status === "error",
 	);
 
-	if (snapshot.loading && entries.length === 0) {
+	if ((!root || root.status === "loading") && entries.length === 0) {
 		return (
 			<div className="flex h-full items-center justify-center gap-2 text-xs text-secondary-text">
-				<Loader size={14} /> Loading project tree…
+				<Loader size={14} /> Loading {project.name}…
 			</div>
 		);
 	}
-	if (snapshot.error && entries.length === 0) {
+	if (root?.status === "error" && entries.length === 0) {
 		return (
 			<button
 				type="button"
 				className="m-2 rounded-md border border-danger/30 bg-danger/10 px-2 py-2 text-left text-xs text-danger"
-				onClick={refresh}
+				onClick={refreshExplorer}
 			>
-				{snapshot.error} · Retry
+				{root.error} · Retry
 			</button>
 		);
 	}
@@ -141,8 +216,12 @@ export default function ProjectExplorerTree({
 				cacheKey={`project:${getHostInfo()?.id ?? "local"}:${project.path}`}
 				revision={snapshot.revision}
 				entries={entries}
-				onRetry={refresh}
+				presorted
+				incremental
+				onRetry={refreshExplorer}
 				onModel={attachTreeModel}
+				onDirectoryExpand={loadDirectory}
+				onSearchChange={search}
 				onActivate={(relativePath) => {
 					const entry = entryByPath.get(relativePath);
 					if (!entry || entry.type !== "file") return;
@@ -151,7 +230,7 @@ export default function ProjectExplorerTree({
 						id: `editor:${filePath}`,
 						filePath,
 						title: relativePath.split("/").pop(),
-						gitStatus: entry.gitStatus,
+						gitStatus: gitDecorations.get(relativePath) ?? entry.gitStatus,
 					});
 				}}
 				actionsForItem={(relativePath, type) => {
@@ -163,7 +242,9 @@ export default function ProjectExplorerTree({
 							id: `editor:${absolutePath}`,
 							filePath: absolutePath,
 							title: name,
-							gitStatus: entryByPath.get(relativePath)?.gitStatus,
+							gitStatus:
+								gitDecorations.get(relativePath) ??
+								entryByPath.get(relativePath)?.gitStatus,
 						});
 					};
 					const entries = buildEntryMenu(
@@ -171,6 +252,7 @@ export default function ProjectExplorerTree({
 						absolutePath,
 						isLocal,
 						onChanged,
+						() => refreshEntry(relativePath, type),
 					);
 					return [
 						...(type === "file"
@@ -206,10 +288,30 @@ export default function ProjectExplorerTree({
 					];
 				}}
 			/>
-			{snapshot.loading && (
-				<div className="pointer-events-none absolute right-2 top-2 rounded bg-popup-background/90 p-1 shadow">
-					<Loader size={12} />
+			{loadingDirectories.length > 0 && (
+				<div
+					className="pointer-events-none absolute right-2 top-2 flex items-center gap-1.5 rounded bg-popup-background/90 px-2 py-1 text-[11px] text-secondary-text shadow"
+					role="status"
+				>
+					<Loader size={12} /> Loading {basename(loadingDirectories[0][0])}…
 				</div>
+			)}
+			{failedDirectory && (
+				<button
+					type="button"
+					className="absolute bottom-2 left-2 right-2 rounded border border-danger/30 bg-popup-background/95 px-2 py-1.5 text-left text-[11px] text-danger shadow"
+					onClick={() =>
+						void refreshProjectDirectory(project.path, failedDirectory[0])
+					}
+				>
+					Couldn’t load {basename(failedDirectory[0])}:{" "}
+					{failedDirectory[1].error}· Retry
+				</button>
+			)}
+			{searchCompatibility && (
+				<p className="absolute bottom-2 left-2 right-2 m-0 rounded bg-popup-background/95 px-2 py-1.5 text-[11px] text-secondary-text shadow">
+					Global search needs a newer CLI. Showing loaded folders only.
+				</p>
 			)}
 		</div>
 	);
@@ -232,6 +334,7 @@ function buildEntryMenu(
 	path: string,
 	isLocal: boolean,
 	onChanged: (mutation?: AbsoluteProjectTreeMutation) => void,
+	onRefresh: () => void,
 ): AppMenuItem[] {
 	const directoryItems: AppMenuItem[] =
 		entry.type === "directory"
@@ -269,7 +372,7 @@ function buildEntryMenu(
 		{
 			icon: "icon-refresh-cw",
 			label: "Refresh",
-			onClick: onChanged,
+			onClick: onRefresh,
 		},
 		{
 			icon: "icon-trash",
@@ -376,6 +479,15 @@ function parentPath(path: string) {
 	const separator = path.includes("\\") ? "\\" : "/";
 	const index = path.lastIndexOf(separator);
 	return index <= 0 ? separator : path.slice(0, index);
+}
+
+function relativeParent(path: string) {
+	const index = path.lastIndexOf("/");
+	return index < 0 ? "" : path.slice(0, index);
+}
+
+function basename(path: string) {
+	return path.slice(path.lastIndexOf("/") + 1) || "folder";
 }
 
 type AbsoluteProjectTreeMutation =

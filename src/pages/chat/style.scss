@@ -272,7 +272,7 @@
   }
 }
 
-// ─── Chat sidebar (slides in from the right) ───────────────────
+// ─── Chat navigation content ───────────────────────────────────
 .chat-sidebar-toggle {
   position: relative;
   display: inline-flex;
@@ -285,109 +285,13 @@
   background: transparent;
   border: none;
 
+	&:hover,
+	&[data-active="true"] {
+		background: var(--surface-soft);
+	}
+
   span[class^="icon-"] {
     font-size: 20px;
-  }
-}
-
-.project-chat-drawer {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-
-  .project-chat-drawer-backdrop {
-    position: absolute;
-    inset: 0;
-    border: none;
-    padding: 0;
-    background: rgba(0, 0, 0, 0.46);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    opacity: 0;
-    transition: opacity 200ms ease;
-  }
-
-  .project-chat-drawer-panel {
-    position: absolute;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(86vw, 360px);
-    display: flex;
-    flex-direction: column;
-    background: var(--popup-background, var(--primary));
-    border-left: 1px solid var(--popup-border-color, var(--card-border));
-    box-shadow: -18px 0 50px var(--shadow-color, rgba(0, 0, 0, 0.4));
-    padding-top: var(--sat, 0px);
-    padding-right: var(--sar, 0px);
-    padding-bottom: var(--sab, 0px);
-    transform: translateX(100%);
-    transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
-    will-change: transform;
-  }
-
-  &.is-open {
-    .project-chat-drawer-backdrop {
-      opacity: 1;
-    }
-    .project-chat-drawer-panel {
-      transform: translateX(0);
-    }
-  }
-
-  &.is-closing {
-    .project-chat-drawer-backdrop {
-      opacity: 0;
-    }
-    .project-chat-drawer-panel {
-      transform: translateX(100%);
-    }
-  }
-}
-
-.project-chat-drawer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 14px 12px 12px 16px;
-  border-bottom: 1px solid var(--card-border);
-
-  .project-chat-drawer-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--primary-text);
-
-    span:last-child {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    span[class^="icon-"] {
-      color: var(--secondary-text);
-      font-size: 16px;
-    }
-  }
-
-  .project-chat-drawer-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    border: none;
-    background: transparent;
-    color: var(--secondary-text);
-
-    span[class^="icon-"] {
-      font-size: 18px;
-    }
   }
 }
 
@@ -406,7 +310,7 @@
 
 .project-chat-drawer-footer {
   border-top: 1px solid var(--card-border);
-  padding: 12px 12px calc(12px + var(--sab, 0px));
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;

@@ -101,13 +101,15 @@ vi.mock("./integration", () => ({
 }));
 vi.mock("./ProjectExplorerTree", () => ({
 	default: ({
+		project,
 		refreshToken,
 		searchToken,
 	}: {
+		project: { name: string };
 		refreshToken: number;
 		searchToken: number;
 	}) => (
-		<div data-testid="project-tree">
+		<div data-testid="project-tree" data-project={project.name}>
 			Tree {refreshToken} Search {searchToken}
 		</div>
 	),
@@ -135,6 +137,7 @@ const project = {
 beforeEach(() => {
 	vi.clearAllMocks();
 	localStorage.clear();
+	mocks.projects.splice(1);
 });
 afterEach(cleanup);
 
@@ -142,6 +145,23 @@ describe("desktop project pane", () => {
 	it("omits the redundant Open Folder sidebar button", () => {
 		render(<DesktopProjectSidebar />);
 		expect(screen.queryByRole("button", { name: "Open Folder" })).toBeNull();
+	});
+
+	it("loads only the first project for a new unsaved layout", () => {
+		mocks.projects.push({
+			name: "Beta",
+			path: "/work/beta",
+			gitInfo: { hasGit: false },
+		});
+		render(<DesktopProjectSidebar />);
+		expect(screen.getAllByTestId("project-tree")).toHaveLength(1);
+		expect(screen.getByTestId("project-tree")).toHaveAttribute(
+			"data-project",
+			"Alpha",
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Beta" }));
+		expect(screen.getAllByTestId("project-tree")).toHaveLength(2);
 	});
 
 	it("reads the previous macOS layout as a migration fallback", () => {

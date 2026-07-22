@@ -1,3 +1,4 @@
+import type { AuthedClientInfo } from "@shellular/protocol";
 import bridge from "./bridge";
 
 export type LocalCliClientMutation =
@@ -43,6 +44,10 @@ export type LocalCliTicketResponse = {
 	encryptionKey: string;
 	protocolVersion: number;
 };
+export type LocalCliTicketClient = Omit<
+	AuthedClientInfo,
+	"hostId" | "platform"
+> & { platform: "macos" };
 
 const local = bridge("LocalCLI");
 
@@ -56,7 +61,7 @@ export default {
 	capability: () => local("capability") as Promise<LocalCliCapability>,
 	ensureRunning: () => local("ensureRunning") as Promise<LocalCliSnapshot>,
 	status: () => local("status") as Promise<LocalCliSnapshot>,
-	ticket: (client: Record<string, unknown>) =>
+	ticket: (client: LocalCliTicketClient) =>
 		local("ticket", [
 			{ protocolVersion: 1, client },
 		]) as Promise<LocalCliTicketResponse>,

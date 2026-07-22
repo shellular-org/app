@@ -1,7 +1,9 @@
 import {
+	type FileTreeBatchOperation,
 	FileTree as FileTreeModel,
 	type GitStatusEntry,
 	prepareFileTreeInput,
+	preparePresortedFileTreeInput,
 } from "@pierre/trees";
 import { FileTree } from "@pierre/trees/react";
 import { showContextMenu } from "context-menu/service";
@@ -54,6 +56,7 @@ export interface ShellularFileTreeModel {
 	): void;
 	closeSearch(): void;
 	getSearchMatchingPaths(): string[];
+	expand(path: string): void;
 	move(
 		fromPath: string,
 		toPath: string,
@@ -88,6 +91,10 @@ interface ShellularFileTreeProps {
 	onModel?: (model: ShellularFileTreeModel | null) => void;
 	onError?: (error: Error) => void;
 	onRetry?: () => void;
+	onDirectoryExpand?: (path: string) => void;
+	onSearchChange?: (value: string | null) => void;
+	presorted?: boolean;
+	incremental?: boolean;
 }
 
 type TreeRevision = number | string;
@@ -101,8 +108,11 @@ interface CachedTreeModel {
 	lastUsed: number;
 	disposeTimer: ReturnType<typeof setTimeout> | null;
 	persistent: boolean;
+	paths: Set<string>;
+	updateGeneration: number;
 	handlers: {
 		onSelectionChange?: (paths: readonly string[]) => void;
+		onSearchChange?: (value: string | null) => void;
 	};
 }
 
@@ -124,6 +134,10 @@ export default function ShellularFileTree({
 	onModel,
 	onError,
 	onRetry,
+	onDirectoryExpand,
+	onSearchChange,
+	presorted = false,
+	incremental = false,
 }: ShellularFileTreeProps) {
 	const transientKey = useRef<string | null>(null);
 	if (!transientKey.current) {
@@ -134,10 +148,14 @@ export default function ShellularFileTree({
 	const activateRef = useRef(onActivate);
 	const contextMenuTriggerRef = useRef<ContextMenuTrigger>("keyboard");
 	const selectionRef = useRef(onSelectionChange);
+	const directoryExpandRef = useRef(onDirectoryExpand);
+	const searchChangeRef = useRef(onSearchChange);
 	const [treeError, setTreeError] = useState<Error | null>(null);
 	const [retryToken, setRetryToken] = useState(0);
 	activateRef.current = onActivate;
 	selectionRef.current = onSelectionChange;
+	directoryExpandRef.current = onDirectoryExpand;
+	searchChangeRef.current = onSearchChange;
 	const reportError = useCallback(
 		(error: unknown) => {
 			const resolved =
@@ -183,11 +201,15 @@ export default function ShellularFileTree({
 	const { model } = cachedTree;
 	cachedTree.handlers.onSelectionChange = (paths) =>
 		selectionRef.current?.(paths.map(normalizePath));
+	cachedTree.handlers.onSearchChange = (value) =>
+		searchChangeRef.current?.(value);
 	const shellularModel = useMemo<ShellularFileTreeModel>(
 		() => ({
 			add: (path, type, nextRevision) => {
 				try {
-					model.add(canonicalPath(path, type));
+					const canonical = canonicalPath(path, type);
+					model.add(canonical);
+					cachedTree.paths.add(canonical);
 					if (nextRevision !== undefined) cachedTree.revision = nextRevision;
 				} catch (error) {
 					reportError(error);
@@ -202,12 +224,21 @@ export default function ShellularFileTree({
 			},
 			getSearchMatchingPaths: () =>
 				model.getSearchMatchingPaths().map(normalizePath),
+			expand: (path) => {
+				try {
+					const item = model.getItem(canonicalPath(path, "directory"));
+					if (item?.isDirectory() && "expand" in item) item.expand();
+				} catch (error) {
+					reportError(error);
+				}
+			},
 			move: (fromPath, toPath, type, nextRevision) => {
 				try {
 					model.move(
 						canonicalPath(fromPath, type),
 						canonicalPath(toPath, type),
 					);
+					moveCachedPaths(cachedTree.paths, fromPath, toPath);
 					if (nextRevision !== undefined) cachedTree.revision = nextRevision;
 				} catch (error) {
 					reportError(error);
@@ -223,6 +254,7 @@ export default function ShellularFileTree({
 			remove: (path, type, nextRevision) => {
 				try {
 					model.remove(canonicalPath(path, type), { recursive: true });
+					removeCachedPaths(cachedTree.paths, path);
 					if (nextRevision !== undefined) cachedTree.revision = nextRevision;
 				} catch (error) {
 					reportError(error);
@@ -240,6 +272,15 @@ export default function ShellularFileTree({
 		}
 		if (cachedTree.revision === (revision ?? null)) return;
 		try {
+			if (incremental && cachedTree.revision !== undefined) {
+				void reconcileTreeModel(
+					cachedTree,
+					canonicalPaths,
+					revision ?? null,
+					reportError,
+				);
+				return;
+			}
 			const expanded = canonicalPaths.filter((path) => {
 				const item = model.getItem(path);
 				return item?.isDirectory() && "isExpanded" in item
@@ -247,10 +288,12 @@ export default function ShellularFileTree({
 					: false;
 			});
 			const selected = model.getSelectedPaths().map(normalizePath);
-			const preparedInput = prepareFileTreeInput(canonicalPaths);
+			const preparedInput = presorted
+				? preparePresortedFileTreeInput(canonicalPaths)
+				: prepareFileTreeInput(canonicalPaths);
 			model.resetPaths({ preparedInput, initialExpandedPaths: expanded });
+			cachedTree.paths = new Set(canonicalPaths);
 			cachedTree.resetCount += 1;
-			model.setGitStatus(gitStatus);
 			for (const path of selected) model.getItem(path)?.select();
 			cachedTree.revision = revision ?? null;
 			setTreeError(null);
@@ -260,13 +303,22 @@ export default function ShellularFileTree({
 	}, [
 		cachedTree,
 		canonicalPaths,
-		gitStatus,
+		incremental,
 		model,
+		presorted,
 		reportError,
 		retryToken,
 		revision,
 		validationError,
 	]);
+
+	useEffect(() => {
+		try {
+			model.setGitStatus(gitStatus);
+		} catch (error) {
+			reportError(error);
+		}
+	}, [gitStatus, model, reportError]);
 
 	useEffect(() => {
 		acquireTreeModel(cachedTree);
@@ -302,7 +354,12 @@ export default function ShellularFileTree({
 						return;
 					}
 					const path = itemPathFromEvent(event);
-					if (!path || entryByPath.get(path)?.type !== "file") return;
+					const entry = path ? entryByPath.get(path) : undefined;
+					if (!path || !entry) return;
+					if (entry.type === "directory") {
+						directoryExpandRef.current?.(path);
+						return;
+					}
 					activateRef.current(path);
 				}}
 				onKeyDown={(event) => {
@@ -312,9 +369,15 @@ export default function ShellularFileTree({
 					) {
 						contextMenuTriggerRef.current = "keyboard";
 					}
-					if (event.key !== "Enter") return;
+					if (event.key !== "Enter" && event.key !== "ArrowRight") return;
 					const path = normalizePath(model.getFocusedPath() ?? "");
-					if (!path || entryByPath.get(path)?.type !== "file") return;
+					const entry = entryByPath.get(path);
+					if (!path || !entry) return;
+					if (entry.type === "directory") {
+						directoryExpandRef.current?.(path);
+						return;
+					}
+					if (event.key !== "Enter") return;
 					event.preventDefault();
 					activateRef.current(path);
 				}}
@@ -431,6 +494,91 @@ function validateEntries(entries: ShellularTreeEntry[]) {
 	return null;
 }
 
+async function reconcileTreeModel(
+	cachedTree: CachedTreeModel,
+	targetPaths: readonly string[],
+	revision: TreeRevision | null,
+	reportError: (error: unknown) => void,
+) {
+	const generation = ++cachedTree.updateGeneration;
+	const target = new Set(targetPaths);
+	const removed = [...cachedTree.paths].filter((path) => !target.has(path));
+	const rootRemovals = removed.filter((path) => {
+		const normalized = normalizePath(path);
+		return !removed.some((candidate) => {
+			const parent = normalizePath(candidate);
+			return parent !== normalized && normalized.startsWith(`${parent}/`);
+		});
+	});
+	const operations: FileTreeBatchOperation[] = [
+		...rootRemovals.map(
+			(path): FileTreeBatchOperation => ({
+				type: "remove",
+				path,
+				recursive: true,
+			}),
+		),
+		...targetPaths
+			.filter((path) => !cachedTree.paths.has(path))
+			.map((path): FileTreeBatchOperation => ({ type: "add", path })),
+	];
+	try {
+		for (let index = 0; index < operations.length; index += 500) {
+			if (cachedTree.updateGeneration !== generation) return;
+			const batch = operations.slice(index, index + 500);
+			cachedTree.model.batch(batch);
+			for (const operation of batch) {
+				if (operation.type === "add") cachedTree.paths.add(operation.path);
+				else if (operation.type === "remove") {
+					removeCachedPaths(cachedTree.paths, operation.path);
+				}
+			}
+			if (operations.length > 500 && index + 500 < operations.length) {
+				await yieldToBrowser();
+			}
+		}
+		if (cachedTree.updateGeneration !== generation) return;
+		cachedTree.paths = target;
+		cachedTree.revision = revision;
+	} catch (error) {
+		cachedTree.revision = undefined;
+		reportError(error);
+	}
+}
+
+function removeCachedPaths(paths: Set<string>, path: string) {
+	const normalized = normalizePath(path);
+	for (const candidate of [...paths]) {
+		const candidatePath = normalizePath(candidate);
+		if (
+			candidatePath === normalized ||
+			candidatePath.startsWith(`${normalized}/`)
+		) {
+			paths.delete(candidate);
+		}
+	}
+}
+
+function moveCachedPaths(paths: Set<string>, fromPath: string, toPath: string) {
+	const from = normalizePath(fromPath);
+	const to = normalizePath(toPath);
+	const replacements: Array<[string, string]> = [];
+	for (const candidate of paths) {
+		const normalized = normalizePath(candidate);
+		if (normalized !== from && !normalized.startsWith(`${from}/`)) continue;
+		const next = `${to}${normalized.slice(from.length)}`;
+		replacements.push([candidate, candidate.endsWith("/") ? `${next}/` : next]);
+	}
+	for (const [previous, next] of replacements) {
+		paths.delete(previous);
+		paths.add(next);
+	}
+}
+
+function yieldToBrowser() {
+	return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 function selectedContextPaths(model: FileTreeModel, contextPath: string) {
 	const path = normalizePath(contextPath);
 	const selected = model.getSelectedPaths().map(normalizePath);
@@ -459,6 +607,7 @@ function getOrCreateTreeModel(
 			stickyFolders: true,
 			unsafeCSS: TREE_UNSAFE_STYLE,
 			onSelectionChange: (paths) => handlers.onSelectionChange?.(paths),
+			onSearchChange: (value) => handlers.onSearchChange?.(value),
 		}),
 		revision: undefined,
 		resetCount: 0,
@@ -466,6 +615,8 @@ function getOrCreateTreeModel(
 		lastUsed: Date.now(),
 		disposeTimer: null,
 		persistent,
+		paths: new Set(),
+		updateGeneration: 0,
 		handlers,
 	};
 	treeModels.set(key, entry);
@@ -514,6 +665,7 @@ function disposeTreeModel(key: string) {
 	if (!entry || entry.refCount > 0) return;
 	if (entry.disposeTimer) clearTimeout(entry.disposeTimer);
 	entry.handlers.onSelectionChange = undefined;
+	entry.handlers.onSearchChange = undefined;
 	entry.model.cleanUp();
 	treeModels.delete(key);
 }
@@ -526,6 +678,7 @@ export function pruneShellularFileTreeCache(
 	for (const [key, entry] of treeModels) {
 		if (!key.startsWith(`${namespace}:`) || active.has(key)) continue;
 		if (entry.refCount === 0) disposeTreeModel(key);
+		else entry.persistent = false;
 	}
 }
 
