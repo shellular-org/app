@@ -5,6 +5,7 @@ import {
 	type AiAttachmentWriteResultMsg,
 	type AiBackend,
 	type AiEventMsg,
+	type AiMessagesListResultMsg,
 	type AiPermissionReplyAckMsg,
 	type AiPromptMsg,
 	type AiSession,
@@ -279,6 +280,21 @@ export async function acpAttachSession(
 		revision: result.data.revision,
 		syncing: result.data.syncing,
 	};
+}
+
+export async function acpLoadOlderMessages(
+	agentId: AiBackend,
+	sessionId: string,
+	cwd: string,
+	cursor: string,
+	limit: number,
+): Promise<AcpMessage[]> {
+	const result = await sendRequest<AiMessagesListResultMsg>({
+		type: MsgType.AI_MESSAGES_LIST,
+		data: { backend: agentId, sessionId, cwd, cursor, limit },
+	} as SendableMsg);
+	assertNoError(result);
+	return (result.data?.messages ?? []) as AcpMessage[];
 }
 
 export async function acpDetachSession(
