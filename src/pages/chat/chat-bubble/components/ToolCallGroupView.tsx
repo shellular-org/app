@@ -23,7 +23,11 @@ export default function ToolCallGroupView({
 			summary={(open) => (
 				<>
 					<span className="icon-tool" aria-hidden="true" />
-					<span>{open ? "Hide tools" : "Show tools"}</span>
+					<span>
+						{open
+							? "Hide tools"
+							: `${parts.length} tool ${parts.length === 1 ? "call" : "calls"}`}
+					</span>
 					<Status status={status} />
 				</>
 			)}

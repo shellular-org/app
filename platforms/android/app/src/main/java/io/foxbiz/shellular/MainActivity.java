@@ -230,7 +230,12 @@ public class MainActivity extends AppCompatActivity {
         long now = System.currentTimeMillis();
         boolean wasLongPause = lastPausedTime > 0 && (now - lastPausedTime) > PAUSE_THRESHOLD_MS;
 
-        if (wasLongPause && appView != null) {
+        // A sign-in detour (account picker, 2FA, password manager) routinely runs
+        // past the pause threshold. Reloading here would destroy the JS context
+        // holding the in-flight openForAuth promise and silently drop a sign-in
+        // the user already completed, stranding them on the login screen.
+        if (wasLongPause && appView != null
+                && !io.foxbiz.shellular.browser.BrowserService.isAuthFlowInFlight()) {
             appView.reload();
             appView.invalidate();
         }

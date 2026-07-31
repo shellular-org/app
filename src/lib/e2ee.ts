@@ -1,5 +1,18 @@
+import { gunzipSync, gzipSync } from "fflate";
 import sodium from "libsodium-wrappers";
 
+/**
+ * Below this, gzip's header outweighs what it saves. Mirrors the CLI's
+ * threshold; the two do not need to agree (each message is self-describing via
+ * `enc`), but keeping them equal makes the wire behaviour predictable.
+ */
+const COMPRESS_MIN_BYTES = 4 * 1024;
+
+/**
+ * fflate is used rather than the native DecompressionStream API because the
+ * inbound message path is synchronous — going async there would restructure
+ * every caller of decryptMessage for no benefit.
+ */
 let _ready = false;
 const PROXY_BINARY_MAGIC = new Uint8Array([0x53, 0x48, 0x50, 0x42]);
 const PROXY_BINARY_VERSION = 1;
@@ -60,6 +73,8 @@ export interface EncryptedEnvelope {
 	type: "encrypted";
 	nonce: string;
 	ciphertext: string;
+	/** Encoding applied before encryption. Absent = raw UTF-8 JSON. */
+	enc?: "gzip";
 }
 
 export interface ProxyBinaryHttpResponseData {
@@ -74,19 +89,31 @@ export interface ProxyBinaryHttpResponseData {
  * Encrypt a fully-formed message object (already has `id`).
  * Returns the encrypted envelope to send on the wire.
  */
+/**
+ * @param allowCompression whether the connected CLI can decode `enc: "gzip"`.
+ *   Defaults to false so any caller that has not established the host's
+ *   capabilities emits the universally-readable format.
+ */
 export function encryptMessage(
 	msg: { id: string; type: string },
 	key: Uint8Array,
+	allowCompression = false,
 ): EncryptedEnvelope {
 	const plaintext = JSON.stringify(msg);
 	const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
-	const ciphertext = sodium.crypto_secretbox_easy(plaintext, nonce, key);
+	// Compress before encrypting: ciphertext is incompressible, and the relay
+	// reads only the envelope's routing fields, so this stays end-to-end.
+	const raw = new TextEncoder().encode(plaintext);
+	const compress = allowCompression && raw.byteLength >= COMPRESS_MIN_BYTES;
+	const payload = compress ? gzipSync(raw) : raw;
+	const ciphertext = sodium.crypto_secretbox_easy(payload, nonce, key);
 
 	return {
 		id: msg.id,
 		type: "encrypted",
 		nonce: sodium.to_base64(nonce, sodium.base64_variants.ORIGINAL),
 		ciphertext: sodium.to_base64(ciphertext, sodium.base64_variants.ORIGINAL),
+		...(compress ? { enc: "gzip" as const } : {}),
 	};
 }
 
@@ -95,7 +122,7 @@ export function encryptMessage(
  * Returns the parsed inner message, or `null` on failure (silent drop).
  */
 export function decryptMessage(
-	envelope: { nonce: string; ciphertext: string },
+	envelope: { nonce: string; ciphertext: string; enc?: "gzip" },
 	key: Uint8Array,
 ): Record<string, unknown> | null {
 	try {
@@ -108,6 +135,10 @@ export function decryptMessage(
 			sodium.base64_variants.ORIGINAL,
 		);
 		const plaintext = sodium.crypto_secretbox_open_easy(ciphertext, nonce, key);
+		// No `enc` means a peer that predates compression: raw UTF-8 JSON.
+		if (envelope.enc === "gzip") {
+			return JSON.parse(new TextDecoder().decode(gunzipSync(plaintext)));
+		}
 		return JSON.parse(sodium.to_string(plaintext));
 	} catch {
 		console.warn("[E2EE] Failed to decrypt message, dropping");

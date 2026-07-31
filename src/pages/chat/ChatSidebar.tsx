@@ -22,12 +22,15 @@ export default function ChatSidebar({
 	onClose,
 	workspacePath,
 	activeTabId,
+	currentAgentId,
 }: {
 	open: boolean;
 	onClose: () => void;
 	workspacePath: string;
 	/** Local id of the chat currently being viewed, to highlight it. */
 	activeTabId: string;
+	/** Agent of the chat being viewed, marked in the picker as "current". */
+	currentAgentId?: AiBackend;
 }) {
 	const { agents } = useShellular();
 	const tabs = useChatTabs(workspacePath);
@@ -124,33 +127,51 @@ export default function ChatSidebar({
 							No agents available on this device
 						</p>
 					) : singleAgent ? (
+						// One agent needs no choice, so the action is the primary button
+						// and the agent is named inside it rather than picked.
 						<button
 							type="button"
 							className="project-chat-new-btn haptic-trigger"
 							onClick={() => newChat(singleAgent.id)}
 						>
 							<span className="icon-plus" aria-hidden="true" />
-							New Chat
+							<span>New chat with {singleAgent.title || singleAgent.name}</span>
 						</button>
 					) : (
+						// Every agent is shown as a tappable avatar rather than hidden
+						// behind a menu: the row itself is what tells you this project can
+						// be opened with a different agent than the one you're in. It
+						// stays one line tall and scrolls sideways if agents outgrow it.
 						<>
-							<span className="project-chat-new-label">New chat</span>
-							<div className="project-chat-new-agents">
-								{availableAgents.map((agent) => (
-									<button
-										key={agent.id}
-										type="button"
-										className="project-chat-new-btn project-chat-new-btn--agent haptic-trigger"
-										onClick={() => newChat(agent.id)}
-									>
-										<AgentIcon
-											agent={agent}
-											className="project-chat-new-agent-icon"
-										/>
-										{agent.title || agent.name}
-									</button>
-								))}
-							</div>
+							<span className="project-chat-new-label">
+								Start a new chat with
+							</span>
+							<ul className="project-chat-agent-strip">
+								{availableAgents.map((agent) => {
+									const label = agent.title || agent.name;
+									const current = agent.id === currentAgentId;
+									return (
+										<li key={agent.id}>
+											{/* The button is the only box: it holds the logo and
+											    nothing else. The name lives in `aria-label` and the
+											    tooltip, so screen readers keep it. */}
+											<button
+												type="button"
+												className="project-chat-agent-chip haptic-trigger"
+												onClick={() => newChat(agent.id)}
+												aria-label={`New chat with ${label}`}
+												title={label}
+												data-current={current || undefined}
+											>
+												<AgentIcon
+													agent={agent}
+													className="project-chat-agent-avatar-img"
+												/>
+											</button>
+										</li>
+									);
+								})}
+							</ul>
 						</>
 					)}
 				</div>
