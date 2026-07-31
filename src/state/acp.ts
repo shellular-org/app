@@ -50,6 +50,19 @@ export interface AcpAgentInfo {
 	state: "unavailable" | "starting" | "ready" | "failed" | "exited";
 	installationCommands?: Record<string, InstallationCommand>;
 	custom?: CustomAcpAgentInput;
+	/**
+	 * Config options / slash commands the agent advertised for its most recent
+	 * session, cached on the host. ACP only exposes these once a session exists,
+	 * so a draft chat uses this to render a real toolbar before the first send.
+	 * Advisory: the live session's values replace it as soon as one is created.
+	 */
+	sessionConfig?: {
+		configOptions?: AiSessionConfigOption[];
+		availableCommands?: AcpAvailableCommand[];
+		modes?: unknown;
+		version?: string;
+		updatedAt?: number;
+	};
 }
 
 export type ManagedAcpAgentInfo = AcpAgentInfo & {
