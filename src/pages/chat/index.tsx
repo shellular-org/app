@@ -156,7 +156,7 @@ export default function ChatConversationPage({
 	createOnFirstMessage = false,
 	chatTabId,
 }: ChatConversationPageProps) {
-	const { connectionStatus, hostDir } = useShellular();
+	const { connectionStatus, hostDir, agents } = useShellular();
 	const mobileChatPanel = usePageSecondaryPanel("chat-navigation");
 	const secondarySidebar = useSyncExternalStore(
 		subscribeDesktopSecondarySidebar,
@@ -172,6 +172,10 @@ export default function ChatConversationPage({
 					secondaryRoute.workspacePath === workspacePath,
 			)
 		: mobileChatPanel.isOpen;
+	// Host-cached config from this agent's last live session. A draft chat has no
+	// session to ask, so this is what the toolbar renders until the first send
+	// creates one and the real values arrive.
+	const cachedAgentConfig = agents[agentId]?.sessionConfig;
 	const resolvedWorkspacePath = useMemo(
 		() => normalizeRemoteWorkspacePath(workspacePath, hostDir),
 		[hostDir, workspacePath],
@@ -249,6 +253,15 @@ export default function ChatConversationPage({
 		syncing?: boolean;
 	}> | null>(null);
 	const composerDraftRef = useRef<string>("");
+	// Config picks made in a draft chat, before any session existed to send them
+	// to. Replayed onto the real session right after it is created, keyed by
+	// option id so the last pick for an option wins.
+	const pendingConfigChangesRef = useRef(
+		new Map<
+			string,
+			{ option: AiSessionConfigOption; value: string | boolean }
+		>(),
+	);
 	// Tail of the current turn: the newest assistant message seen. Read-only
 	// bookkeeping — incoming messages never overwrite it.
 	const streamingAssistantIdRef = useRef<string | null>(null);
@@ -848,90 +861,32 @@ export default function ChatConversationPage({
 
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
-		if (createOnFirstMessage) {
+		// A draft chat has no session yet, and deliberately does not create one:
+		// the agent session is spawned lazily by the first send (see handleSend),
+		// so opening a new chat and backing out costs nothing on the host. There
+		// is nothing to attach to or load here — just show an empty, ready
+		// composer.
+		if (createOnFirstMessage && !activeSessionId) {
 			setAllMessages([]);
 			setVisibleCount(PAGE_SIZE);
 			stickToBottomRef.current = true;
 			setHistoryScrollReady(true);
-			setConfigOptions([]);
-			setAvailableCommands([]);
-			if (!agentAvailable) {
-				setLoading(false);
-				return;
-			}
-
-			let cancelled = false;
-			setLoading(true);
-			if (!createSessionPromiseRef.current) {
-				createSessionPromiseRef.current = acpCreateSession(
-					agentId,
-					resolvedWorkspacePath || ".",
-					"",
-				).then(async (result) => {
-					const nextSessionId = result.session.id ?? "";
-					if (!nextSessionId) {
-						return {
-							sessionId: "",
-							configOptions: result.configOptions,
-							availableCommands: result.availableCommands,
-							messages: [],
-							revision: 0,
-							syncing: false,
-						};
-					}
-					const attached = await acpAttachSession(
-						agentId,
-						nextSessionId,
-						resolvedWorkspacePath || ".",
-					);
-					return {
-						sessionId: nextSessionId,
-						configOptions: attached.configOptions,
-						availableCommands: attached.availableCommands,
-						messages: attached.messages,
-						revision: attached.revision,
-						syncing: attached.syncing,
-					};
-				});
-			}
-
-			createSessionPromiseRef.current
-				.then((result) => {
-					if (cancelled) return;
-					if (!result.sessionId) {
-						throw new Error("Unable to create ACP session");
-					}
-					setActiveSessionId(result.sessionId);
-					setConfigOptions(result.configOptions);
-					setAvailableCommands(result.availableCommands);
-					setAllMessages(result.messages);
-					setSyncing(Boolean(result.syncing));
-					cleanupRef.current?.();
-					attachReadyRef.current = true;
-					attachedSessionIdRef.current = result.sessionId;
-					attachedRevisionRef.current = result.revision;
-					cleanupRef.current = acpSubscribeSessionEvents(
-						agentId,
-						result.sessionId,
-						applyRevisionedSessionEvent,
-					);
-					setLoading(false);
-				})
-				.catch((err) => {
-					createSessionPromiseRef.current = null;
-					if (!cancelled) {
-						setError((err as Error).message);
-						setLoading(false);
-					}
-				});
-
-			return () => {
-				cancelled = true;
-				cleanupRef.current?.();
-				cleanupRef.current = null;
-				setLoading(false);
-			};
+			setConfigOptions(cachedAgentConfig?.configOptions ?? []);
+			setAvailableCommands(cachedAgentConfig?.availableCommands ?? []);
+			setContextWindowUsage(null);
+			setHasMoreRemote(false);
+			setLoading(false);
+			setSyncing(false);
+			return;
 		}
+
+		// After a lazy create, the live session lives in activeSessionId while the
+		// `sessionId` prop is still "". handleSend has already attached and
+		// subscribed to it, so re-attaching here would double-subscribe and replay
+		// the turn that is streaming right now.
+		const targetSessionId = sessionId || activeSessionId;
+		if (!targetSessionId) return;
+		if (attachedSessionIdRef.current === targetSessionId) return;
 
 		const hasVisibleMessages = allMessagesLengthRef.current > 0;
 		setLoading(!hasVisibleMessages);
@@ -951,11 +906,11 @@ export default function ChatConversationPage({
 		let cancelled = false;
 		cleanupRef.current = acpSubscribeSessionEvents(
 			agentId,
-			sessionId,
+			targetSessionId,
 			applyRevisionedSessionEvent,
 		);
 
-		acpAttachSession(agentId, sessionId, resolvedWorkspacePath || ".")
+		acpAttachSession(agentId, targetSessionId, resolvedWorkspacePath || ".")
 			.then((result) => {
 				if (cancelled) return;
 				setConfigOptions(result.configOptions);
@@ -964,11 +919,11 @@ export default function ChatConversationPage({
 				remoteBaseIdxRef.current = result.from ?? 0;
 				remoteGenerationRef.current = result.generation;
 				setHasMoreRemote(result.hasMoreBefore === true);
-				attachedSessionIdRef.current = sessionId;
+				attachedSessionIdRef.current = targetSessionId;
 				attachedRevisionRef.current = result.revision;
 				attachReadyRef.current = true;
 				setSyncing(Boolean(result.syncing));
-				if (getSessionStreaming(agentId, sessionId)) {
+				if (getSessionStreaming(agentId, targetSessionId)) {
 					const lastUser = findLast(result.messages, (m) => m.role === "user");
 					const lastAssistant = findLast(
 						result.messages,
@@ -1010,9 +965,10 @@ export default function ChatConversationPage({
 		};
 	}, [
 		agentId,
+		activeSessionId,
+		cachedAgentConfig,
 		connectionStatus,
 		createOnFirstMessage,
-		agentAvailable,
 		sessionId,
 		resolvedWorkspacePath,
 	]);
@@ -1668,43 +1624,35 @@ export default function ChatConversationPage({
 			let targetSessionId = activeSessionId;
 			if (createOnFirstMessage && !targetSessionId) {
 				if (!createSessionPromiseRef.current) {
+					// `session/new` returns everything needed to start prompting, so no
+					// attach follows it. Per ACP, `session/load` exists to resume a
+					// *previous* conversation; a session created moments ago has no
+					// history to replay. Attaching here also forced the CLI down its
+					// cold-miss path, which emits `syncing: "messages"` and clears it
+					// milliseconds later — before the subscription below exists — so
+					// the chat stayed stuck on its loading skeleton.
 					createSessionPromiseRef.current = acpCreateSession(
 						agentId,
 						resolvedWorkspacePath || ".",
 						"",
-					).then(async (result) => {
-						const nextSessionId = result.session.id ?? "";
-						if (!nextSessionId) {
-							return {
-								sessionId: "",
-								configOptions: result.configOptions,
-								availableCommands: result.availableCommands,
-								messages: [],
-								revision: 0,
-								syncing: false,
-							};
-						}
-						const attached = await acpAttachSession(
-							agentId,
-							nextSessionId,
-							resolvedWorkspacePath || ".",
-						);
-						return {
-							sessionId: nextSessionId,
-							configOptions: attached.configOptions,
-							availableCommands: attached.availableCommands,
-							messages: attached.messages,
-							revision: attached.revision,
-							syncing: attached.syncing,
-						};
-					});
+					).then((result) => ({
+						sessionId: result.session.id ?? "",
+						configOptions: result.configOptions,
+						availableCommands: result.availableCommands,
+						messages: [],
+						revision: result.revision,
+						syncing: false,
+					}));
 				}
 				const result = await createSessionPromiseRef.current;
 				targetSessionId = result.sessionId;
 				setActiveSessionId(targetSessionId);
 				setConfigOptions(result.configOptions);
 				setAvailableCommands(result.availableCommands);
-				setAllMessages(result.messages);
+				// A freshly created session has no history, but the optimistic user
+				// bubble for the message being sent is already in state — keep it
+				// rather than clobbering it with the (empty) attach result.
+				if (result.messages.length) setAllMessages(result.messages);
 				setSyncing(Boolean(result.syncing));
 				cleanupRef.current?.();
 				attachReadyRef.current = true;
@@ -1717,6 +1665,9 @@ export default function ChatConversationPage({
 				);
 			}
 			if (!targetSessionId) throw new Error("Unable to create ACP session");
+			if (pendingConfigChangesRef.current.size) {
+				await flushPendingConfigChanges(targetSessionId);
+			}
 			const content = await composerPartsToAcpContent(parts);
 			setSessionStreaming(agentId, targetSessionId, true);
 			const cleanup = acpPrompt(
@@ -1861,6 +1812,35 @@ export default function ChatConversationPage({
 		streamedTextRef.current.clear();
 	}
 
+	/**
+	 * Apply config picks the user made while the chat was still a draft. Runs
+	 * before the first prompt so the turn uses the mode/model they chose. Failures
+	 * are surfaced but never block the send — the session is valid either way, it
+	 * just runs with the agent's default for that option.
+	 */
+	async function flushPendingConfigChanges(targetSessionId: string) {
+		const pending = [...pendingConfigChangesRef.current.values()];
+		pendingConfigChangesRef.current.clear();
+		for (const { option, value } of pending) {
+			try {
+				const setMethod = (option as { _setMethod?: unknown })._setMethod;
+				if (setMethod === "mode") {
+					await acpSetMode(agentId, targetSessionId, String(value));
+				} else {
+					const nextOptions = await acpSetConfigOption(
+						agentId,
+						targetSessionId,
+						option.id,
+						value,
+					);
+					if (nextOptions.length) setConfigOptions(nextOptions);
+				}
+			} catch (err) {
+				setError((err as Error).message);
+			}
+		}
+	}
+
 	async function handleConfigChange(
 		option: AiSessionConfigOption,
 		value: string,
@@ -1876,6 +1856,16 @@ export default function ChatConversationPage({
 		);
 		try {
 			const targetSessionId = activeSessionId || sessionId;
+			// A draft chat has no session to configure yet. Keep the pick in local
+			// state (already applied above) and replay it onto the real session the
+			// moment the first send creates one.
+			if (!targetSessionId) {
+				pendingConfigChangesRef.current.set(option.id, {
+					option,
+					value: nextValue,
+				});
+				return;
+			}
 			const setMethod = (option as { _setMethod?: unknown })._setMethod;
 			if (setMethod === "mode") {
 				await acpSetMode(agentId, targetSessionId, String(nextValue));
