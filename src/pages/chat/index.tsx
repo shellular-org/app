@@ -37,16 +37,20 @@ import type {
 	AiSessionConfigOption,
 } from "state/acp";
 import {
+	type AcpElicitationRequest,
 	acpAttachSession,
 	acpCancel,
 	acpCreateSession,
 	acpDetachSession,
+	acpElicitationReply,
+	acpMessagesPage,
 	acpPermissionReply,
 	acpPrompt,
 	acpSetConfigOption,
 	acpSetMode,
 	acpSubscribeSessionEvents,
 	acpWriteAttachmentBase64,
+	readElicitationRequest,
 } from "state/acp";
 import { recordChatTab } from "state/chatTabs";
 import { listDir, searchProjectFiles } from "state/filesystem";
@@ -78,6 +82,7 @@ import {
 } from "./ChatComposer";
 import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
+import ElicitationCard from "./chat-bubble/components/ElicitationCard";
 import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
 import {
 	formatStopReason,
@@ -92,6 +97,8 @@ import {
 	getContextWindowState,
 	readContextWindowUsage,
 } from "./composer/contextWindowUsage";
+import { appendTextPart, pendingTokenSuffix } from "./lib/streamText";
+import { upsertMessage } from "./lib/upsertMessage";
 import { normalizeEditorPath } from "./pathUtils";
 
 const PAGE_SIZE = 30;
@@ -152,6 +159,7 @@ export default function ChatConversationPage({
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [scrollAdjust, setScrollAdjust] = useState(0);
+	const [hasMoreRemote, setHasMoreRemote] = useState(false);
 	const [syncing, setSyncing] = useState(false);
 	const [activeSessionId, setActiveSessionId] = useState(sessionId);
 	const [displayTitle, setDisplayTitle] = useState(() => {
@@ -181,6 +189,9 @@ export default function ChatConversationPage({
 	const [showContextSheet, setShowContextSheet] = useState(false);
 	const [pendingPermissions, setPendingPermissions] = useState<
 		AcpPermissionRequest[]
+	>([]);
+	const [pendingElicitations, setPendingElicitations] = useState<
+		AcpElicitationRequest[]
 	>([]);
 	const [contextWindowUsage, setContextWindowUsage] =
 		useState<ContextWindowUsage | null>(null);
@@ -215,11 +226,21 @@ export default function ChatConversationPage({
 		syncing?: boolean;
 	}> | null>(null);
 	const composerDraftRef = useRef<string>("");
+	// Tail of the current turn: the newest assistant message seen. Read-only
+	// bookkeeping — incoming messages never overwrite it.
 	const streamingAssistantIdRef = useRef<string | null>(null);
 	const streamingUserIdRef = useRef<string | null>(null);
+	// Cumulative token text per streaming message id, so a token is rendered
+	// only as the suffix beyond what the last `message` event already carried.
+	const streamedTextRef = useRef(new Map<string, string>());
 	const sentTurnStartRef = useRef(0);
 	const allMessagesLengthRef = useRef(0);
 	const upsertAcpMessageRef = useRef<(msg: AcpMessage) => void>(() => {});
+	// Transcript index of allMessages[0] on the CLI, and the transcript
+	// generation those indices belong to. Pages from a different generation are
+	// stale (a full reload replaced history) and must be discarded.
+	const remoteBaseIdxRef = useRef(0);
+	const remoteGenerationRef = useRef<number | undefined>(undefined);
 
 	connectionStatusRef.current = connectionStatus;
 
@@ -229,13 +250,33 @@ export default function ChatConversationPage({
 	);
 	const visibleMessageItems = useMemo(() => {
 		const seen = new Map<string, number>();
-		return visibleMessages.map((message) => {
+		return visibleMessages.map((message, index) => {
 			const messageKey = getMessageKey(message);
 			const count = seen.get(messageKey) ?? 0;
 			seen.set(messageKey, count + 1);
+			// Agents split one answer into several ACP messages (one per model
+			// round between tool calls). Consecutive same-role messages render as
+			// one visual group: actions appear once, on the last bubble, and copy
+			// covers the whole group.
+			const next = visibleMessages[index + 1];
+			const groupEnd = !next || next.role !== message.role;
+			let groupParts = message.parts;
+			if (groupEnd) {
+				let start = index;
+				while (start > 0 && visibleMessages[start - 1].role === message.role) {
+					start -= 1;
+				}
+				if (start < index) {
+					groupParts = visibleMessages
+						.slice(start, index + 1)
+						.flatMap((item) => item.parts);
+				}
+			}
 			return {
 				message,
 				messageKey,
+				groupEnd,
+				groupParts,
 				renderKey:
 					count === 0 ? messageKey : `${messageKey}:duplicate-${count}`,
 			};
@@ -243,11 +284,36 @@ export default function ChatConversationPage({
 	}, [visibleMessages]);
 	const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
 
+	// What the agent is doing right now, read off the newest unfinished tool
+	// call in the streaming message. Falls back to "thinking" when it's just
+	// generating text.
+	const streamingStatusLabel = useMemo(() => {
+		if (!isStreaming || lastVisibleMessage?.role !== "assistant") {
+			return undefined;
+		}
+		for (let index = lastVisibleMessage.parts.length - 1; index >= 0; index--) {
+			const part = lastVisibleMessage.parts[index];
+			if (part.type !== "tool_call") continue;
+			const status = (part as { status?: unknown }).status;
+			if (status === "completed" || status === "failed" || status === "fail") {
+				continue;
+			}
+			const title = (part as { title?: unknown }).title;
+			if (typeof title === "string" && title.trim()) return title.trim();
+			const name = (part as { name?: unknown }).name;
+			if (typeof name === "string" && name.trim()) {
+				return `running ${name.trim()}`;
+			}
+			return undefined;
+		}
+		return undefined;
+	}, [isStreaming, lastVisibleMessage]);
+
 	useEffect(() => {
 		allMessagesLengthRef.current = allMessages.length;
 	}, [allMessages.length]);
 
-	const hasMore = allMessages.length > visibleCount;
+	const hasMore = allMessages.length > visibleCount || hasMoreRemote;
 	const promptSuggestions = useMemo(
 		() =>
 			composerTrigger?.trigger === "/"
@@ -357,11 +423,68 @@ export default function ChatConversationPage({
 		if (!historyScrollReady || !hasMore || loadingMore || !scrollRef.current) {
 			return;
 		}
-		prevScrollHeightRef.current = scrollRef.current.scrollHeight;
+		// Reveal already-loaded messages first; only hit the network once the
+		// local array is exhausted.
+		if (allMessagesLengthRef.current > visibleCount) {
+			prevScrollHeightRef.current = scrollRef.current.scrollHeight;
+			setLoadingMore(true);
+			setVisibleCount((c) => c + PAGE_SIZE);
+			setScrollAdjust((n) => n + 1);
+			return;
+		}
+		if (!hasMoreRemote || remoteBaseIdxRef.current <= 0) {
+			setHasMoreRemote(false);
+			return;
+		}
+		const targetSessionId = activeSessionId || sessionId;
+		const requestGeneration = remoteGenerationRef.current;
 		setLoadingMore(true);
-		setVisibleCount((c) => c + PAGE_SIZE);
-		setScrollAdjust((n) => n + 1);
-	}, [hasMore, historyScrollReady, loadingMore]);
+		acpMessagesPage(agentId, targetSessionId, remoteBaseIdxRef.current)
+			.then((page) => {
+				// A reload replaced the transcript mid-flight; its session.snapshot
+				// already reset our window, so this page's indices are meaningless.
+				if (
+					page.generation !== undefined &&
+					page.generation !== requestGeneration
+				) {
+					setLoadingMore(false);
+					return;
+				}
+				// An empty window carries no bounds. `hasMoreBefore` is the only
+				// signal here — it cannot be derived from an absent `from`.
+				if (page.from === undefined || page.messages.length === 0) {
+					setHasMoreRemote(page.hasMoreBefore === true);
+					setLoadingMore(false);
+					return;
+				}
+				if (scrollRef.current) {
+					prevScrollHeightRef.current = scrollRef.current.scrollHeight;
+				}
+				// Next page back ends where this one begins.
+				remoteBaseIdxRef.current = page.from;
+				setHasMoreRemote(page.hasMoreBefore === true);
+				setAllMessages((prev) => [...page.messages, ...prev]);
+				setVisibleCount((c) => c + page.messages.length);
+				setScrollAdjust((n) => n + 1);
+			})
+			.catch((err) => {
+				// A failed page read is a real failure (e.g. an unreadable
+				// transcript store), not "no more history" — surface it instead of
+				// silently capping scroll-back. hasMoreRemote stays set so the
+				// sentinel retries on the next nudge.
+				setError((err as Error).message || "Failed to load older messages");
+				setLoadingMore(false);
+			});
+	}, [
+		activeSessionId,
+		agentId,
+		hasMore,
+		hasMoreRemote,
+		historyScrollReady,
+		loadingMore,
+		sessionId,
+		visibleCount,
+	]);
 
 	const handleSessionStatus = useCallback(
 		(properties: Record<string, unknown>) => {
@@ -421,6 +544,45 @@ export default function ChatConversationPage({
 			return;
 		}
 
+		if (event.type === "elicitation.updated") {
+			const properties = event.properties as Record<string, unknown>;
+			if (properties.resolved === true) {
+				const id = properties.id;
+				if (typeof id === "string") {
+					setPendingElicitations((prev) =>
+						prev.filter((item) => item.id !== id),
+					);
+				}
+				return;
+			}
+			const request = readElicitationRequest(properties);
+			if (request) {
+				setPendingElicitations((prev) => [
+					...prev.filter((item) => item.id !== request.id),
+					request,
+				]);
+			}
+			return;
+		}
+
+		if (event.type === "token") {
+			// Streaming text deltas. Full `message` events are coalesced CLI-side
+			// (they carry the whole message and are quadratic on the wire), so
+			// tokens do the smooth per-chunk rendering in between.
+			//
+			// A `message` event carries the message's CUMULATIVE text, including
+			// every token already rendered. Appending each token blindly therefore
+			// double-renders it for as long as the next message event is coalesced
+			// away. Tokens are instead buffered per message and applied as the
+			// suffix beyond whatever the last message event delivered.
+			const itemId = event.properties.itemId;
+			const text = event.properties.text;
+			if (typeof itemId === "string" && typeof text === "string" && text) {
+				appendStreamToken(itemId, text);
+			}
+			return;
+		}
+
 		if (event.type === "session.status") {
 			if (event.properties.syncing === "messages") {
 				setSyncing(true);
@@ -434,6 +596,16 @@ export default function ChatConversationPage({
 		if (event.type === "session.snapshot") {
 			const messages = event.properties.messages;
 			if (Array.isArray(messages)) {
+				const from = event.properties.from;
+				const generation = event.properties.generation;
+				const hasMoreBefore = event.properties.hasMoreBefore;
+				remoteBaseIdxRef.current = typeof from === "number" ? from : 0;
+				remoteGenerationRef.current =
+					typeof generation === "number" ? generation : undefined;
+				setHasMoreRemote(hasMoreBefore === true);
+				// Authoritative transcript replacement: any buffered token text is
+				// already included, so accumulators must not replay on top of it.
+				streamedTextRef.current.clear();
 				setAllMessages(messages as AcpMessage[]);
 				setVisibleCount(PAGE_SIZE);
 				stickToBottomRef.current = true;
@@ -481,6 +653,43 @@ export default function ChatConversationPage({
 			finishStreamingTurn(activeSessionId || sessionId);
 		}
 	});
+
+	const appendStreamToken = useEffectEvent((itemId: string, text: string) => {
+		// Total text the token stream has delivered for this message so far. The
+		// message itself may already contain some of it via a `message` event.
+		const streamedText = (streamedTextRef.current.get(itemId) ?? "") + text;
+		streamedTextRef.current.set(itemId, streamedText);
+		setAllMessages((prev) => {
+			const index = prev.findIndex((message) => message.id === itemId);
+			// No bubble yet: the message event that creates it carries this text.
+			if (index < 0) return prev;
+			const message = prev[index];
+			const suffix = pendingTokenSuffix(message, streamedText);
+			if (!suffix) return prev;
+			const next = [...prev];
+			next[index] = { ...message, parts: appendTextPart(message, suffix) };
+			return next;
+		});
+	});
+
+	const handleElicitationReply = useEffectEvent(
+		(
+			elicitation: AcpElicitationRequest,
+			action: "accept" | "decline" | "cancel",
+			content?: Record<string, unknown>,
+		) => {
+			acpElicitationReply(
+				agentId,
+				elicitation.sessionId,
+				elicitation.id,
+				action,
+				content,
+			);
+			setPendingElicitations((prev) =>
+				prev.filter((item) => item.id !== elicitation.id),
+			);
+		},
+	);
 
 	const applyRevisionedSessionEvent = useEffectEvent(
 		(event: AcpSessionEvent) => {
@@ -582,7 +791,9 @@ export default function ChatConversationPage({
 	useEffect(() => {
 		setActiveSessionId(sessionId);
 		stickToBottomRef.current = true;
+		streamedTextRef.current.clear();
 		setPendingPermissions([]);
+		setPendingElicitations([]);
 		setHistoryScrollReady(false);
 	}, [sessionId]);
 
@@ -684,6 +895,9 @@ export default function ChatConversationPage({
 		attachedSessionIdRef.current = null;
 		attachedRevisionRef.current = 0;
 		pendingAttachEventsRef.current = [];
+		remoteBaseIdxRef.current = 0;
+		remoteGenerationRef.current = undefined;
+		setHasMoreRemote(false);
 
 		let cancelled = false;
 		cleanupRef.current = acpSubscribeSessionEvents(
@@ -698,6 +912,9 @@ export default function ChatConversationPage({
 				setConfigOptions(result.configOptions);
 				setAvailableCommands(result.availableCommands);
 				setAllMessages(result.messages);
+				remoteBaseIdxRef.current = result.from ?? 0;
+				remoteGenerationRef.current = result.generation;
+				setHasMoreRemote(result.hasMoreBefore === true);
 				attachedSessionIdRef.current = sessionId;
 				attachedRevisionRef.current = result.revision;
 				attachReadyRef.current = true;
@@ -1032,93 +1249,21 @@ export default function ChatConversationPage({
 
 	useEffect(() => {
 		upsertAcpMessageRef.current = (incomingMessage: AcpMessage) => {
-			const msg = incomingMessage;
 			setAllMessages((prev) => {
-				const incomingKey = getMessageStateKey(msg);
-				const byId = incomingKey
-					? prev.findIndex(
-							(message) => getMessageStateKey(message) === incomingKey,
-						)
-					: -1;
-				if (byId >= 0) {
-					const existing = prev[byId];
-					const existingTs = existing.timestamp ?? 0;
-					const localAssistantId = streamingAssistantIdRef.current;
-					const localAssistantIndex = localAssistantId
-						? prev.findIndex((message) => message.id === localAssistantId)
-						: -1;
-					if (
-						isStreaming &&
-						msg.role === "assistant" &&
-						existing.role === "assistant" &&
-						((existingTs > 0 && existingTs < sentTurnStartRef.current - 250) ||
-							(localAssistantIndex >= 0 && byId !== localAssistantIndex))
-					) {
-						streamingAssistantIdRef.current = msg.id ?? localAssistantId;
-						if (localAssistantIndex >= 0) {
-							const next = prev
-								.filter((_, index) => index !== byId)
-								.map((message) =>
-									message.id === localAssistantId ? msg : message,
-								);
-							return next;
-						}
-						return [...prev, msg];
-					}
-					const next = [...prev];
-					next[byId] =
-						msg.role === "user" ? mergeLocalUserText(msg, existing) : msg;
-					return next;
-				}
-
-				const byRequest =
-					msg.requestId === undefined
-						? -1
-						: prev.findIndex(
-								(message) =>
-									message.requestId === msg.requestId &&
-									message.role === msg.role,
-							);
-				if (byRequest >= 0) {
-					const next = [...prev];
-					next[byRequest] =
-						msg.role === "user"
-							? mergeLocalUserText(msg, prev[byRequest])
-							: msg;
-					return next;
-				}
-
-				if (isStreaming && msg.role === "user") {
-					const localUserId = streamingUserIdRef.current;
-					if (!localUserId) return prev;
-					const localUserIndex = localUserId
-						? prev.findIndex((message) => message.id === localUserId)
-						: -1;
-					if (localUserIndex >= 0) {
-						const next = [...prev];
-						next[localUserIndex] = {
-							...mergeLocalUserText(msg, prev[localUserIndex]),
-							id: msg.id || localUserId,
-							requestId: msg.requestId || localUserId,
-						};
-						return next;
-					}
-				}
-
-				if (isStreaming && msg.role === "assistant") {
-					const localAssistantId = streamingAssistantIdRef.current;
-					const localAssistantIndex = localAssistantId
-						? prev.findIndex((message) => message.id === localAssistantId)
-						: -1;
-					streamingAssistantIdRef.current = msg.id ?? localAssistantId;
-					if (localAssistantIndex >= 0) {
-						const next = [...prev];
-						next[localAssistantIndex] = msg;
-						return next;
-					}
-				}
-
-				return [...prev, msg];
+				const result = upsertMessage(
+					prev,
+					incomingMessage,
+					{
+						isStreaming,
+						localUserId: streamingUserIdRef.current,
+						localAssistantId: streamingAssistantIdRef.current,
+						turnStartedAt: sentTurnStartRef.current,
+					},
+					mergeLocalUserText,
+				);
+				streamingAssistantIdRef.current = result.localAssistantId;
+				streamingUserIdRef.current = result.localUserId;
+				return result.messages;
 			});
 		};
 	}, [isStreaming]);
@@ -1179,22 +1324,27 @@ export default function ChatConversationPage({
 						{loadingMore && <Loader size={24} />}
 					</div>
 				)}
-				{visibleMessageItems.map(({ message: msg, messageKey, renderKey }) => {
-					return (
-						<ChatBubble
-							key={renderKey}
-							messageKey={messageKey}
-							parts={msg.parts}
-							messageRole={msg.role}
-							assistantName={assistantName}
-							streaming={
-								isStreaming &&
-								msg.role === "assistant" &&
-								msg === lastVisibleMessage
-							}
-						/>
-					);
-				})}
+				{visibleMessageItems.map(
+					({ message: msg, messageKey, renderKey, groupEnd, groupParts }) => {
+						return (
+							<ChatBubble
+								key={renderKey}
+								messageKey={messageKey}
+								parts={msg.parts}
+								messageRole={msg.role}
+								assistantName={assistantName}
+								showActions={groupEnd}
+								copyParts={groupParts}
+								statusLabel={streamingStatusLabel}
+								streaming={
+									isStreaming &&
+									msg.role === "assistant" &&
+									msg === lastVisibleMessage
+								}
+							/>
+						);
+					},
+				)}
 				{isStreaming && lastVisibleMessage?.role === "user" && (
 					<ChatBubble
 						key="assistant-streaming-placeholder"
@@ -1217,6 +1367,13 @@ export default function ChatConversationPage({
 							onReply={handlePermissionReply}
 						/>
 					))}
+				{pendingElicitations.map((elicitation) => (
+					<ElicitationCard
+						key={elicitation.id}
+						elicitation={elicitation}
+						onReply={handleElicitationReply}
+					/>
+				))}
 				{error && (
 					<div className="chat-error">
 						<span className="icon-alert-triangle" aria-hidden="true" />
@@ -1307,9 +1464,14 @@ export default function ChatConversationPage({
 										{option.name}
 									</span>
 								</div>
+								{/* Changing config mid-generation is explicitly allowed by ACP
+								    ("the current mode can be changed at any point during a
+								    session, whether the Agent is idle or generating"). Only
+								    disable while syncing: during an attach reconcile the agent
+								    may not have registered the session yet, so a set can fail. */}
 								<ConfigControl
 									value={String(option.currentValue)}
-									disabled={isStreaming || configSavingId === option.id}
+									disabled={syncing || configSavingId === option.id}
 									onChange={(nextValue) =>
 										handleConfigChange(option, nextValue)
 									}
@@ -1339,6 +1501,7 @@ export default function ChatConversationPage({
 					onClose={() => setShowSidebar(false)}
 					workspacePath={workspacePath}
 					activeTabId={chatTabId}
+					currentAgentId={agentId}
 				/>
 			)}
 		</Page>
@@ -1388,6 +1551,7 @@ export default function ChatConversationPage({
 		const userId = `user_local_${sentAt}`;
 		streamingUserIdRef.current = userId;
 		streamingAssistantIdRef.current = null;
+		streamedTextRef.current.clear();
 		setAllMessages((prev) => [
 			...prev,
 			{
@@ -1570,12 +1734,25 @@ export default function ChatConversationPage({
 			const turnStartIndex = userIndex >= 0 ? userIndex : fallbackUserIndex;
 			if (turnStartIndex < 0) return prev;
 
-			const assistantIndex = prev.findIndex(
-				(message, index) =>
-					index > turnStartIndex &&
-					message.role === "assistant" &&
-					(!activeId || message.id === activeId || !hasVisibleText(message)),
-			);
+			// A turn emits several assistant messages, so the stop reason belongs
+			// on its LAST one — the tail tracked during streaming when available,
+			// otherwise the final assistant message of the turn. Taking the first
+			// match would strand "Stopped by user" mid-answer.
+			const activeIndex = activeId
+				? prev.findIndex(
+						(message, index) =>
+							index > turnStartIndex && message.id === activeId,
+					)
+				: -1;
+			let lastAssistantIndex = -1;
+			for (let index = prev.length - 1; index > turnStartIndex; index -= 1) {
+				if (prev[index].role === "assistant") {
+					lastAssistantIndex = index;
+					break;
+				}
+			}
+			const assistantIndex =
+				activeIndex >= 0 ? activeIndex : lastAssistantIndex;
 
 			if (assistantIndex < 0) {
 				return [
@@ -1602,6 +1779,7 @@ export default function ChatConversationPage({
 		setSessionStreaming(agentId, sessionIdToUse, false);
 		streamingUserIdRef.current = null;
 		streamingAssistantIdRef.current = null;
+		streamedTextRef.current.clear();
 	}
 
 	async function handleConfigChange(
@@ -1999,14 +2177,6 @@ function readConfigOptions(value: unknown): AiSessionConfigOption[] | null {
 
 function readAvailableCommands(value: unknown): AcpAvailableCommand[] | null {
 	return Array.isArray(value) ? (value as AcpAvailableCommand[]) : null;
-}
-
-function getMessageStateKey(message: AcpMessage): string | null {
-	if (!message.id) return null;
-	if (message.timestamp) {
-		return `${message.id}:${message.role}:${message.timestamp}`;
-	}
-	return `${message.id}:${message.role}`;
 }
 
 function getProminentConfigOptions(options: AiSessionConfigOption[]) {

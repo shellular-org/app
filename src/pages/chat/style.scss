@@ -72,6 +72,11 @@
     flex: 0 0 auto;
     flex-direction: column;
     width: 100%;
+    // Readable measure: cap the conversation column well below the page's
+    // 1200px so prose lines stay scannable on tablet/desktop. Matches the
+    // composer's max-width so input and messages align.
+    max-width: 840px;
+    margin: 0 auto;
     overflow-anchor: none;
     padding-bottom: 16px;
     user-select: text;
@@ -102,6 +107,8 @@
       padding: 10px 14px;
       border-radius: 10px;
       color: var(--error);
+      background: color-mix(in srgb, var(--error) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--error) 22%, transparent);
       font-size: 13px;
       display: flex;
       align-items: flex-start;
@@ -153,7 +160,7 @@
       width: 100%;
       min-height: 48px;
       padding: 14px 16px;
-      border-radius: 12px;
+      border-radius: 10px;
       background: color-mix(in srgb, var(--card-background) 88%, var(--primary-text) 4%);
       border: 1px solid color-mix(in srgb, var(--card-border) 80%, transparent);
     }
@@ -382,7 +389,10 @@
 
 .project-chat-drawer-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 8px;
 }
 
@@ -393,9 +403,11 @@
   text-align: center;
 }
 
+// Fixed-size dock: never shrinks, never grows into the scrollable chat list.
 .project-chat-drawer-footer {
+  flex-shrink: 0;
   border-top: 1px solid var(--card-border);
-  padding: 12px 12px calc(12px + var(--sab, 0px));
+  padding: 10px 12px calc(10px + var(--sab, 0px));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -407,44 +419,102 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--secondary-text);
+  padding: 0 2px;
 }
 
-.project-chat-new-agents {
+// Horizontal agent picker. Showing the agents themselves is the whole point:
+// it's what makes it obvious this project can be opened with an agent other
+// than the current one. One line tall, scrolls sideways if they overflow.
+.project-chat-agent-strip {
+  list-style: none;
+  margin: 0;
+  padding: 2px;
   display: flex;
-  flex-wrap: wrap;
   gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
-.project-chat-new-btn {
-  display: inline-flex;
+// A single box holding the logo — no nested frame, no caption.
+.project-chat-agent-chip {
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 10px;
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
   border: 1px solid var(--card-border);
-  background: var(--card-background, transparent);
+  background: var(--card-background, var(--surface-soft));
   color: var(--primary-text);
-  font-size: 14px;
-  font-weight: 600;
-  width: 100%;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 120ms ease, transform 120ms ease;
 
-  span[class^="icon-"] {
-    font-size: 16px;
+  &:active {
+    background: var(--surface-soft);
+    transform: scale(0.94);
   }
 
-  &--agent {
-    width: auto;
-    flex: 1 1 auto;
-    font-size: 13px;
-    padding: 9px 12px;
+  // The agent you're already talking to, so switching to a different one
+  // reads as a deliberate choice rather than a guess.
+  &[data-current] {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
   }
 }
 
-.project-chat-new-agent-icon {
-  width: 18px;
-  height: 18px;
-  font-size: 18px;
+.project-chat-agent-avatar-img {
+  font-size: 22px;
+  line-height: 1;
+}
+
+img.project-chat-agent-avatar-img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+// Primary action, used when there is only one agent to chat with.
+.project-chat-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: none;
+  background: var(--accent);
+  color: var(--button-text);
+  font-size: 15px;
+  font-weight: 600;
+  width: 100%;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease, opacity 120ms ease;
+
+  span[class^="icon-"] {
+    font-size: 17px;
+    flex-shrink: 0;
+  }
+
+  >span:not([class^="icon-"]) {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
 }
 
 .project-chat-session-row {
@@ -452,9 +522,27 @@
   align-items: center;
   width: 100%;
   border-radius: 10px;
+  position: relative;
 
   &[data-active="true"] {
     background: var(--surface-strong, var(--card-background));
+
+    // Marks the chat being viewed without relying on fill alone, which is
+    // easy to miss against the panel background.
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      border-radius: 0 2px 2px 0;
+      background: var(--accent);
+    }
+
+    .project-chat-session-title {
+      font-weight: 650;
+    }
   }
 }
 
@@ -464,13 +552,19 @@
   gap: 10px;
   flex: 1;
   min-width: 0;
-  padding: 9px 8px;
+  min-height: 46px;
+  padding: 8px;
   border: none;
   background: transparent;
   text-align: left;
   color: inherit;
   cursor: pointer;
   border-radius: 10px;
+  -webkit-tap-highlight-color: transparent;
+
+  &:active {
+    background: var(--surface-soft);
+  }
 }
 
 .project-chat-session-icon {
@@ -517,21 +611,29 @@
   white-space: nowrap;
 }
 
+// Visually small, but sized to the 44px touch minimum so closing a chat next
+// to the row's own tap target stays reliable on a phone.
 .project-chat-session-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-right: 4px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--secondary-text);
+  opacity: 0.6;
+  -webkit-tap-highlight-color: transparent;
 
   span[class^="icon-"] {
     font-size: 15px;
+  }
+
+  &:active {
+    opacity: 1;
+    background: var(--surface-soft);
   }
 }
 
