@@ -21,6 +21,10 @@ import {
 	isPlaintextMessage,
 	type ProxyBinaryHttpResponseData,
 } from "lib/e2ee";
+import {
+	getHostCapabilities,
+	type HostCapabilities,
+} from "lib/hostCapabilities";
 import { getBaseServerUrl } from "lib/settings";
 import * as store from "lib/store";
 import { nanoid } from "nanoid";
@@ -190,6 +194,9 @@ export class Connection extends EventTarget {
 	private ws: WebSocket | null = null;
 	private pendingResponses = new Map<string, (msg: unknown) => void>();
 	private encryptionKey: Uint8Array | null = null;
+	// Resolved from the host's version on SESSION_JOINED. Conservative until
+	// then, so anything sent before the handshake lands stays uncompressed.
+	private hostCapabilities: HostCapabilities = { gzipPayloads: false };
 	private clientId: string | null = null;
 	// The CENTRAL base that actually worked for this host (new or old server),
 	// resolved fresh from settings each time open() runs (see
@@ -406,6 +413,10 @@ export class Connection extends EventTarget {
 
 				switch (msg.type) {
 					case MsgType.SESSION_JOINED:
+						// The host's version arrives here and nowhere earlier, so this
+						// is the first point at which outbound compression can be
+						// decided.
+						this.hostCapabilities = getHostCapabilities(msg.data.cliVersion);
 						ws.addEventListener("message", (nextEvent) => {
 							void this.handleIncomingWebSocketData(nextEvent.data);
 						});
@@ -457,6 +468,7 @@ export class Connection extends EventTarget {
 				const envelope = encryptMessage(
 					msgWithClient as { id: string; type: string },
 					this.encryptionKey,
+					this.hostCapabilities.gzipPayloads,
 				);
 				this.ws.send(JSON.stringify(envelope));
 			} else {
