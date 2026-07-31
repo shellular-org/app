@@ -37,7 +37,8 @@ export default function MessagePartView({
 						</>
 					}
 				>
-					<pre>{part.content}</pre>
+					{/* Reasoning is prose, not code — typeset it as quiet body text. */}
+					<div className="chat-part-prose">{part.content}</div>
 				</ChatDisclosure>
 			);
 		case "plan":

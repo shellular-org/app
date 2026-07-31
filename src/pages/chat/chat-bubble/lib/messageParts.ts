@@ -2,6 +2,27 @@ import type { AcpMessage, AcpMessagePart } from "@shellular/protocol";
 
 export type ToolCallPart = AcpMessagePart & { type: "tool_call" };
 
+export type PlanEntry = { content: string; status?: string; priority?: string };
+
+/**
+ * The app pins the published `@shellular/protocol`, which does not yet carry
+ * `entries` on the plan part, so it is read through a narrow cast until the
+ * dep is bumped. Entries are also shape-checked here: a malformed one must
+ * degrade to the flat-text fallback rather than render a broken checklist.
+ */
+export function readPlanEntries(
+	part: Extract<AcpMessagePart, { type: "plan" }>,
+): PlanEntry[] {
+	const entries = (part as { entries?: unknown }).entries;
+	if (!Array.isArray(entries)) return [];
+	return entries.filter(
+		(entry): entry is PlanEntry =>
+			typeof entry === "object" &&
+			entry !== null &&
+			typeof (entry as PlanEntry).content === "string",
+	);
+}
+
 const partKeys = new WeakMap<object, string>();
 const messageKeys = new WeakMap<object, string>();
 let partKeyCounter = 0;
@@ -71,8 +92,20 @@ function messagePartToMarkdown(part: AcpMessagePart): string {
 		}
 		case "reasoning":
 			return part.content || "";
-		case "plan":
-			return part.content || "";
+		case "plan": {
+			// Copy plans as a markdown task list; fall back to the flat text for
+			// agents (or cached transcripts) without structured entries.
+			const entries = readPlanEntries(part);
+			if (entries.length === 0) return part.content || "";
+			return entries
+				.map((entry) => {
+					const box = entry.status === "completed" ? "[x]" : "[ ]";
+					const marker =
+						entry.status === "in_progress" ? " _(in progress)_" : "";
+					return `- ${box} ${entry.content}${marker}`;
+				})
+				.join("\n");
+		}
 		case "command": {
 			const sections = [`\`\`\`sh\n${part.command}\n\`\`\``];
 			if (part.cwd) sections.push(`cwd: ${part.cwd}`);
@@ -183,11 +216,6 @@ export function getLanguageLabel(path: string): string {
 		yml: "yaml",
 	};
 	return aliases[ext] ?? ext;
-}
-
-export function formatPlanStatus(status: string | undefined): string {
-	if (!status) return "pending";
-	return status.replace(/_/g, " ").toLowerCase();
 }
 
 export function formatStopReason(stopReason: string): string {

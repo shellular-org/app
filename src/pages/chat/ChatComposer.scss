@@ -14,7 +14,9 @@
     0 10px 36px var(--shadow-color),
     0 1px 0 var(--line-soft) inset;
   transition: border-radius 300ms ease, padding 300ms ease-in;
-  max-width: 1200px;
+  // Shares the conversation column's measure (chat-history-content) so the
+  // input bar and messages align on wide screens.
+  max-width: 840px;
   margin: 0 auto;
 
   @include ios {
@@ -94,7 +96,7 @@
     background: var(--surface-soft);
     border: 1px solid var(--border-color);
     color: var(--accent);
-    font-family: "Courier New", monospace;
+    font-family: 'JetBrainsMono Nerd Font', ui-monospace, Menlo, monospace;
     font-size: 0.9em;
     white-space: nowrap;
     vertical-align: baseline;

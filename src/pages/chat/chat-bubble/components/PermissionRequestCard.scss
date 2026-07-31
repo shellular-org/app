@@ -51,8 +51,11 @@
     gap: 8px;
     width: 100%;
 
+    // Clear action hierarchy: primary allow is filled, "always" variants are
+    // quieter tinted buttons, reject is a ghost. All options being equally
+    // loud made every request read as four identical primary actions.
     .chat-permission-btn {
-      min-height: 32px;
+      min-height: 34px;
       padding: 0 12px;
       border: 1px solid var(--border-color);
       border-radius: 8px;
@@ -62,6 +65,11 @@
       font-weight: 700;
       font-family: inherit;
       width: 100%;
+      transition: background 120ms ease, border-color 120ms ease;
+
+      &:active {
+        transform: scale(0.98);
+      }
 
       &:disabled {
         opacity: 0.35;
@@ -69,11 +77,33 @@
 
       &--reject {
         background: transparent;
+        border-color: transparent;
         color: var(--secondary-text);
+
+        &:hover {
+          border-color: var(--border-color);
+        }
       }
 
       &--always {
-        border-color: transparent;
+        background: color-mix(in srgb, var(--button-background) 16%, transparent);
+        color: var(--primary-text);
+        border-color: var(--border-color);
+
+        &:hover {
+          background: color-mix(in srgb, var(--button-background) 28%, transparent);
+        }
+      }
+    }
+
+    // Wide screens: options fit on one row instead of a full-width stack.
+    @include tablet {
+      flex-direction: row;
+      flex-wrap: wrap;
+
+      .chat-permission-btn {
+        width: auto;
+        flex: 0 1 auto;
       }
     }
   }

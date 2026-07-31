@@ -20,6 +20,20 @@ interface ChatBubbleProps {
 	messageKey: string;
 	workspacePath: string;
 	streaming?: boolean;
+	/**
+	 * Whether this bubble closes a visual group of consecutive same-role
+	 * messages. Actions (copy) render only on group-closing bubbles so an
+	 * answer split across several ACP messages shows them once.
+	 */
+	showActions?: boolean;
+	/** Parts to copy — the whole group's, not just this bubble's. */
+	copyParts?: AcpMessagePart[];
+	/**
+	 * What the agent is currently doing, derived from the live parts (e.g.
+	 * "running Bash"). Keeps the streaming indicator honest instead of always
+	 * claiming the agent is "thinking".
+	 */
+	statusLabel?: string;
 }
 
 const TOOL_CALL_GROUP_THRESHOLD = 4;
@@ -31,10 +45,15 @@ export default function ChatBubble({
 	messageKey,
 	workspacePath,
 	streaming = false,
+	showActions = true,
+	copyParts,
+	statusLabel,
 }: ChatBubbleProps) {
 	const copiedTimeoutRef = useRef<number | null>(null);
 	const [copied, setCopied] = useState(false);
-	const canCopy = !streaming && parts.some(isCopyableMessagePart);
+	const copySource = copyParts ?? parts;
+	const canCopy =
+		!streaming && showActions && copySource.some(isCopyableMessagePart);
 
 	useEffect(() => {
 		return () => {
@@ -47,7 +66,7 @@ export default function ChatBubble({
 	const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
 		event.preventDefault();
 		event.stopPropagation();
-		const text = messagePartsToMarkdown(parts).trim();
+		const text = messagePartsToMarkdown(copySource).trim();
 		if (!text) return;
 
 		await copyTextToClipboard(text);
@@ -93,7 +112,11 @@ export default function ChatBubble({
 				{streaming && (
 					<div className="chat-typing">
 						<Mascot state="thinking" size={34} tone="inline" />
-						<span>{assistantName} is thinking...</span>
+						<span className="chat-typing-label">
+							{statusLabel
+								? `${assistantName} is ${statusLabel}…`
+								: `${assistantName} is thinking…`}
+						</span>
 					</div>
 				)}
 			</div>
