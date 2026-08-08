@@ -153,12 +153,7 @@ const PING_INTERVAL_MS = 25_000;
 // slack before we tear down and reconnect.
 const LIVENESS_TIMEOUT_MS = 55_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
-// Backoff runs 4s → 8s → 16s → 20s (capped) per attempt. Retrying faster than
-// this rarely helps: a host that's genuinely gone won't be back in a second,
-// and the sub-second reconnects that do succeed are handled by reconnectNow()
-// on app resume / network-online rather than by this backoff.
-const BASE_RECONNECT_DELAY_MS = 4000;
-const MAX_RECONNECT_DELAY_MS = 20_000;
+const RECONNECT_DELAYS = [1_000, 2_000, 4_000, 4_000, 8_000, 16_000];
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
 
 class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
@@ -581,7 +576,7 @@ class ConnectionManager {
 		| ((token: string, prevStatus: ConnectionStatus) => void | Promise<void>)
 		| null = null;
 	private onDisconnected: (() => void) | null = null;
-	private onPreDisconnect: (() => void) | null = null;
+	private onPreDisconnect: (() => void | Promise<void>) | null = null;
 
 	subscribe(listener: Listener): () => void {
 		this.listeners.add(listener);
@@ -811,7 +806,7 @@ class ConnectionManager {
 			batteryInfo: null,
 			reconnectAttempt: 0,
 		});
-		this.attemptReconnect(hostId, true);
+		this.attemptReconnect(hostId);
 	}
 
 	private setSnapshot(next: Partial<ConnectionSnapshot>) {
@@ -856,7 +851,7 @@ class ConnectionManager {
 		this.setSnapshot({ reconnectAttempt: 0 });
 	}
 
-	private async attemptReconnect(hostId: string, immediate = false) {
+	private async attemptReconnect(hostId: string) {
 		const key = this.encryptionKey;
 		const url = this.snapshot.serverUrl || (await getBaseServerUrl());
 
@@ -876,15 +871,20 @@ class ConnectionManager {
 			this.onDisconnected?.();
 			return;
 		}
+
 		this.setSnapshot({ reconnectAttempt: this.reconnectAttempt });
 
-		const backoff = Math.min(
-			BASE_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempt - 1),
-			MAX_RECONNECT_DELAY_MS,
-		);
-		// Jitter (±20%) avoids many clients hammering a shared relay in lockstep.
-		// `immediate` fires the first attempt right away (e.g. on app resume).
-		const delay = immediate ? 0 : backoff * (0.8 + Math.random() * 0.4);
+		const base =
+			RECONNECT_DELAYS[
+				Math.max(
+					Math.min(this.reconnectAttempt - 1, RECONNECT_DELAYS.length - 1),
+					0,
+				)
+			];
+		// jitter (±20%) avoids many clients hammering a shared server
+		// a server restart drops every client at once, so a fixed ladder would have
+		// them all retry on the same instants.
+		const delay = base * (0.8 + Math.random() * 0.4);
 
 		this.reconnectTimeout = setTimeout(async () => {
 			this.reconnectTimeout = null;

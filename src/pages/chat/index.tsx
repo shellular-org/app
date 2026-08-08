@@ -148,7 +148,7 @@ export default function ChatConversationPage({
 	createOnFirstMessage = false,
 	chatTabId,
 }: ChatConversationPageProps) {
-	const { connectionStatus, hostDir, agents } = useShellular();
+	const { connectionStatus, hostDir, agents, loadAgents } = useShellular();
 	const [showSidebar, setShowSidebar] = useState(false);
 	// Host-cached config from this agent's last live session. A draft chat has no
 	// session to ask, so this is what the toolbar renders until the first send
@@ -254,6 +254,10 @@ export default function ChatConversationPage({
 	// stale (a full reload replaced history) and must be discarded.
 	const remoteBaseIdxRef = useRef(0);
 	const remoteGenerationRef = useRef<number | undefined>(undefined);
+	// Agent metadata is loaded on connection, but an existing chat can populate
+	// the CLI's config cache later. Refresh once for this draft so it sees that
+	// cache before lazily creating an ACP session on the first send.
+	const draftConfigRefreshRef = useRef<string | null>(null);
 
 	connectionStatusRef.current = connectionStatus;
 
@@ -811,6 +815,19 @@ export default function ChatConversationPage({
 	}, [sessionId]);
 
 	useEffect(() => {
+		if (
+			connectionStatus !== "connected" ||
+			!createOnFirstMessage ||
+			sessionId ||
+			draftConfigRefreshRef.current === agentId
+		) {
+			return;
+		}
+		draftConfigRefreshRef.current = agentId;
+		void loadAgents();
+	}, [agentId, connectionStatus, createOnFirstMessage, loadAgents, sessionId]);
+
+	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 		// A draft chat has no session yet, and deliberately does not create one:
 		// the agent session is spawned lazily by the first send (see handleSend),
@@ -822,7 +839,9 @@ export default function ChatConversationPage({
 			setVisibleCount(PAGE_SIZE);
 			stickToBottomRef.current = true;
 			setHistoryScrollReady(true);
-			setConfigOptions(cachedAgentConfig?.configOptions ?? []);
+			if (!pendingConfigChangesRef.current.size) {
+				setConfigOptions(cachedAgentConfig?.configOptions ?? []);
+			}
 			setAvailableCommands(cachedAgentConfig?.availableCommands ?? []);
 			setContextWindowUsage(null);
 			setHasMoreRemote(false);
@@ -1556,6 +1575,7 @@ export default function ChatConversationPage({
 						agentId,
 						resolvedWorkspacePath || ".",
 						"",
+						configOptions,
 					).then((result) => ({
 						sessionId: result.session.id ?? "",
 						configOptions: result.configOptions,
