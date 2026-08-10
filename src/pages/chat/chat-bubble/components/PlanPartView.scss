@@ -1,50 +1,180 @@
-.chat-plan-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  margin-top: -10px !important;
+// Plan card. The collapsed header is the primary read: title, count, and the
+// task currently running. Everything below it is the detail view.
+.chat-part-card--plan {
+  .chat-plan-summary {
+    align-items: flex-start;
+
+    // The disclosure chevron and leading icon stay top-aligned when the
+    // header wraps to two lines.
+    >[class^="icon-"] {
+      margin-top: 1px;
+      flex-shrink: 0;
+    }
+  }
+
+  &.chat-part-card--plan-complete .chat-plan-summary>[class^="icon-"] {
+    color: var(--success, #22c55e);
+  }
+}
+
+.chat-plan-heading {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-plan-heading-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chat-plan-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-plan-count {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--secondary-text);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+// The live task, shown under the title so a collapsed plan still says what the
+// agent is doing. Two lines max — it's a summary, not the task list.
+.chat-plan-current {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--secondary-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.chat-plan-progress {
+  height: 2px;
+  margin: 0 10px 8px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--secondary-text) 18%, transparent);
+  overflow: hidden;
+
+  .chat-plan-progress-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--accent);
+    transition: width 240ms ease;
+  }
+
+  .chat-part-card--plan-complete & .chat-plan-progress-fill {
+    background: var(--success, #22c55e);
+  }
+}
+
+.chat-plan-list {
+  list-style: none;
+  padding: 0 10px 10px;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 
   .chat-plan-item {
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    padding: 6px 10px;
+    padding: 5px 6px;
     border-radius: 6px;
-    font-size: 0.88em;
-    line-height: 1;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--primary-text);
 
     &--completed {
-      opacity: 0.7;
-    }
-
-    .mascot {
-      margin-top: -2px;
-    }
-
-    .chat-plan-status {
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      padding: 1px 6px;
-      border-radius: 4px;
-      flex-shrink: 0;
-      margin-top: 1px;
-      background: var(--surface-soft);
       color: var(--secondary-text);
 
-      .chat-plan-item--in-progress & {
-        color: #f59e0b;
-        background: rgba(245, 158, 11, 0.12);
-      }
-
-      .chat-plan-item--completed & {
-        color: #34d399;
-        background: rgba(52, 211, 153, 0.12);
+      .chat-plan-content {
+        text-decoration: line-through;
+        text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
       }
     }
+
+    // The running task is the one thing worth tinting; pending entries stay
+    // plain so the list reads as a calm checklist.
+    &--in_progress {
+      background: color-mix(in srgb, var(--accent) 8%, transparent);
+      font-weight: 500;
+    }
+
+    .chat-plan-content {
+      min-width: 0;
+      // Long task descriptions must wrap rather than overflow on a phone.
+      overflow-wrap: anywhere;
+    }
   }
+}
+
+// Fixed-width marker column keeps every task's text on the same left edge
+// regardless of which state icon is showing.
+.chat-plan-marker {
+  flex-shrink: 0;
+  width: 14px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  [class^="icon-"] {
+    font-size: 11px;
+  }
+
+  .chat-plan-item--completed & {
+    color: var(--success, #22c55e);
+  }
+}
+
+.chat-plan-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--secondary-text) 55%, transparent);
+}
+
+.chat-plan-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  animation: chat-plan-spin 700ms linear infinite;
+}
+
+@keyframes chat-plan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-plan-spinner {
+    animation: none;
+  }
+
+  .chat-plan-progress-fill {
+    transition: none;
+  }
+}
+
+.chat-plan-fallback {
+  padding: 0 10px 10px;
+  white-space: pre-wrap;
 }

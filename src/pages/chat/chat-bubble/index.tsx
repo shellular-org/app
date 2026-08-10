@@ -1,16 +1,17 @@
 import "./style.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
 import Mascot from "components/Mascot";
-import { useEffect, useRef, useState } from "react";
+import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
 import {
+	getAnswerParts,
 	isCopyableMessagePart,
 	isFinishedToolCall,
 	messagePartsToMarkdown,
 	type ToolCallPart,
 } from "./lib/messageParts";
-import { copyTextToClipboard, getRenderPartKey } from "./lib/utils";
+import { getRenderPartKey } from "./lib/utils";
 
 interface ChatBubbleProps {
 	parts: AcpMessagePart[];
@@ -18,6 +19,20 @@ interface ChatBubbleProps {
 	assistantName: string;
 	messageKey: string;
 	streaming?: boolean;
+	/**
+	 * Whether this bubble closes a visual group of consecutive same-role
+	 * messages. Actions (copy) render only on group-closing bubbles so an
+	 * answer split across several ACP messages shows them once.
+	 */
+	showActions?: boolean;
+	/** Parts to copy — the whole group's, not just this bubble's. */
+	copyParts?: AcpMessagePart[];
+	/**
+	 * What the agent is currently doing, derived from the live parts (e.g.
+	 * "running Bash"). Keeps the streaming indicator honest instead of always
+	 * claiming the agent is "thinking".
+	 */
+	statusLabel?: string;
 }
 
 const TOOL_CALL_GROUP_THRESHOLD = 4;
@@ -28,35 +43,16 @@ export default function ChatBubble({
 	assistantName,
 	messageKey,
 	streaming = false,
+	showActions = true,
+	copyParts,
+	statusLabel,
 }: ChatBubbleProps) {
-	const copiedTimeoutRef = useRef<number | null>(null);
-	const [copied, setCopied] = useState(false);
-	const canCopy = !streaming && parts.some(isCopyableMessagePart);
-
-	useEffect(() => {
-		return () => {
-			if (copiedTimeoutRef.current !== null) {
-				window.clearTimeout(copiedTimeoutRef.current);
-			}
-		};
-	}, []);
-
-	const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
-		event.preventDefault();
-		event.stopPropagation();
-		const text = messagePartsToMarkdown(parts).trim();
-		if (!text) return;
-
-		await copyTextToClipboard(text);
-		setCopied(true);
-		if (copiedTimeoutRef.current !== null) {
-			window.clearTimeout(copiedTimeoutRef.current);
-		}
-		copiedTimeoutRef.current = window.setTimeout(() => {
-			setCopied(false);
-			copiedTimeoutRef.current = null;
-		}, 1400);
-	};
+	// Just the answer: reasoning and tool calls are folded away on screen and
+	// carry their own copy buttons, so including them here would bury the reply
+	// the user actually asked for under pages of transcript.
+	const answerParts = getAnswerParts(copyParts ?? parts);
+	const canCopy =
+		!streaming && showActions && answerParts.some(isCopyableMessagePart);
 
 	return (
 		<div
@@ -72,24 +68,21 @@ export default function ChatBubble({
 			</div>
 			{canCopy && (
 				<div className="chat-bubble-actions">
-					<button
-						type="button"
-						className={`chat-bubble-copy${copied ? " chat-bubble-copy--copied" : ""}`}
-						onClick={handleCopy}
-						aria-label={copied ? "Copied" : "Copy message"}
-						title={copied ? "Copied" : "Copy message"}
-					>
-						<span
-							className={copied ? "icon-check" : "icon-copy"}
-							aria-hidden="true"
-						/>
-					</button>
+					<CopyButton
+						getText={() => messagePartsToMarkdown(answerParts)}
+						label="Copy response"
+						className="chat-bubble-copy"
+					/>
 				</div>
 			)}
 			{streaming && (
 				<div className="chat-typing">
 					<Mascot state="thinking" size={34} tone="inline" />
-					<span>{assistantName} is thinking...</span>
+					<span className="chat-typing-label">
+						{statusLabel
+							? `${assistantName} is ${statusLabel}…`
+							: `${assistantName} is thinking…`}
+					</span>
 				</div>
 			)}
 		</div>

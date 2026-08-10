@@ -5,6 +5,7 @@ import {
 	type AiAttachmentWriteResultMsg,
 	type AiBackend,
 	type AiEventMsg,
+	type AiMessagesListResultMsg,
 	type AiPermissionReplyAckMsg,
 	type AiPromptMsg,
 	type AiSession,
@@ -14,7 +15,6 @@ import {
 	type AiSessionCreateResultMsg,
 	type AiSessionDetachResultMsg,
 	type AiSessionListResultMsg,
-	type AiSessionLoadResultMsg,
 	type AiSessionModeSetResultMsg,
 	type AiSessionRuntimeState,
 	MsgType,
@@ -26,6 +26,16 @@ import {
 	sendRequest,
 } from "./connection";
 import { mergeSessionActivity, seedSessionActivity } from "./sessions";
+
+type AiSessionCreateSendableMsg = Extract<
+	SendableMsg,
+	{ type: typeof MsgType.AI_SESSION_CREATE }
+>;
+type AiSessionCreateDraftMsg = Omit<AiSessionCreateSendableMsg, "data"> & {
+	data: AiSessionCreateSendableMsg["data"] & {
+		configOptions?: AiSessionConfigOption[];
+	};
+};
 
 export interface InstallationCommand {
 	command: string;
@@ -50,6 +60,19 @@ export interface AcpAgentInfo {
 	state: "unavailable" | "starting" | "ready" | "failed" | "exited";
 	installationCommands?: Record<string, InstallationCommand>;
 	custom?: CustomAcpAgentInput;
+	/**
+	 * Config options / slash commands the agent advertised for its most recent
+	 * session, cached on the host. ACP only exposes these once a session exists,
+	 * so a draft chat uses this to render a real toolbar before the first send.
+	 * Advisory: the live session's values replace it as soon as one is created.
+	 */
+	sessionConfig?: {
+		configOptions?: AiSessionConfigOption[];
+		availableCommands?: AcpAvailableCommand[];
+		modes?: unknown;
+		version?: string;
+		updatedAt?: number;
+	};
 }
 
 export type ManagedAcpAgentInfo = AcpAgentInfo & {
@@ -94,7 +117,110 @@ export interface AcpLoadedSession {
 	runtimeState?: AiSessionRuntimeState;
 	revision: number;
 	syncing?: boolean;
+	// Window this payload covers: `from` inclusive, `to` exclusive. The next
+	// page back is requested with `to: from`.
+	totalCount?: number;
+	from?: number;
+	to?: number;
+	hasMoreBefore?: boolean;
+	generation?: number;
 }
+
+export interface AcpMessagesPage {
+	messages: AcpMessage[];
+	from?: number;
+	to?: number;
+	totalCount?: number;
+	hasMoreBefore?: boolean;
+	generation?: number;
+}
+
+/** Newest-N window requested on attach; older history pages in on scroll. */
+/**
+ * Messages requested on attach and per scroll-back page.
+ *
+ * Kept at the chat view's initial render window (`PAGE_SIZE`) rather than above
+ * it: anything extra is transferred over the relay and then not displayed. On a
+ * 115-message session the 60-message window measured ~376KB and ~3.7s of
+ * transit, which dominated attach latency — decode and render of that same
+ * payload were ~20ms combined, so the cost is bytes on the wire, not CPU.
+ */
+export const ATTACH_TAIL = 30;
+
+/**
+ * An ACP elicitation surfaced by the CLI as an `elicitation.updated` event —
+ * the agent asking the user for structured input (form mode) or to visit a
+ * URL (url mode, e.g. sign-in flows). Blocks the agent's turn until answered,
+ * exactly like a permission request.
+ */
+export interface AcpElicitationRequest {
+	id: string;
+	sessionId: string;
+	mode: string;
+	message: string;
+	requestedSchema?: Record<string, unknown>;
+	url?: string;
+}
+
+export function readElicitationRequest(
+	properties: Record<string, unknown>,
+): AcpElicitationRequest | null {
+	const id = properties.id;
+	const sessionId = properties.sessionId;
+	if (typeof id !== "string" || typeof sessionId !== "string") return null;
+	const raw = properties.elicitation;
+	if (!raw || typeof raw !== "object") return null;
+	const record = raw as Record<string, unknown>;
+	return {
+		id,
+		sessionId,
+		mode: typeof record.mode === "string" ? record.mode : "form",
+		message: typeof record.message === "string" ? record.message : "",
+		requestedSchema:
+			record.requestedSchema && typeof record.requestedSchema === "object"
+				? (record.requestedSchema as Record<string, unknown>)
+				: undefined,
+		url: typeof record.url === "string" ? record.url : undefined,
+	};
+}
+
+// MsgType.AI_ELICITATION_REPLY once the published protocol catches up.
+const AI_ELICITATION_REPLY = "ai:elicitation:reply";
+
+/**
+ * Fire-and-forget by design: resolution comes back over the event stream
+ * (`elicitation.updated` with `resolved: true`), so nothing hangs when the
+ * CLI predates elicitation support — the card just stays until dismissed.
+ */
+export function acpElicitationReply(
+	agentId: AiBackend,
+	sessionId: string,
+	elicitationId: string,
+	action: "accept" | "decline" | "cancel",
+	content?: Record<string, unknown>,
+): void {
+	sendConnectionMessage({
+		type: AI_ELICITATION_REPLY,
+		data: {
+			backend: agentId,
+			sessionId,
+			elicitationId,
+			action,
+			...(content ? { content } : {}),
+		},
+	} as unknown as SendableMsg);
+}
+
+// The published protocol types may trail the CLI's; new optional fields ride
+// through the wire regardless (schemas strip unknown keys but the CLI is
+// updated first), so read them via this widening until the dep is bumped.
+type PagingFields = {
+	totalCount?: number;
+	from?: number;
+	to?: number;
+	hasMoreBefore?: boolean;
+	generation?: number;
+};
 
 type SessionState = Record<string, unknown> | undefined;
 type AcpSessionEventMsg = AiEventMsg & {
@@ -226,11 +352,13 @@ export async function acpCreateSession(
 	agentId: AiBackend,
 	cwd: string,
 	prompt = "",
+	configOptions?: AiSessionConfigOption[],
 ): Promise<AcpLoadedSession> {
-	const result = await sendRequest<AiSessionCreateResultMsg>({
+	const msg: AiSessionCreateDraftMsg = {
 		type: MsgType.AI_SESSION_CREATE,
-		data: { backend: agentId, prompt, workspacePath: cwd, cwd },
-	});
+		data: { backend: agentId, prompt, workspacePath: cwd, cwd, configOptions },
+	};
+	const result = await sendRequest<AiSessionCreateResultMsg>(msg);
 	assertNoError(result);
 	if (!result.data?.session) throw new Error("No session data received");
 	const data = result.data as typeof result.data & { state?: SessionState };
@@ -258,26 +386,62 @@ export async function acpAttachSession(
 ): Promise<AcpLoadedSession> {
 	const result = await sendRequest<AiSessionAttachResultMsg>({
 		type: MsgType.AI_SESSION_ATTACH,
-		data: { backend: agentId, sessionId, cwd },
-	});
+		data: { backend: agentId, sessionId, cwd, tail: ATTACH_TAIL },
+	} as SendableMsg);
 	assertNoError(result);
 	if (!result.data) throw new Error("No session data received");
-	seedSessionActivity(agentId, result.data.session, result.data.runtimeState);
+	const data = result.data as typeof result.data & PagingFields;
+	seedSessionActivity(agentId, data.session, data.runtimeState);
 	return {
-		session: result.data.session,
-		messages: result.data.messages,
+		session: data.session,
+		messages: data.messages,
 		availableCommands:
-			result.data.state?.availableCommands ??
-			readAvailableCommands(result.data.updates) ??
+			data.state?.availableCommands ??
+			readAvailableCommands(data.updates) ??
 			[],
 		configOptions: normalizeConfigOptions(
-			result.data.state?.configOptions as AiSessionConfigOption[] | undefined,
-			result.data.state as SessionState,
+			data.state?.configOptions as AiSessionConfigOption[] | undefined,
+			data.state as SessionState,
 		),
-		state: result.data.state as Record<string, unknown> | undefined,
-		runtimeState: result.data.runtimeState,
-		revision: result.data.revision,
-		syncing: result.data.syncing,
+		state: data.state as Record<string, unknown> | undefined,
+		runtimeState: data.runtimeState,
+		revision: data.revision,
+		syncing: data.syncing,
+		totalCount: data.totalCount,
+		from: data.from,
+		to: data.to,
+		hasMoreBefore: data.hasMoreBefore,
+		generation: data.generation,
+	};
+}
+
+/**
+ * Fetch an older window of transcript history for scroll-back: the `limit`
+ * messages ending just before `to`, i.e. `[to - limit, to)`. Pass the `from` of
+ * the previous window as `to` so pages abut without overlap.
+ */
+export async function acpMessagesPage(
+	agentId: AiBackend,
+	sessionId: string,
+	to: number,
+	limit = ATTACH_TAIL,
+): Promise<AcpMessagesPage> {
+	const result = await sendRequest<AiMessagesListResultMsg>({
+		type: MsgType.AI_MESSAGES_LIST,
+		data: { backend: agentId, sessionId, to, limit },
+	} as SendableMsg);
+	assertNoError(result);
+	const data = (result.data ?? { messages: [] }) as NonNullable<
+		AiMessagesListResultMsg["data"]
+	> &
+		PagingFields;
+	return {
+		messages: (data.messages ?? []) as AcpMessage[],
+		from: data.from,
+		to: data.to,
+		totalCount: data.totalCount,
+		hasMoreBefore: data.hasMoreBefore,
+		generation: data.generation,
 	};
 }
 
@@ -290,35 +454,6 @@ export async function acpDetachSession(
 		data: { backend: agentId, sessionId },
 	});
 	assertNoError(result);
-}
-
-export async function acpLoadSession(
-	agentId: AiBackend,
-	sessionId: string,
-	cwd: string,
-): Promise<AcpLoadedSession> {
-	const result = await sendRequest<AiSessionLoadResultMsg>({
-		type: MsgType.AI_SESSION_LOAD,
-		data: { backend: agentId, sessionId, cwd },
-	});
-	assertNoError(result);
-	if (!result.data) throw new Error("No session data received");
-	seedSessionActivity(agentId, result.data.session, result.data.runtimeState);
-	return {
-		session: result.data.session,
-		messages: result.data.messages,
-		availableCommands:
-			result.data.state?.availableCommands ??
-			readAvailableCommands(result.data.updates) ??
-			[],
-		configOptions: normalizeConfigOptions(
-			result.data.state?.configOptions as AiSessionConfigOption[] | undefined,
-			result.data.state as SessionState,
-		),
-		state: result.data.state as Record<string, unknown> | undefined,
-		runtimeState: result.data.runtimeState,
-		revision: 0,
-	};
 }
 
 export function acpSubscribeSession(
