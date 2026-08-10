@@ -1,5 +1,9 @@
 import "./ToolCallGroupView.scss";
-import { summarizeToolStatuses, type ToolCallPart } from "../lib/messageParts";
+import {
+	messagePartsToMarkdown,
+	summarizeToolStatuses,
+	type ToolCallPart,
+} from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
 import ChatDisclosure from "./ChatDisclosure";
 import MessagePartView from "./MessagePartView";
@@ -20,6 +24,8 @@ export default function ToolCallGroupView({
 			className="chat-tool chat-tool-call-group"
 			card={false}
 			stateKey={stateKey}
+			copyText={() => messagePartsToMarkdown(parts)}
+			copyLabel="Copy tool calls"
 			summary={(open) => (
 				<>
 					<span className="icon-tool" aria-hidden="true" />
