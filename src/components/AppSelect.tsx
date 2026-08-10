@@ -31,6 +31,7 @@ export default function AppSelect({
 	disabled = false,
 	ariaLabel,
 	className = "",
+	prefix,
 	size = "default",
 	menuPlacement = "auto",
 }: AppSelectProps) {
@@ -52,6 +53,7 @@ export default function AppSelect({
 				className="app-select__button inline-flex min-w-0 items-center"
 				aria-label={ariaLabel}
 			>
+				{prefix ? <span className="app-select__prefix">{prefix}</span> : null}
 				<span className="app-select__value min-w-0 flex-1 truncate text-left">
 					{selected?.label ?? value}
 				</span>

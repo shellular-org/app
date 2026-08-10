@@ -2,10 +2,12 @@ import "./style.scss";
 import { pushPage } from "App";
 import dialog from "bridge/dialog";
 import AppMenu from "components/AppMenu";
+import AppSelect from "components/AppSelect";
 import DiffView from "components/DiffView";
 import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import Page from "components/Page";
+import { getFileIcon } from "lib/fileIcon";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
 import { formatRelativeTime } from "lib/utils";
 import CommitDetailPage from "pages/git-history/CommitDetail";
@@ -22,11 +24,20 @@ import {
 import BranchPicker from "./BranchPicker";
 import { type BranchActionError, getBranchActionError } from "./branchErrors";
 import CommitComposer from "./CommitComposer";
+import { buildGitChangeTree, type GitChangeTreeNode } from "./gitChangeTree";
 
 type GitTab = "changes" | "history";
 type Filter = "all" | "staged" | "unstaged";
+type ChangeGroup = "staged" | "unstaged";
+type ChangeViewMode = "list" | "tree";
 
 const PAGE_SIZE = 30;
+const GIT_VIEW_MODE_KEY = "shellular:git-changes-view-mode";
+const CHANGE_FILTER_OPTIONS = [
+	{ value: "all", label: "All changes" },
+	{ value: "staged", label: "Staged" },
+	{ value: "unstaged", label: "Unstaged" },
+];
 
 const STATUS_LABEL: Record<GitWorkingTreeFile["status"], string> = {
 	modified: "M",
@@ -37,6 +48,25 @@ const STATUS_LABEL: Record<GitWorkingTreeFile["status"], string> = {
 	untracked: "U",
 	ignored: "I",
 };
+
+function getInitialChangeViewMode(): ChangeViewMode {
+	try {
+		const stored = localStorage.getItem(GIT_VIEW_MODE_KEY);
+		if (stored === "list" || stored === "tree") return stored;
+	} catch {
+		// Storage can be unavailable in private or restricted web views.
+	}
+
+	return window.matchMedia?.("(max-width: 640px)").matches ? "tree" : "list";
+}
+
+function saveChangeViewMode(mode: ChangeViewMode) {
+	try {
+		localStorage.setItem(GIT_VIEW_MODE_KEY, mode);
+	} catch {
+		// The view still switches for this session when persistence is unavailable.
+	}
+}
 
 interface Props {
 	projectPath: string;
@@ -502,6 +532,326 @@ export default function GitClientPage({ projectPath }: Props) {
 	);
 }
 
+type RunChangeOperation = (
+	op: GitOperation,
+	opts?: { files?: string[]; message?: string },
+) => void;
+
+interface GitChangeFileRowProps {
+	file: GitWorkingTreeFile;
+	group: ChangeGroup;
+	selected: boolean;
+	busy: boolean;
+	processing: boolean;
+	treeDepth?: number;
+	onToggle: (path: string) => void;
+	onOpenDiff: (file: GitWorkingTreeFile) => void;
+	run: RunChangeOperation;
+}
+
+function GitChangeFileRow({
+	file,
+	group,
+	selected,
+	busy,
+	processing,
+	treeDepth,
+	onToggle,
+	onOpenDiff,
+	run,
+}: GitChangeFileRowProps) {
+	const isTreeRow = treeDepth !== undefined;
+	const fileName = file.path.split(/[\\/]/).pop() || file.path;
+	const treeStyle = isTreeRow
+		? ({
+				"--tree-indent": `${Math.min(treeDepth, 6) * 14}px`,
+			} as React.CSSProperties)
+		: undefined;
+
+	const discard = async () => {
+		const ok = await dialog.confirm(
+			`Are you sure you want to discard all changes in "${fileName}"? This cannot be undone.`,
+			"Discard Changes",
+		);
+		if (ok) run("discard", { files: [file.path] });
+	};
+
+	return (
+		<div
+			className={`git-file-row${isTreeRow ? " git-tree-file-row" : ""}`}
+			data-git-status={file.status}
+			role={isTreeRow ? "treeitem" : undefined}
+			style={treeStyle}
+		>
+			<button
+				type="button"
+				className="git-file-check"
+				data-checked={selected}
+				onClick={() => onToggle(file.path)}
+				aria-label={`Select ${file.path}`}
+			>
+				<span className="icon-check" aria-hidden="true" />
+			</button>
+			<button
+				type="button"
+				className="git-file-main"
+				onClick={() => onOpenDiff(file)}
+			>
+				{isTreeRow ? (
+					<span
+						className={`git-tree-file-icon ${getFileIcon(fileName)}`}
+						aria-hidden="true"
+					/>
+				) : (
+					<span className="git-file-status">{STATUS_LABEL[file.status]}</span>
+				)}
+				<span className="git-file-text">
+					<span className="git-file-name">{fileName}</span>
+					{!isTreeRow && <span className="git-file-path">{file.path}</span>}
+				</span>
+				{isTreeRow && (
+					<span className="git-tree-file-status">
+						{STATUS_LABEL[file.status]}
+					</span>
+				)}
+			</button>
+			<div className="git-file-actions">
+				{processing ? (
+					<div className="git-file-spinner">
+						<Loader size={14} mascot={false} />
+					</div>
+				) : group === "unstaged" ? (
+					<>
+						<button
+							type="button"
+							className="git-file-action-btn git-action-discard"
+							onClick={discard}
+							disabled={busy}
+							title="Discard changes"
+							aria-label={`Discard changes in ${file.path}`}
+						>
+							<span className="icon-trash" aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							className="git-file-action-btn git-action-stage"
+							onClick={() => run("stage", { files: [file.path] })}
+							disabled={busy}
+							title="Stage changes"
+							aria-label={`Stage ${file.path}`}
+						>
+							<span className="icon-plus" aria-hidden="true" />
+						</button>
+					</>
+				) : (
+					<button
+						type="button"
+						className="git-file-action-btn git-action-unstage"
+						onClick={() => run("unstage", { files: [file.path] })}
+						disabled={busy}
+						title="Unstage changes"
+						aria-label={`Unstage ${file.path}`}
+					>
+						<span className="icon-minus" aria-hidden="true" />
+					</button>
+				)}
+			</div>
+			{!isTreeRow && (
+				<button
+					type="button"
+					className="git-file-chevron"
+					onClick={() => onOpenDiff(file)}
+					aria-label={`View diff for ${file.path}`}
+				>
+					<span className="icon-chevron-right" aria-hidden="true" />
+				</button>
+			)}
+		</div>
+	);
+}
+
+interface GitChangeTreeNodeViewProps {
+	node: GitChangeTreeNode;
+	depth: number;
+	group: ChangeGroup;
+	selected: Set<string>;
+	busy: boolean;
+	processingPaths: Set<string>;
+	collapsed: Set<string>;
+	onToggleFolder: (path: string) => void;
+	onToggleFile: (path: string) => void;
+	onOpenDiff: (file: GitWorkingTreeFile) => void;
+	run: RunChangeOperation;
+}
+
+function GitChangeTreeNodeView({
+	node,
+	depth,
+	group,
+	selected,
+	busy,
+	processingPaths,
+	collapsed,
+	onToggleFolder,
+	onToggleFile,
+	onOpenDiff,
+	run,
+}: GitChangeTreeNodeViewProps) {
+	if (node.type === "file") {
+		return (
+			<GitChangeFileRow
+				file={node.file}
+				group={group}
+				selected={selected.has(node.path)}
+				busy={busy}
+				processing={processingPaths.has(node.path)}
+				treeDepth={depth}
+				onToggle={onToggleFile}
+				onOpenDiff={onOpenDiff}
+				run={run}
+			/>
+		);
+	}
+
+	const isCollapsed = collapsed.has(node.path);
+	const treeStyle = {
+		"--tree-indent": `${Math.min(depth, 6) * 14}px`,
+	} as React.CSSProperties;
+
+	return (
+		<div className="git-tree-directory">
+			<button
+				type="button"
+				className="git-tree-folder-row"
+				onClick={() => onToggleFolder(node.path)}
+				role="treeitem"
+				aria-level={depth + 1}
+				aria-expanded={!isCollapsed}
+				aria-label={`${node.name}, ${node.fileCount} changed ${
+					node.fileCount === 1 ? "file" : "files"
+				}`}
+				style={treeStyle}
+			>
+				<span
+					className={`icon-chevron-right git-tree-folder-chevron${
+						isCollapsed ? "" : " git-tree-folder-chevron--open"
+					}`}
+					aria-hidden="true"
+				/>
+				<span className="icon-folder git-tree-folder-icon" aria-hidden="true" />
+				<span className="git-tree-folder-name">{node.name}</span>
+				{isCollapsed ? (
+					<span className="git-tree-folder-count">{node.fileCount}</span>
+				) : null}
+			</button>
+			{!isCollapsed && (
+				<div className="git-tree-children">
+					{node.children.map((child) => (
+						<GitChangeTreeNodeView
+							key={`${child.type}:${child.path}`}
+							node={child}
+							depth={depth + 1}
+							group={group}
+							selected={selected}
+							busy={busy}
+							processingPaths={processingPaths}
+							collapsed={collapsed}
+							onToggleFolder={onToggleFolder}
+							onToggleFile={onToggleFile}
+							onOpenDiff={onOpenDiff}
+							run={run}
+						/>
+					))}
+				</div>
+			)}
+		</div>
+	);
+}
+
+interface GitChangeFileCollectionProps {
+	files: GitWorkingTreeFile[];
+	group: ChangeGroup;
+	viewMode: ChangeViewMode;
+	selected: Set<string>;
+	busy: boolean;
+	processingPaths: Set<string>;
+	onToggleFile: (path: string) => void;
+	onOpenDiff: (file: GitWorkingTreeFile) => void;
+	run: RunChangeOperation;
+}
+
+function GitChangeFileCollection({
+	files,
+	group,
+	viewMode,
+	selected,
+	busy,
+	processingPaths,
+	onToggleFile,
+	onOpenDiff,
+	run,
+}: GitChangeFileCollectionProps) {
+	const tree = useMemo(
+		() => (viewMode === "tree" ? buildGitChangeTree(files) : []),
+		[files, viewMode],
+	);
+	const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+	const toggleFolder = useCallback((path: string) => {
+		setCollapsed((current) => {
+			const next = new Set(current);
+			if (next.has(path)) next.delete(path);
+			else next.add(path);
+			return next;
+		});
+	}, []);
+
+	if (viewMode === "list") {
+		return (
+			<div className="git-file-list">
+				{files.map((file) => (
+					<GitChangeFileRow
+						key={`${group}:${file.path}`}
+						file={file}
+						group={group}
+						selected={selected.has(file.path)}
+						busy={busy}
+						processing={processingPaths.has(file.path)}
+						onToggle={onToggleFile}
+						onOpenDiff={onOpenDiff}
+						run={run}
+					/>
+				))}
+			</div>
+		);
+	}
+
+	return (
+		<div
+			className="git-file-list git-tree-list"
+			role="tree"
+			aria-label={`${group === "staged" ? "Staged changes" : "Changes"} tree`}
+		>
+			{tree.map((node) => (
+				<GitChangeTreeNodeView
+					key={`${node.type}:${node.path}`}
+					node={node}
+					depth={0}
+					group={group}
+					selected={selected}
+					busy={busy}
+					processingPaths={processingPaths}
+					collapsed={collapsed}
+					onToggleFolder={toggleFolder}
+					onToggleFile={onToggleFile}
+					onOpenDiff={onOpenDiff}
+					run={run}
+				/>
+			))}
+		</div>
+	);
+}
+
 interface ChangesTabProps {
 	status: GitWorkingTreeStatus | null;
 	loading: boolean;
@@ -520,10 +870,7 @@ interface ChangesTabProps {
 	canStage: boolean;
 	canUnstage: boolean;
 	selectedPaths: string[];
-	run: (
-		op: GitOperation,
-		opts?: { files?: string[]; message?: string },
-	) => void;
+	run: RunChangeOperation;
 	lastOutput: string;
 	processingPaths: Set<string>;
 	setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -558,6 +905,15 @@ function ChangesTab({
 	branchLoading,
 	commitAndPush,
 }: ChangesTabProps) {
+	const [viewMode, setViewMode] = useState<ChangeViewMode>(
+		getInitialChangeViewMode,
+	);
+
+	const changeViewMode = useCallback((mode: ChangeViewMode) => {
+		setViewMode(mode);
+		saveChangeViewMode(mode);
+	}, []);
+
 	if (loading) {
 		return <EmptyState message="Loading repository..." mascot="loading" />;
 	}
@@ -597,106 +953,6 @@ function ChangesTab({
 		});
 	};
 
-	const handleDiscard = async (file: GitWorkingTreeFile) => {
-		const name = file.path.split("/").pop() || file.path;
-		const ok = await dialog.confirm(
-			`Are you sure you want to discard all changes in "${name}"? This cannot be undone.`,
-			"Discard Changes",
-		);
-		if (ok) {
-			run("discard", { files: [file.path] });
-		}
-	};
-
-	const renderFile = (
-		file: GitWorkingTreeFile,
-		group: "staged" | "unstaged",
-	) => (
-		<div
-			key={`${group}:${file.path}`}
-			className="git-file-row"
-			data-git-status={file.status}
-		>
-			<button
-				type="button"
-				className="git-file-check"
-				data-checked={selected.has(file.path)}
-				onClick={() => toggleFile(file.path)}
-				aria-label={`Select ${file.path}`}
-			>
-				<span className="icon-check" aria-hidden="true" />
-			</button>
-			<button
-				type="button"
-				className="git-file-main"
-				onClick={() => openDiff(file)}
-			>
-				<span className="git-file-status">{STATUS_LABEL[file.status]}</span>
-				<span className="git-file-text">
-					<span className="git-file-name">
-						{file.path.split("/").pop() || file.path}
-					</span>
-					<span className="git-file-path">{file.path}</span>
-				</span>
-			</button>
-			<div className="git-file-actions">
-				{processingPaths.has(file.path) ? (
-					<div className="git-file-spinner">
-						<Loader size={14} mascot={false} />
-					</div>
-				) : group === "unstaged" ? (
-					<>
-						<button
-							type="button"
-							className="git-file-action-btn git-action-discard"
-							onClick={(e) => {
-								e.stopPropagation();
-								handleDiscard(file);
-							}}
-							disabled={!!busy}
-							title="Discard changes"
-						>
-							<span className="icon-trash" aria-hidden="true" />
-						</button>
-						<button
-							type="button"
-							className="git-file-action-btn git-action-stage"
-							onClick={(e) => {
-								e.stopPropagation();
-								run("stage", { files: [file.path] });
-							}}
-							disabled={!!busy}
-							title="Stage changes"
-						>
-							<span className="icon-plus" aria-hidden="true" />
-						</button>
-					</>
-				) : (
-					<button
-						type="button"
-						className="git-file-action-btn git-action-unstage"
-						onClick={(e) => {
-							e.stopPropagation();
-							run("unstage", { files: [file.path] });
-						}}
-						disabled={!!busy}
-						title="Unstage changes"
-					>
-						<span className="icon-minus" aria-hidden="true" />
-					</button>
-				)}
-			</div>
-			<button
-				type="button"
-				className="git-file-chevron"
-				onClick={() => openDiff(file)}
-				aria-label="View diff"
-			>
-				<span className="icon-chevron-right" aria-hidden="true" />
-			</button>
-		</div>
-	);
-
 	return (
 		<div className="git-changes-container">
 			<div className="git-changes-scrollable">
@@ -733,24 +989,40 @@ function ChangesTab({
 				{error && <div className="git-error">{error}</div>}
 				{lastOutput && <pre className="git-output">{lastOutput}</pre>}
 
-				<div className="git-filter-row">
-					<div
-						className="git-filter-tabs"
-						role="tablist"
-						aria-label="Change filter"
-					>
-						{(["all", "staged", "unstaged"] as Filter[]).map((item) => (
-							<button
-								key={item}
-								type="button"
-								role="tab"
-								aria-selected={filter === item}
-								data-active={filter === item}
-								onClick={() => setFilter(item)}
-							>
-								{item}
-							</button>
-						))}
+				<div className="git-filter-row git-view-toolbar">
+					<AppSelect
+						value={filter}
+						options={CHANGE_FILTER_OPTIONS}
+						onChange={(value) => setFilter(value as Filter)}
+						ariaLabel="Filter changes"
+						className="git-change-filter"
+						prefix={<span className="icon-filter" aria-hidden="true" />}
+					/>
+					<div className="git-view-switch">
+						<button
+							type="button"
+							data-active={viewMode === "list"}
+							onClick={() => changeViewMode("list")}
+							aria-label="View changes as list"
+							aria-pressed={viewMode === "list"}
+							title="View as list"
+						>
+							<span className="icon-list" aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							data-active={viewMode === "tree"}
+							onClick={() => changeViewMode("tree")}
+							aria-label="View changes as tree"
+							aria-pressed={viewMode === "tree"}
+							title="View as tree"
+						>
+							<span className="git-tree-mode-icon" aria-hidden="true">
+								<i />
+								<i />
+								<i />
+							</span>
+						</button>
 					</div>
 				</div>
 
@@ -782,9 +1054,17 @@ function ChangesTab({
 										Unstage all
 									</button>
 								</div>
-								<div className="git-file-list">
-									{stagedFiles.map((file) => renderFile(file, "staged"))}
-								</div>
+								<GitChangeFileCollection
+									files={stagedFiles}
+									group="staged"
+									viewMode={viewMode}
+									selected={selected}
+									busy={!!busy}
+									processingPaths={processingPaths}
+									onToggleFile={toggleFile}
+									onOpenDiff={openDiff}
+									run={run}
+								/>
 							</section>
 						)}
 
@@ -812,9 +1092,17 @@ function ChangesTab({
 										Stage all
 									</button>
 								</div>
-								<div className="git-file-list">
-									{unstagedFiles.map((file) => renderFile(file, "unstaged"))}
-								</div>
+								<GitChangeFileCollection
+									files={unstagedFiles}
+									group="unstaged"
+									viewMode={viewMode}
+									selected={selected}
+									busy={!!busy}
+									processingPaths={processingPaths}
+									onToggleFile={toggleFile}
+									onOpenDiff={openDiff}
+									run={run}
+								/>
 							</section>
 						)}
 					</>
