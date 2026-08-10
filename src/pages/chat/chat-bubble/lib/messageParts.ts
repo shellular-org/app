@@ -50,6 +50,27 @@ export function getMessageKey(message: AcpMessage): string {
 	return key;
 }
 
+/**
+ * Parts that live behind their own fold, and so carry their own copy button.
+ * The message-level copy skips these: burying the answer under reasoning and
+ * tool JSON is exactly what makes a long response painful to copy.
+ */
+function isFoldedMessagePart(part: AcpMessagePart): boolean {
+	switch (part.type) {
+		case "reasoning":
+		case "tool_call":
+		case "command":
+			return true;
+		default:
+			return false;
+	}
+}
+
+/** The answer itself — what the message-level copy button emits. */
+export function getAnswerParts(parts: AcpMessagePart[]): AcpMessagePart[] {
+	return parts.filter((part) => !isFoldedMessagePart(part));
+}
+
 export function isCopyableMessagePart(part: AcpMessagePart): boolean {
 	switch (part.type) {
 		case "text":
@@ -74,7 +95,7 @@ export function messagePartsToMarkdown(parts: AcpMessagePart[]): string {
 		.join("\n\n");
 }
 
-function messagePartToMarkdown(part: AcpMessagePart): string {
+export function messagePartToMarkdown(part: AcpMessagePart): string {
 	switch (part.type) {
 		case "text":
 			return part.text || "";

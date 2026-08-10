@@ -1,5 +1,6 @@
 import "./MessagePartView.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
+import { messagePartToMarkdown } from "../lib/messageParts";
 import ChatDisclosure from "./ChatDisclosure";
 import FileChangePartView from "./FileChangePartView";
 import FileReferencePartView from "./FileReferencePartView";
@@ -30,6 +31,8 @@ export default function MessagePartView({
 			return (
 				<ChatDisclosure
 					className="chat-part-card chat-part-card--reasoning"
+					copyText={() => part.content || ""}
+					copyLabel="Copy reasoning"
 					summary={
 						<>
 							<span className="icon-cpu" aria-hidden="true" />
@@ -48,6 +51,8 @@ export default function MessagePartView({
 				<ChatDisclosure
 					className="chat-part-card chat-part-card--command"
 					showChevron={false}
+					copyText={() => messagePartToMarkdown(part)}
+					copyLabel="Copy command"
 					summary={
 						<>
 							<span className="icon-terminal" aria-hidden="true" />

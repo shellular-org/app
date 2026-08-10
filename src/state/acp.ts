@@ -27,6 +27,16 @@ import {
 } from "./connection";
 import { mergeSessionActivity, seedSessionActivity } from "./sessions";
 
+type AiSessionCreateSendableMsg = Extract<
+	SendableMsg,
+	{ type: typeof MsgType.AI_SESSION_CREATE }
+>;
+type AiSessionCreateDraftMsg = Omit<AiSessionCreateSendableMsg, "data"> & {
+	data: AiSessionCreateSendableMsg["data"] & {
+		configOptions?: AiSessionConfigOption[];
+	};
+};
+
 export interface InstallationCommand {
 	command: string;
 	os: string[];
@@ -342,11 +352,13 @@ export async function acpCreateSession(
 	agentId: AiBackend,
 	cwd: string,
 	prompt = "",
+	configOptions?: AiSessionConfigOption[],
 ): Promise<AcpLoadedSession> {
-	const result = await sendRequest<AiSessionCreateResultMsg>({
+	const msg: AiSessionCreateDraftMsg = {
 		type: MsgType.AI_SESSION_CREATE,
-		data: { backend: agentId, prompt, workspacePath: cwd, cwd },
-	});
+		data: { backend: agentId, prompt, workspacePath: cwd, cwd, configOptions },
+	};
+	const result = await sendRequest<AiSessionCreateResultMsg>(msg);
 	assertNoError(result);
 	if (!result.data?.session) throw new Error("No session data received");
 	const data = result.data as typeof result.data & { state?: SessionState };

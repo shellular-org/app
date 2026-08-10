@@ -1,16 +1,17 @@
 import "./style.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
 import Mascot from "components/Mascot";
-import { useEffect, useRef, useState } from "react";
+import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
 import {
+	getAnswerParts,
 	isCopyableMessagePart,
 	isFinishedToolCall,
 	messagePartsToMarkdown,
 	type ToolCallPart,
 } from "./lib/messageParts";
-import { copyTextToClipboard, getRenderPartKey } from "./lib/utils";
+import { getRenderPartKey } from "./lib/utils";
 
 interface ChatBubbleProps {
 	parts: AcpMessagePart[];
@@ -46,36 +47,12 @@ export default function ChatBubble({
 	copyParts,
 	statusLabel,
 }: ChatBubbleProps) {
-	const copiedTimeoutRef = useRef<number | null>(null);
-	const [copied, setCopied] = useState(false);
-	const copySource = copyParts ?? parts;
+	// Just the answer: reasoning and tool calls are folded away on screen and
+	// carry their own copy buttons, so including them here would bury the reply
+	// the user actually asked for under pages of transcript.
+	const answerParts = getAnswerParts(copyParts ?? parts);
 	const canCopy =
-		!streaming && showActions && copySource.some(isCopyableMessagePart);
-
-	useEffect(() => {
-		return () => {
-			if (copiedTimeoutRef.current !== null) {
-				window.clearTimeout(copiedTimeoutRef.current);
-			}
-		};
-	}, []);
-
-	const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
-		event.preventDefault();
-		event.stopPropagation();
-		const text = messagePartsToMarkdown(copySource).trim();
-		if (!text) return;
-
-		await copyTextToClipboard(text);
-		setCopied(true);
-		if (copiedTimeoutRef.current !== null) {
-			window.clearTimeout(copiedTimeoutRef.current);
-		}
-		copiedTimeoutRef.current = window.setTimeout(() => {
-			setCopied(false);
-			copiedTimeoutRef.current = null;
-		}, 1400);
-	};
+		!streaming && showActions && answerParts.some(isCopyableMessagePart);
 
 	return (
 		<div
@@ -91,18 +68,11 @@ export default function ChatBubble({
 			</div>
 			{canCopy && (
 				<div className="chat-bubble-actions">
-					<button
-						type="button"
-						className={`chat-bubble-copy${copied ? " chat-bubble-copy--copied" : ""}`}
-						onClick={handleCopy}
-						aria-label={copied ? "Copied" : "Copy message"}
-						title={copied ? "Copied" : "Copy message"}
-					>
-						<span
-							className={copied ? "icon-check" : "icon-copy"}
-							aria-hidden="true"
-						/>
-					</button>
+					<CopyButton
+						getText={() => messagePartsToMarkdown(answerParts)}
+						label="Copy response"
+						className="chat-bubble-copy"
+					/>
 				</div>
 			)}
 			{streaming && (
