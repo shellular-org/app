@@ -182,7 +182,11 @@ export function ChatComposer({
 						inputRef.current = element;
 					}}
 					className="chat-input"
-					contentEditable={agentAvailable && isConnected}
+					// Stays editable while the connection is down: a reconnect is
+					// usually brief, and losing what you were mid-sentence on is worse
+					// than being able to type something you can't send yet. Sending is
+					// gated separately by canSendPrompt.
+					contentEditable={agentAvailable}
 					suppressContentEditableWarning
 					role="textbox"
 					tabIndex={agentAvailable ? 0 : -1}
@@ -204,9 +208,7 @@ export function ChatComposer({
 							: undefined
 					}
 					aria-disabled={!agentAvailable || !isConnected}
-				>
-					<br />
-				</div>
+				/>
 			</Combobox>
 			<div className="chat-input-toolbar">
 				<input
@@ -511,6 +513,58 @@ export async function composerPartsToAcpContent(
 
 export function clearComposer(root: HTMLDivElement | null) {
 	if (root) root.replaceChildren();
+}
+
+/**
+ * Unsent composer content, keyed by chat. Lives at module scope rather than in
+ * component state because the chat page remounts constantly — on reconnect, on
+ * resume, on navigating away and back — and a draft that dies with the
+ * component is the bug this exists to prevent.
+ *
+ * Holds serialized HTML so attachment chips survive alongside plain text.
+ * Deliberately not persisted: a draft is worth keeping across a blip, not
+ * across an app relaunch.
+ */
+const composerDrafts = new Map<string, string>();
+
+/**
+ * Whether the composer holds anything worth keeping. An "empty" composer still
+ * carries stray markup (a trailing <br>, an empty div), and one holding only an
+ * @-mention or image chip has no text — so neither innerHTML nor textContent
+ * alone answers this.
+ */
+function isComposerEmpty(root: HTMLDivElement): boolean {
+	if (root.textContent?.trim()) return false;
+	return !root.querySelector('[data-composer-attachment="true"]');
+}
+
+/** Record (or, once the composer is empty, forget) this chat's unsent draft. */
+export function saveComposerDraft(key: string, root: HTMLDivElement | null) {
+	if (!root || isComposerEmpty(root)) {
+		composerDrafts.delete(key);
+		return;
+	}
+	composerDrafts.set(key, root.innerHTML);
+}
+
+/**
+ * Put this chat's draft back into an empty composer. No-ops when the composer
+ * already has content, so it is safe to call on every render — the restore is
+ * driven by "the DOM lost the text", which React can't tell us directly.
+ * Returns whether anything was restored.
+ */
+export function restoreComposerDraft(
+	key: string,
+	root: HTMLDivElement | null,
+): boolean {
+	const draft = composerDrafts.get(key);
+	if (!root || !draft || !isComposerEmpty(root)) return false;
+	root.innerHTML = draft;
+	// data-empty is computed from a ref during render, so it still reads "true"
+	// on the commit that restored this text; clear it or the placeholder flashes
+	// over the draft until the next render.
+	root.removeAttribute("data-empty");
+	return true;
 }
 
 export function insertAttachmentSuggestion(
