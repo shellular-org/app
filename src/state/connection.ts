@@ -135,6 +135,22 @@ type DirectTicket = { ticket: string; clientId: string };
  * generic network/5xx failure that shouldn't trigger fallback. */
 type TokenRequestError = Error & { httpStatus?: number };
 
+/**
+ * A resolved connection ticket: everything `open()` needs to reach the host
+ * without going back to central. Reused across the attempts of a single
+ * reconnect run — see ConnectionManager.reconnectTicket.
+ */
+type ConnectionTicket = {
+	serverUrl: string;
+	wsInfo: WebSocketTokenResponse;
+	/** Epoch ms, already reduced by TICKET_EXPIRY_MARGIN_MS. */
+	expiresAt: number;
+};
+
+type ConnectionTargetOptions =
+	| { directTicket: DirectTicket; remoteTicket?: never }
+	| { directTicket?: never; remoteTicket?: ConnectionTicket | null };
+
 // Legacy central server. Older CLI versions still point at this domain and
 // don't know how to return a `relayUrl` — for them the domain itself IS the
 // relay (see requestWebSocketToken).
@@ -170,12 +186,11 @@ const PING_INTERVAL_MS = 25_000;
 // slack before we tear down and reconnect.
 const LIVENESS_TIMEOUT_MS = 55_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
-// Backoff runs 4s → 8s → 16s → 20s (capped) per attempt. Retrying faster than
-// this rarely helps: a host that's genuinely gone won't be back in a second,
-// and the sub-second reconnects that do succeed are handled by reconnectNow()
-// on app resume / network-online rather than by this backoff.
-const BASE_RECONNECT_DELAY_MS = 4000;
-const MAX_RECONNECT_DELAY_MS = 20_000;
+const RECONNECT_DELAYS = [1_000, 2_000, 4_000, 4_000, 8_000, 16_000];
+// Treat a ticket as spent slightly before it really lapses: it has to survive
+// the trip to the relay and be verified there, not merely be valid at the
+// moment we read it out of the cache.
+const TICKET_EXPIRY_MARGIN_MS = 5_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
 
 class MessageEvent<TMsg = ClientIncomingMsg> extends Event {
@@ -232,6 +247,9 @@ export class Connection extends EventTarget {
 	// resolveWebSocketToken). Read back by ConnectionManager so future
 	// reconnects/attempts for this host start from the known-good server.
 	resolvedServerUrl: string;
+	// Set by open() when it resolved a ticket itself (rather than being handed a
+	// cached one). Read back by ConnectionManager to seed the reconnect cache.
+	resolvedTicket: ConnectionTicket | null = null;
 	// Timestamp of the last inbound frame of any kind. Any traffic from the host
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
@@ -340,7 +358,10 @@ export class Connection extends EventTarget {
 		}
 	}
 
-	async open(hostId: string): Promise<SessionJoinedMsg> {
+	async open(
+		hostId: string,
+		cachedTicket?: ConnectionTicket | null,
+	): Promise<SessionJoinedMsg> {
 		if (this.directTicket) {
 			this.clientId = this.directTicket.clientId;
 			const directUrl = new URL(this.resolvedServerUrl);
@@ -349,33 +370,51 @@ export class Connection extends EventTarget {
 			this.ws.binaryType = "arraybuffer";
 			return this.waitForHandshake(this.ws);
 		}
-		const accessToken =
-			process.env.PLATFORM === "browser" ? null : await getAccessTokenForAuth();
-		if (process.env.PLATFORM !== "browser" && !accessToken) {
-			throw new Error("Sign in again to connect to this host.");
+		let resolvedServerUrl: string;
+		let wsInfo: WebSocketTokenResponse;
+
+		if (cachedTicket) {
+			// Reusing a ticket resolved earlier in this reconnect run: skip the
+			// round trip to central entirely.
+			({ serverUrl: resolvedServerUrl, wsInfo } = cachedTicket);
+		} else {
+			const accessToken =
+				process.env.PLATFORM === "browser"
+					? null
+					: await getAccessTokenForAuth();
+			if (process.env.PLATFORM !== "browser" && !accessToken) {
+				throw new Error("Sign in again to connect to this host.");
+			}
+			const deviceInfo = await native.getDeviceInfo();
+			const clientId = await getClientId();
+			const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
+			const clientInfo: ClientInfo = {
+				hostId,
+				clientId,
+				appVersion,
+				platform: process.env.PLATFORM,
+				deviceModel: deviceInfo.model,
+				deviceIsEmulator: deviceInfo.isEmulator,
+				deviceManufacturer: deviceInfo.manufacturer,
+			};
+			// The token request goes to CENTRAL server; to get the token and the
+			// relay associated with the host. Resolves new-vs-old server per hostId,
+			// alternating on 4xx and remembering whichever one works.
+			const resolved = await resolveWebSocketToken(
+				hostId,
+				accessToken,
+				clientInfo,
+			);
+			resolvedServerUrl = resolved.url;
+			wsInfo = resolved.wsInfo;
+			// Expose it so the manager can reuse it for this run's later attempts.
+			this.resolvedTicket = {
+				serverUrl: resolvedServerUrl,
+				wsInfo,
+				expiresAt:
+					Date.now() + wsInfo.expiresIn * 1000 - TICKET_EXPIRY_MARGIN_MS,
+			};
 		}
-		const deviceInfo = await native.getDeviceInfo();
-		const clientId = await getClientId();
-		const appVersion = `${process.env.VERSION} (${process.env.VERSION_CODE})`;
-		const clientInfo: ClientInfo = {
-			hostId,
-			clientId,
-			appVersion,
-			// The sibling protocol package adds macOS in this change. Keep this cast
-			// until the newly published protocol declaration is installed here.
-			platform: process.env.PLATFORM as ClientInfo["platform"], // birajlog - add macos to protocol and publish it before pushing this
-			deviceModel: deviceInfo.model,
-			deviceIsEmulator: deviceInfo.isEmulator,
-			deviceManufacturer: deviceInfo.manufacturer,
-		};
-		// The token request goes to CENTRAL server; to get the token and the
-		// relay associated with the host. Resolves new-vs-old server per hostId,
-		// alternating on 4xx and remembering whichever one works.
-		const { url: resolvedServerUrl, wsInfo } = await resolveWebSocketToken(
-			hostId,
-			accessToken,
-			clientInfo,
-		);
 		this.resolvedServerUrl = resolvedServerUrl;
 
 		const wsUrl = new URL(wsInfo.relayUrl);
@@ -731,6 +770,16 @@ class ConnectionManager {
 	private activeConnectAttempt = 0;
 	private reconnectAttempt = 0;
 	private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+	/**
+	 * Ticket resolved by the first attempt of the current reconnect run, reused
+	 * by the rest of it. A disconnect is often caused by the host moving relays,
+	 * so attempt 1 always goes to central to learn where it landed; from then on
+	 * we're just waiting for a host we've already located, and re-minting per
+	 * attempt would be pure overhead. Kept only while failures look like "host
+	 * still down"; cleared on success, on any other failure, and whenever the
+	 * run itself is reset. See retainOrDropTicket.
+	 */
+	private reconnectTicket: ConnectionTicket | null = null;
 	private encryptionKey: Uint8Array | null = null;
 	// The host we're currently meant to be connected to. Retained across
 	// reconnects so app-resume / network-online can re-establish the session.
@@ -740,7 +789,7 @@ class ConnectionManager {
 		| ((token: string, prevStatus: ConnectionStatus) => void | Promise<void>)
 		| null = null;
 	private onDisconnected: (() => void) | null = null;
-	private onPreDisconnect: (() => void) | null = null;
+	private onPreDisconnect: (() => void | Promise<void>) | null = null;
 
 	subscribe(listener: Listener): () => void {
 		this.listeners.add(listener);
@@ -826,9 +875,10 @@ class ConnectionManager {
 		hostId: string,
 		encryptionKey?: Uint8Array | null,
 		status: ConnectionStatus = "connecting",
-		directTicket?: DirectTicket,
+		options: ConnectionTargetOptions = {},
 	): Promise<void> {
 		const attemptId = ++this.activeConnectAttempt;
+		const { directTicket, remoteTicket } = options;
 
 		this.closePendingSocket();
 		this.encryptionKey = encryptionKey ?? null;
@@ -855,11 +905,14 @@ class ConnectionManager {
 			this.pendingSocket = nextConnection;
 
 			nextConnection
-				.open(hostId)
+				.open(hostId, remoteTicket)
 				.then((msg) => {
 					if (attemptId !== this.activeConnectAttempt) return;
 					handshakeCompleted = true;
 					this.pendingSocket = null;
+					// Connected — the run is over, so the cached ticket has no further
+					// use. Holding a live bearer token past this point is needless.
+					this.reconnectTicket = null;
 					this.connection = nextConnection;
 					nextConnection.markAlive();
 					this.setSnapshot({
@@ -875,6 +928,7 @@ class ConnectionManager {
 							updateAvailable: msg.data.updateAvailable,
 							latestCliVersion: msg.data.latestCliVersion,
 							canSelfUpdate: msg.data.canSelfUpdate,
+							capabilities: (msg.data as ConnectedHostInfo).capabilities,
 						},
 						connectionStatus: "connected",
 						batteryInfo: null,
@@ -893,6 +947,7 @@ class ConnectionManager {
 				.catch((err) => {
 					if (attemptId !== this.activeConnectAttempt) return;
 					this.pendingSocket = null;
+					this.retainOrDropTicket(nextConnection, err);
 					if (status !== "reconnecting") {
 						this.setSnapshot({
 							connectionStatus: "disconnected",
@@ -969,7 +1024,7 @@ class ConnectionManager {
 			ticket.hostId,
 			keyFromBase64(ticket.encryptionKey),
 			status,
-			{ ticket: ticket.ticket, clientId: ticket.clientId },
+			{ directTicket: { ticket: ticket.ticket, clientId: ticket.clientId } },
 		);
 	}
 
@@ -1032,7 +1087,31 @@ class ConnectionManager {
 			batteryInfo: null,
 			reconnectAttempt: 0,
 		});
-		this.attemptReconnect(hostId, true);
+		this.attemptReconnect(hostId);
+	}
+
+	/**
+	 * Decide whether a failed attempt's ticket is worth carrying into the next
+	 * one. "The host isn't up yet" leaves the ticket perfectly good — that's the
+	 * whole case this cache exists for, and re-minting each time would defeat it.
+	 * Any other failure means the ticket or the relay it points at is suspect
+	 * (expired token, host moved relays), and a rejected upgrade reaches us as a
+	 * bare 1006 close with no status to inspect — so anything we can't positively
+	 * identify as "host down" gets dropped and re-resolved.
+	 */
+	private retainOrDropTicket(connection: Connection, err: unknown) {
+		const code = (err as HandshakeError)?.code;
+		const hostDown =
+			code === ServerCloseCodeAndReason.HOST_UNAVAILABLE.code ||
+			code === ServerCloseCodeAndReason.HOST_DISCONNECTED.code;
+		if (!hostDown) {
+			this.reconnectTicket = null;
+			return;
+		}
+		// Freshly resolved by this attempt (rather than reused), so record it.
+		if (connection.resolvedTicket) {
+			this.reconnectTicket = connection.resolvedTicket;
+		}
 	}
 
 	private setSnapshot(next: Partial<ConnectionSnapshot>) {
@@ -1074,16 +1153,21 @@ class ConnectionManager {
 			this.reconnectTimeout = null;
 		}
 		this.reconnectAttempt = 0;
+		// Ends the current run, so the next one starts by re-resolving where the
+		// host is. reconnectNow() routes through here, which matters: app resume
+		// and network-online are exactly when the relay may have changed.
+		this.reconnectTicket = null;
 		this.setSnapshot({ reconnectAttempt: 0 });
 	}
 
-	private async attemptReconnect(hostId: string, immediate = false) {
+	private async attemptReconnect(hostId: string) {
 		const key = this.encryptionKey;
 		const url = this.snapshot.serverUrl || (await getBaseServerUrl());
 
 		this.reconnectAttempt++;
 		if (this.reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
 			this.reconnectAttempt = 0;
+			this.reconnectTicket = null;
 			this.stopPing();
 			this.closeConnection();
 			this.closePendingSocket();
@@ -1098,21 +1182,38 @@ class ConnectionManager {
 			this.onDisconnected?.();
 			return;
 		}
+
 		this.setSnapshot({ reconnectAttempt: this.reconnectAttempt });
 
-		const backoff = Math.min(
-			BASE_RECONNECT_DELAY_MS * 2 ** (this.reconnectAttempt - 1),
-			MAX_RECONNECT_DELAY_MS,
-		);
-		// Jitter (±20%) avoids many clients hammering a shared relay in lockstep.
-		// `immediate` fires the first attempt right away (e.g. on app resume).
-		const delay = immediate ? 0 : backoff * (0.8 + Math.random() * 0.4);
+		const base =
+			RECONNECT_DELAYS[
+				Math.max(
+					Math.min(this.reconnectAttempt - 1, RECONNECT_DELAYS.length - 1),
+					0,
+				)
+			];
+		// jitter (±20%) avoids many clients hammering a shared server
+		// a server restart drops every client at once, so a fixed ladder would have
+		// them all retry on the same instants.
+		const delay = base * (0.8 + Math.random() * 0.4);
 
 		this.reconnectTimeout = setTimeout(async () => {
 			this.reconnectTimeout = null;
+			// Only reuse a ticket that will still verify at the relay by the time
+			// the upgrade lands; otherwise fall back to a full resolve, which also
+			// re-checks where the host currently is.
+			const ticket =
+				this.reconnectTicket && this.reconnectTicket.expiresAt > Date.now()
+					? this.reconnectTicket
+					: null;
 			try {
-				if (this.localMode) await this.connectToLocal("reconnecting");
-				else await this.connectToServer(url, hostId, key, "reconnecting");
+				if (this.localMode) {
+					await this.connectToLocal("reconnecting");
+				} else {
+					await this.connectToServer(url, hostId, key, "reconnecting", {
+						remoteTicket: ticket,
+					});
+				}
 				this.reconnectAttempt = 0;
 			} catch {
 				this.attemptReconnect(hostId);

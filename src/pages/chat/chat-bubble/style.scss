@@ -1,3 +1,50 @@
+// Shared copy control. Used for a whole message and for each folded section
+// inside one (reasoning, tool calls), so they stay visually identical.
+.chat-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--secondary-text);
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+  user-select: none;
+  -webkit-user-select: none;
+
+  span {
+    font-size: 14px;
+  }
+
+  &:hover {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+    color: var(--primary-text);
+    opacity: 1;
+  }
+
+  &:active {
+    transform: scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  &--copied {
+    color: var(--accent);
+    border-color: var(--accent);
+    opacity: 1;
+  }
+}
+
 // Message bubbles. Consecutive same-role bubbles form one visual group: the
 // role header renders once (sibling selectors below) and the gap tightens so
 // an answer split across several ACP messages reads as a single reply.
@@ -291,48 +338,8 @@
     min-height: 28px;
     pointer-events: auto;
 
-    .chat-bubble-copy {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 26px;
-      height: 26px;
-      border: 1px solid transparent;
-      border-radius: 8px;
-      background: transparent;
-      color: var(--secondary-text);
+    .chat-copy-btn {
       opacity: 0.55;
-      transition:
-        background 120ms ease,
-        color 120ms ease,
-        border-color 120ms ease;
-      user-select: none;
-      -webkit-user-select: none;
-
-      span {
-        font-size: 14px;
-      }
-
-      &:hover {
-        background: var(--card-bg);
-        border-color: var(--border-color);
-        color: var(--primary-text);
-        opacity: 1;
-      }
-
-      &:active {
-        transform: scale(0.96);
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
-
-      &--copied {
-        color: var(--accent);
-        border-color: var(--accent);
-      }
     }
   }
 

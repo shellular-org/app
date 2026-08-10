@@ -89,6 +89,8 @@ import {
 	type PromptSuggestion,
 	readComposerParts,
 	replaceComposerTrigger,
+	restoreComposerDraft,
+	saveComposerDraft,
 } from "./ChatComposer";
 import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
@@ -156,7 +158,7 @@ export default function ChatConversationPage({
 	createOnFirstMessage = false,
 	chatTabId,
 }: ChatConversationPageProps) {
-	const { connectionStatus, hostDir, agents } = useShellular();
+	const { connectionStatus, hostDir, agents, loadAgents } = useShellular();
 	const mobileChatPanel = usePageSecondaryPanel("chat-navigation");
 	const secondarySidebar = useSyncExternalStore(
 		subscribeDesktopSecondarySidebar,
@@ -238,6 +240,11 @@ export default function ChatConversationPage({
 	const autoScrollSuppressedRef = useRef(false);
 	const autoScrollSuppressionCountRef = useRef(0);
 	const resizeWasAtBottomRef = useRef(false);
+	// True while the user has text selected inside the transcript. Prepending
+	// older messages or pinning to the bottom mid-selection tears the selection
+	// off its anchor, which on Android reads as the selection "jumping" to the
+	// top of the conversation.
+	const selectionActiveRef = useRef(false);
 	const cleanupRef = useRef<(() => void) | null>(null);
 	const cleanupSendRef = useRef<(() => void) | null>(null);
 	const attachedSessionIdRef = useRef<string | null>(null);
@@ -252,7 +259,16 @@ export default function ChatConversationPage({
 		revision: number;
 		syncing?: boolean;
 	}> | null>(null);
-	const composerDraftRef = useRef<string>("");
+	// Identifies this chat's unsent draft. Keyed on the session once there is
+	// one, so the draft follows the conversation whichever way it is reopened.
+	// Before that, on agent+folder rather than chatTabId — opening a new chat
+	// mints a fresh random chatTabId (see lib/chatTabId), so keying on it would
+	// lose the draft on exactly the back-out-and-reopen it needs to survive.
+	// Only one unsent new chat exists per agent+folder, so it can't collide.
+	const liveSessionId = sessionId || activeSessionId;
+	const draftKey = liveSessionId
+		? `chat-draft:${agentId}:${liveSessionId}`
+		: `chat-draft:new:${agentId}:${workspacePath}`;
 	// Config picks made in a draft chat, before any session existed to send them
 	// to. Replayed onto the real session right after it is created, keyed by
 	// option id so the last pick for an option wins.
@@ -277,6 +293,10 @@ export default function ChatConversationPage({
 	// stale (a full reload replaced history) and must be discarded.
 	const remoteBaseIdxRef = useRef(0);
 	const remoteGenerationRef = useRef<number | undefined>(undefined);
+	// Agent metadata is loaded on connection, but an existing chat can populate
+	// the CLI's config cache later. Refresh once for this draft so it sees that
+	// cache before lazily creating an ACP session on the first send.
+	const draftConfigRefreshRef = useRef<string | null>(null);
 
 	connectionStatusRef.current = connectionStatus;
 
@@ -434,6 +454,9 @@ export default function ChatConversationPage({
 	}, []);
 
 	const scrollToBottomNow = useCallback((force = false) => {
+		// Never yank the viewport out from under an active selection, even for a
+		// forced scroll — the user is reading, not waiting on new output.
+		if (selectionActiveRef.current) return;
 		if (!force && autoScrollSuppressedRef.current) return;
 		if (force) autoScrollSuppressedRef.current = false;
 		const container = scrollRef.current;
@@ -459,6 +482,11 @@ export default function ChatConversationPage({
 		if (!historyScrollReady || !hasMore || loadingMore || !scrollRef.current) {
 			return;
 		}
+		// Loading older messages prepends content and corrects scrollTop to keep
+		// the view steady. Doing that mid-selection rips the selection away from
+		// where the user is dragging, so hold off — the sentinel is still in view
+		// when they finish, and the observer fires again on the next scroll.
+		if (selectionActiveRef.current) return;
 		// Reveal already-loaded messages first; only hit the network once the
 		// local array is exhausted.
 		if (allMessagesLengthRef.current > visibleCount) {
@@ -860,6 +888,19 @@ export default function ChatConversationPage({
 	}, [sessionId]);
 
 	useEffect(() => {
+		if (
+			connectionStatus !== "connected" ||
+			!createOnFirstMessage ||
+			sessionId ||
+			draftConfigRefreshRef.current === agentId
+		) {
+			return;
+		}
+		draftConfigRefreshRef.current = agentId;
+		void loadAgents();
+	}, [agentId, connectionStatus, createOnFirstMessage, loadAgents, sessionId]);
+
+	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 		// A draft chat has no session yet, and deliberately does not create one:
 		// the agent session is spawned lazily by the first send (see handleSend),
@@ -871,7 +912,9 @@ export default function ChatConversationPage({
 			setVisibleCount(PAGE_SIZE);
 			stickToBottomRef.current = true;
 			setHistoryScrollReady(true);
-			setConfigOptions(cachedAgentConfig?.configOptions ?? []);
+			if (!pendingConfigChangesRef.current.size) {
+				setConfigOptions(cachedAgentConfig?.configOptions ?? []);
+			}
 			setAvailableCommands(cachedAgentConfig?.availableCommands ?? []);
 			setContextWindowUsage(null);
 			setHasMoreRemote(false);
@@ -989,15 +1032,26 @@ export default function ChatConversationPage({
 		return () => cancelAnimationFrame(frame);
 	}, [permissionScrollTick, scrollToBottomNow]);
 
-	useEffect(() => {
-		if (loading || !composerDraftRef.current) return;
+	// Pull the composer's live DOM into React state. The composer is
+	// contenteditable, so the DOM is the source of truth and state has to be
+	// re-read after anything mutates it — typing, pasting, or restoring a draft.
+	const syncComposerState = useCallback(() => {
 		const input = promptInputRef.current;
-		if (!input || input.textContent?.trim()) return;
-		input.innerHTML = composerDraftRef.current;
 		setComposerParts(readComposerParts(input));
 		setComposerTrigger(findComposerTrigger(input));
 		setActivePromptSuggestionIndex(0);
-	}, [loading]);
+	}, []);
+
+	// Put an unsent draft back whenever the composer has lost it: React owns this
+	// subtree and rebuilds it on remount (reconnect, resume, back-and-return).
+	// Runs after every commit rather than keying off `loading` — a draft chat
+	// never toggles that flag, which is why new chats lost their prompt while
+	// existing ones kept it. useLayoutEffect so the text is back before paint.
+	useLayoutEffect(() => {
+		if (!restoreComposerDraft(draftKey, promptInputRef.current)) return;
+		// Restored content has to land in state the same way typing would.
+		syncComposerState();
+	});
 
 	useEffect(() => {
 		const content = historyContentRef.current;
@@ -1087,6 +1141,10 @@ export default function ChatConversationPage({
 			return scrollHeight - scrollTop - clientHeight;
 		};
 		const handleScroll = () => {
+			// A selection drag auto-scrolls the WebView; that is the selection
+			// moving, not the user asking to follow new output, so it must not
+			// re-arm stick-to-bottom.
+			if (selectionActiveRef.current) return;
 			const distanceFromBottom = getDistanceFromBottom();
 			stickToBottomRef.current = distanceFromBottom < 100;
 		};
@@ -1117,6 +1175,20 @@ export default function ChatConversationPage({
 		const handleDisclosureAnimationEnd = () => {
 			endAutoScrollSuppression();
 		};
+		// Track selection at the document level: on Android the drag is driven by
+		// the WebView's own selection handles, which emit no pointer events we
+		// could hook on the container.
+		const handleSelectionChange = () => {
+			const selection = document.getSelection();
+			const container = scrollRef.current;
+			selectionActiveRef.current = Boolean(
+				selection &&
+					!selection.isCollapsed &&
+					selection.rangeCount > 0 &&
+					container?.contains(selection.getRangeAt(0).commonAncestorContainer),
+			);
+		};
+		document.addEventListener("selectionchange", handleSelectionChange);
 		const container = scrollRef.current;
 		if (container) {
 			container.addEventListener("scroll", handleScroll);
@@ -1138,6 +1210,7 @@ export default function ChatConversationPage({
 		}
 		return () => {
 			cleanupSendRef.current?.();
+			document.removeEventListener("selectionchange", handleSelectionChange);
 			container?.removeEventListener("scroll", handleScroll);
 			container?.removeEventListener("wheel", handleUserScrollIntent);
 			container?.removeEventListener("touchmove", handleUserScrollIntent);
@@ -1578,6 +1651,12 @@ export default function ChatConversationPage({
 		setComposerTrigger(null);
 		setFileSuggestions([]);
 		clearComposer(promptInputRef.current);
+		// The composer is empty now, so this drops the draft — without it the
+		// restore effect would put the just-sent prompt straight back.
+		saveComposerDraft(draftKey, promptInputRef.current);
+		// Sending is an explicit "take me to the new turn", so it outranks any
+		// selection still sitting in the transcript.
+		selectionActiveRef.current = false;
 		scrollToBottom(true);
 		stickToBottomRef.current = true;
 
@@ -1635,6 +1714,7 @@ export default function ChatConversationPage({
 						agentId,
 						resolvedWorkspacePath || ".",
 						"",
+						configOptions,
 					).then((result) => ({
 						sessionId: result.session.id ?? "",
 						configOptions: result.configOptions,
@@ -1886,11 +1966,8 @@ export default function ChatConversationPage({
 	}
 
 	function handleComposerInput() {
-		composerDraftRef.current = promptInputRef.current?.innerHTML ?? "";
-		const nextParts = readComposerParts(promptInputRef.current);
-		setComposerParts(nextParts);
-		setComposerTrigger(findComposerTrigger(promptInputRef.current));
-		setActivePromptSuggestionIndex(0);
+		saveComposerDraft(draftKey, promptInputRef.current);
+		syncComposerState();
 	}
 
 	function handleComposerPaste(event: React.ClipboardEvent<HTMLDivElement>) {

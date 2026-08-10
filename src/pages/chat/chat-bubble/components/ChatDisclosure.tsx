@@ -6,6 +6,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import CopyButton from "./CopyButton";
 
 const disclosureOpenState = new Map<string, boolean>();
 
@@ -18,6 +19,8 @@ export default function ChatDisclosure({
 	showChevron = true,
 	lazy = true,
 	card = true,
+	copyText,
+	copyLabel,
 }: {
 	className?: string;
 	summary: React.ReactNode | ((open: boolean) => React.ReactNode);
@@ -27,6 +30,13 @@ export default function ChatDisclosure({
 	showChevron?: boolean;
 	lazy?: boolean;
 	card?: boolean;
+	/**
+	 * Makes this section independently copyable. Read lazily so the text is only
+	 * built on demand — folded content can be large. The button sits beside the
+	 * toggle rather than inside it: a button cannot nest in a button.
+	 */
+	copyText?: () => string;
+	copyLabel?: string;
 }) {
 	const initialOpen = stateKey
 		? (disclosureOpenState.get(stateKey) ?? defaultOpen)
@@ -118,6 +128,13 @@ export default function ChatDisclosure({
 					</em>
 				)}
 			</button>
+			{copyText && (
+				<CopyButton
+					getText={copyText}
+					label={copyLabel ?? "Copy"}
+					className="chat-disclosure-copy"
+				/>
+			)}
 			<div
 				className="chat-disclosure-panel"
 				ref={panelRef}

@@ -69,8 +69,8 @@ importers:
         specifier: 1.0.0-beta.5
         version: 1.0.0-beta.5(@shikijs/themes@3.23.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(shiki@3.23.0)
       '@shellular/protocol':
-        specifier: ^0.0.30
-        version: 0.0.30
+        specifier: ^0.0.31
+        version: 0.0.31
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -1637,8 +1637,8 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@shellular/protocol@0.0.30':
-    resolution: {integrity: sha512-Rd9N645fD2l6/AW5+rPB4tKmA3GycvbA5hBW4QRgHMmq/A8Bbyef2oo9tyXT8KCD7KjmLKadBBzLZ7n6r/4GQA==}
+  '@shellular/protocol@0.0.31':
+    resolution: {integrity: sha512-Cl/1QwIBAPYp4Wl4VxGBgtuis+2c/BRqcRJdsqrzI9wOpL3ljmKsY5vPH4oXYKztPFM4mzkD+xEY9MJaRUMhBA==}
 
   '@shikijs/core@3.23.0':
     resolution: {integrity: sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA==}
@@ -5880,7 +5880,7 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@shellular/protocol@0.0.30':
+  '@shellular/protocol@0.0.31':
     dependencies:
       '@agentclientprotocol/sdk': 1.3.0(zod@4.3.6)
       zod: 4.3.6
