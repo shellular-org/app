@@ -42,6 +42,18 @@
   text-align: left;
 }
 
+.app-select__prefix {
+  flex-shrink: 0;
+  color: var(--secondary-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  span[class^='icon-'] {
+    font-size: 14px;
+  }
+}
+
 .app-select__chevron {
   flex-shrink: 0;
   color: var(--secondary-text);
