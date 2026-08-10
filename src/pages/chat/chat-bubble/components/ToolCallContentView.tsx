@@ -1,5 +1,6 @@
 import {
 	getToolCallContentParts,
+	messagePartToMarkdown,
 	type ToolCallPart,
 } from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
@@ -32,6 +33,8 @@ export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 		return (
 			<ChatDisclosure
 				className={statusModifier(part.status)}
+				copyText={() => messagePartToMarkdown(part)}
+				copyLabel="Copy tool call"
 				summary={
 					<>
 						<NameIcon name={part.name} />
@@ -53,6 +56,8 @@ export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 	if (parts.every(({ type }) => type === "text")) {
 		return (
 			<ChatDisclosure
+				copyText={() => messagePartToMarkdown(part)}
+				copyLabel="Copy tool call"
 				summary={
 					<>
 						<span className="icon-tool" />

@@ -217,6 +217,11 @@ export default function ChatConversationPage({
 	const autoScrollFrameRef = useRef(0);
 	const autoScrollSuppressedRef = useRef(false);
 	const autoScrollSuppressionCountRef = useRef(0);
+	// True while the user has text selected inside the transcript. Prepending
+	// older messages or pinning to the bottom mid-selection tears the selection
+	// off its anchor, which on Android reads as the selection "jumping" to the
+	// top of the conversation.
+	const selectionActiveRef = useRef(false);
 	const cleanupRef = useRef<(() => void) | null>(null);
 	const cleanupSendRef = useRef<(() => void) | null>(null);
 	const attachedSessionIdRef = useRef<string | null>(null);
@@ -426,6 +431,9 @@ export default function ChatConversationPage({
 	}, []);
 
 	const scrollToBottomNow = useCallback((force = false) => {
+		// Never yank the viewport out from under an active selection, even for a
+		// forced scroll — the user is reading, not waiting on new output.
+		if (selectionActiveRef.current) return;
 		if (!force && autoScrollSuppressedRef.current) return;
 		if (force) autoScrollSuppressedRef.current = false;
 		const container = scrollRef.current;
@@ -451,6 +459,11 @@ export default function ChatConversationPage({
 		if (!historyScrollReady || !hasMore || loadingMore || !scrollRef.current) {
 			return;
 		}
+		// Loading older messages prepends content and corrects scrollTop to keep
+		// the view steady. Doing that mid-selection rips the selection away from
+		// where the user is dragging, so hold off — the sentinel is still in view
+		// when they finish, and the observer fires again on the next scroll.
+		if (selectionActiveRef.current) return;
 		// Reveal already-loaded messages first; only hit the network once the
 		// local array is exhausted.
 		if (allMessagesLengthRef.current > visibleCount) {
@@ -1077,6 +1090,10 @@ export default function ChatConversationPage({
 			return scrollHeight - scrollTop - clientHeight;
 		};
 		const handleScroll = () => {
+			// A selection drag auto-scrolls the WebView; that is the selection
+			// moving, not the user asking to follow new output, so it must not
+			// re-arm stick-to-bottom.
+			if (selectionActiveRef.current) return;
 			const distanceFromBottom = getDistanceFromBottom();
 			stickToBottomRef.current = distanceFromBottom < 100;
 		};
@@ -1107,6 +1124,20 @@ export default function ChatConversationPage({
 		const handleDisclosureAnimationEnd = () => {
 			endAutoScrollSuppression();
 		};
+		// Track selection at the document level: on Android the drag is driven by
+		// the WebView's own selection handles, which emit no pointer events we
+		// could hook on the container.
+		const handleSelectionChange = () => {
+			const selection = document.getSelection();
+			const container = scrollRef.current;
+			selectionActiveRef.current = Boolean(
+				selection &&
+					!selection.isCollapsed &&
+					selection.rangeCount > 0 &&
+					container?.contains(selection.getRangeAt(0).commonAncestorContainer),
+			);
+		};
+		document.addEventListener("selectionchange", handleSelectionChange);
 		const container = scrollRef.current;
 		if (container) {
 			container.addEventListener("scroll", handleScroll);
@@ -1128,6 +1159,7 @@ export default function ChatConversationPage({
 		}
 		return () => {
 			cleanupSendRef.current?.();
+			document.removeEventListener("selectionchange", handleSelectionChange);
 			container?.removeEventListener("scroll", handleScroll);
 			container?.removeEventListener("wheel", handleUserScrollIntent);
 			container?.removeEventListener("touchmove", handleUserScrollIntent);
@@ -1543,6 +1575,9 @@ export default function ChatConversationPage({
 		// The composer is empty now, so this drops the draft — without it the
 		// restore effect would put the just-sent prompt straight back.
 		saveComposerDraft(draftKey, promptInputRef.current);
+		// Sending is an explicit "take me to the new turn", so it outranks any
+		// selection still sitting in the transcript.
+		selectionActiveRef.current = false;
 		scrollToBottom(true);
 		stickToBottomRef.current = true;
 
