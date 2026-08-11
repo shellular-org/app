@@ -326,7 +326,7 @@ export default function PortsPage() {
 								<span className="text-[13px] font-bold text-primary-text font-['Courier_New',monospace] overflow-hidden text-ellipsis whitespace-nowrap">
 									{group.process}
 								</span>
-								<span className="text-[11px] font-semibold text-secondary-text opacity-55 shrink-0">
+								<span className="card-subtext shrink-0 text-[11px] font-semibold">
 									{group.entries.length} port
 									{group.entries.length !== 1 ? "s" : ""}
 								</span>
@@ -375,7 +375,7 @@ export default function PortsPage() {
 														</span>
 													)}
 													<span className="flex items-center gap-[7px]">
-														<span className="text-[11px] text-secondary-text opacity-55">
+														<span className="card-subtext text-[11px]">
 															PID {entry.pid}
 														</span>
 														{entry.portlessUrl && (

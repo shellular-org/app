@@ -100,9 +100,7 @@ export default function MoreTab() {
 								<span className="text-[15px] font-semibold text-primary-text">
 									{label}
 								</span>
-								<span className="text-[12px] text-secondary-text opacity-60">
-									{description}
-								</span>
+								<span className="card-subtext text-[12px]">{description}</span>
 							</div>
 							<span
 								className="icon-chevron-right shrink-0 text-[16px] text-secondary-text opacity-40"

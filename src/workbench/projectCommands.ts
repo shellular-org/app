@@ -89,3 +89,18 @@ function getRevealLabel() {
 	// if (process.env.PLATFORM === "windows") return "Show in Explorer";
 	return "Reveal in File Manager";
 }
+
+type ProjectSearchListener = (projectPath: string) => void;
+
+const searchListeners = new Set<ProjectSearchListener>();
+
+export function requestProjectSearch(projectPath: string) {
+	for (const listener of searchListeners) listener(projectPath);
+}
+
+export function subscribeProjectSearch(listener: ProjectSearchListener) {
+	searchListeners.add(listener);
+	return () => {
+		searchListeners.delete(listener);
+	};
+}

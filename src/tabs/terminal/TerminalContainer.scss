@@ -61,13 +61,9 @@
       -webkit-user-select: none;
     }
 
-    .scrollbar {
+    .xterm-scrollable-element > .scrollbar {
       overflow-x: visible;
-
-      .slider {
-        width: 18px !important;
-        background-color: var(--accent) !important;
-      }
+      background: transparent !important;
     }
 
     .xterm {
@@ -82,7 +78,20 @@
       -webkit-overflow-scrolling: auto !important;
       touch-action: none;
       background-color: var(--xterm-background, rgba(0, 0, 0, 0)) !important;
+      scrollbar-width: none !important;
       user-select: text;
+
+      &::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+        background: transparent !important;
+      }
+
+      &::-webkit-scrollbar-track,
+      &::-webkit-scrollbar-corner {
+        background: transparent !important;
+      }
     }
 
     .xterm-scrollable-element {

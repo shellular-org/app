@@ -29,7 +29,8 @@
     gap: 8px;
     padding-top: 6px;
 
-    input {
+    input,
+    select {
       width: 100%;
       min-height: 42px;
       border: 1px solid var(--card-border);
@@ -45,6 +46,18 @@
         border-color: var(--accent);
         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
       }
+    }
+  }
+
+  .app-dialog-form--stacked {
+    flex-direction: column;
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--secondary-text);
+      font-size: 12px;
+      font-weight: 600;
     }
   }
 }
@@ -117,6 +130,11 @@
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
 
   &:active {
     background: var(--button-background-active);

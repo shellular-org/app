@@ -17,11 +17,13 @@ import { bytesToBase64 } from "bridge/file";
 import AppMenu, { type AppMenuItem } from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
+import PageSearchToolbar from "components/PageSearchToolbar";
 import EditorPage from "pages/editor";
 import { openInWorkbench } from "workbench/navigation";
 import { tryOpenEditorSurface } from "workbench/openers";
 import { useIsWorkbenchPageChromeActive } from "workbench/pageChrome";
 import { closeWorkbenchDialog } from "workbench/store";
+import { showGitHistorySidebar } from "workbench/secondarySidebar";
 
 export interface FileBrowserPageProps {
 	title?: string;
@@ -419,6 +421,10 @@ export default function FileBrowserPage({
 
 	const openGitHistory = useCallback(async () => {
 		const projectPath = initialPath ?? ".";
+		if (process.env.IS_DESKTOP_UI) {
+			showGitHistorySidebar(projectPath, title);
+			return;
+		}
 		if (
 			openInWorkbench({
 				kind: "git",
@@ -529,8 +535,8 @@ export default function FileBrowserPage({
 	return (
 		<>
 			<Page
-				title={searchVisible ? "" : title}
-				subtitle={searchVisible ? undefined : breadcrumbs.join(" / ")}
+				title={title}
+				subtitle={breadcrumbs.join(" / ")}
 				className="files-page"
 				reverseTruncate={true}
 				desktopNavigationControls={[
@@ -549,23 +555,17 @@ export default function FileBrowserPage({
 						onClick: navigateForward,
 					},
 				]}
-				desktopTitleSlotInteractive={searchVisible}
-				titleSlot={
+				toolbarSlot={
 					searchVisible ? (
-						<div
-							className="files-search-field"
-							data-state={searchClosing ? "closing" : "open"}
-						>
-							<span className="icon-search" aria-hidden="true" />
-							<input
-								ref={searchInputRef}
-								type="search"
-								value={searchQuery}
-								onChange={(event) => setSearchQuery(event.target.value)}
-								placeholder={`Search ${title}`}
-								aria-label="Search project files"
-							/>
-						</div>
+						<PageSearchToolbar
+							inputRef={searchInputRef}
+							value={searchQuery}
+							onChange={setSearchQuery}
+							onDismiss={closeSearch}
+							placeholder={`Search ${title}`}
+							ariaLabel="Search project files"
+							closing={searchClosing}
+						/>
 					) : undefined
 				}
 				rightSlot={

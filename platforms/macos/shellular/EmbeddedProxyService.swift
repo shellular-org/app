@@ -1,3 +1,5 @@
+import Foundation
+
 final class EmbeddedProxyService: BaseService {
 
     private let server = EmbeddedProxyServer.shared
@@ -12,6 +14,40 @@ final class EmbeddedProxyService: BaseService {
             handleResponseEnd(args: args, callback: callback)
         case "responseError":
             handleResponseError(args: args, callback: callback)
+        case "tunnelOpened":
+            guard let id = args[safe: 0] as? String,
+                  let sendCredit = args[safe: 2] as? Int else {
+                return callback.error("Invalid tunnelOpened args")
+            }
+            server.tunnelOpened(id: id, sendCredit: sendCredit)
+            callback.success()
+        case "tunnelWindow":
+            guard let id = args[safe: 0] as? String,
+                  let bytes = args[safe: 1] as? Int else {
+                return callback.error("Invalid tunnelWindow args")
+            }
+            server.addTunnelWindow(id: id, bytes: bytes)
+            callback.success()
+        case "tunnelData":
+            guard let id = args[safe: 0] as? String,
+                  let value = args[safe: 1] as? String,
+                  let data = Data(base64Encoded: value) else {
+                return callback.error("Invalid tunnelData args")
+            }
+            server.sendTunnelData(id: id, data: data)
+            callback.success()
+        case "tunnelEnd":
+            guard let id = args[safe: 0] as? String else {
+                return callback.error("Invalid tunnelEnd args")
+            }
+            server.endTunnel(id: id)
+            callback.success()
+        case "tunnelClosed":
+            guard let id = args[safe: 0] as? String else {
+                return callback.error("Invalid tunnelClosed args")
+            }
+            server.closeTunnel(id: id, error: args[safe: 1] as? String)
+            callback.success()
         default:
             callback.error("Unknown action: \(action)")
         }

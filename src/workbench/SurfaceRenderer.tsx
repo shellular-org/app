@@ -1,23 +1,36 @@
 import "@xterm/xterm/css/xterm.css";
 import browser from "bridge/browser";
+import dialog from "bridge/dialog";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { useShellular } from "state";
 import TerminalContainer from "tabs/terminal/TerminalContainer";
-import type { WorkbenchSurface } from "./types";
+import RetryableLazySurface, {
+	type LazySurfaceLoader,
+} from "./RetryableLazySurface";
+import type { UtilityPage, WorkbenchSurface } from "./types";
 
 const ChatPage = lazy(() => import("pages/chat"));
-const SettingsPage = lazy(() => import("pages/settings"));
-const PortsPage = lazy(() => import("pages/ports"));
-const AboutPage = lazy(() => import("pages/about"));
-const ReachOutPage = lazy(() => import("pages/reach-out"));
-const AccountPage = lazy(() => import("pages/account"));
-const SysmonPage = lazy(() => import("pages/sysmon"));
 const FilesPage = lazy(() => import("pages/files"));
-const GitPage = lazy(() => import("pages/git-client"));
+const GitPage = process.env.IS_DESKTOP_UI
+	? null
+	: lazy(() => import("pages/git-client"));
+const GitHistoryPage = lazy(() => import("pages/git-history"));
 const EditorPage = lazy(() => import("pages/editor"));
 const SessionsPage = lazy(() => import("pages/sessions"));
+
+const UTILITY_SURFACE_LOADERS = {
+	settings: () => import("pages/settings"),
+	ports: () => import("pages/ports"),
+	about: () => import("pages/about"),
+	"reach-out": () => import("pages/reach-out"),
+	account: () => import("pages/account"),
+	"system-monitor": () => import("pages/sysmon"),
+	agents: () => import("tabs/agents"),
+	"manage-agents": () => import("pages/manage-agents"),
+	"bookmarked-sessions": () => import("pages/bookmark-sessions"),
+} satisfies Record<UtilityPage, LazySurfaceLoader>;
 
 export default function SurfaceRenderer({
 	surface,
@@ -38,12 +51,18 @@ export default function SurfaceRenderer({
 					title={surface.title}
 				/>
 			)}
-			{surface.kind === "git" && (
-				<GitPage
-					projectPath={surface.projectPath}
-					projectName={surface.projectName}
-				/>
-			)}
+			{surface.kind === "git" &&
+				(process.env.IS_DESKTOP_UI ? (
+					<GitHistoryPage
+						projectPath={surface.projectPath}
+						projectName={surface.projectName}
+					/>
+				) : GitPage ? (
+					<GitPage
+						projectPath={surface.projectPath}
+						projectName={surface.projectName}
+					/>
+				) : null)}
 			{surface.kind === "editor" && (
 				<EditorPage
 					filePath={surface.filePath}
@@ -51,6 +70,8 @@ export default function SurfaceRenderer({
 					initialLine={surface.initialLine}
 					initialColumn={surface.initialColumn}
 					readOnly={surface.readOnly}
+					comparison={surface.comparison}
+					gitComparison={surface.gitComparison}
 					pageId={surface.id}
 				/>
 			)}
@@ -137,7 +158,8 @@ function ChatSurfaceView({
 }
 
 function TerminalSurfaceView({ terminalId }: { terminalId: string }) {
-	const { activeTerminals } = useShellular();
+	const { activeTerminals, closeTerminal, renameTerminal, terminalNames } =
+		useShellular();
 	const terminalIds = useMemo(() => [terminalId], [terminalId]);
 	if (!activeTerminals.some((terminal) => terminal.terminalId === terminalId)) {
 		return (
@@ -150,6 +172,23 @@ function TerminalSurfaceView({ terminalId }: { terminalId: string }) {
 				activeTerminalId={terminalId}
 				terminalIds={terminalIds}
 				menuItems={[]}
+				onRename={async () => {
+					const value = await dialog.textInput(
+						"Enter a new terminal name",
+						terminalNames[terminalId] ?? "",
+						"Rename Terminal",
+					);
+					if (value !== null) renameTerminal(terminalId, value);
+				}}
+				onKill={async () => {
+					if (
+						await dialog.confirm(
+							"Close this tab and kill the terminal process?",
+							"Close Terminal",
+						)
+					)
+						closeTerminal(terminalId);
+				}}
 			/>
 		</div>
 	);
@@ -160,18 +199,15 @@ function UtilitySurfaceView({
 }: {
 	surface: Extract<WorkbenchSurface, { kind: "utility" }>;
 }) {
-	switch (surface.page) {
-		case "settings":
-			return <SettingsPage />;
-		case "ports":
-			return <PortsPage />;
-		case "about":
-			return <AboutPage />;
-		case "reach-out":
-			return <ReachOutPage />;
-		case "account":
-			return <AccountPage />;
-		case "system-monitor":
-			return <SysmonPage />;
-	}
+	return (
+		<RetryableLazySurface
+			loader={UTILITY_SURFACE_LOADERS[surface.page]}
+			title={surface.title}
+			componentProps={
+				surface.page === "settings" && surface.initialSettingsTab
+					? { initialTab: surface.initialSettingsTab }
+					: undefined
+			}
+		/>
+	);
 }

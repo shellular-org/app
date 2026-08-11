@@ -33,7 +33,7 @@ const ROW_ICON = "w-6 shrink-0 text-center text-[20px] text-accent";
 const PROVIDER_ROW_ICON =
 	"w-6 shrink-0 text-center text-[20px] text-primary-text before:!text-current";
 const ROW_LABEL = "truncate text-[14px] font-[650] text-primary-text";
-const ROW_VALUE = "truncate text-[12px] text-secondary-text opacity-[0.68]";
+const ROW_VALUE = "card-subtext truncate text-[12px]";
 const SECTION_TITLE =
 	"ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45";
 const PILL =
@@ -142,9 +142,7 @@ export default function AccountPage() {
 							<h2 className="truncate text-[18px] font-[750] text-primary-text">
 								{user.name || user.email}
 							</h2>
-							<p className="truncate text-[13px] text-secondary-text opacity-70">
-								{user.email}
-							</p>
+							<p className="card-subtext truncate text-[13px]">{user.email}</p>
 						</div>
 					</section>
 

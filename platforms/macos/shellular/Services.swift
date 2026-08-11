@@ -2,15 +2,254 @@ import AppKit
 import AVFoundation
 import CryptoKit
 import Photos
-import Security
 import UserNotifications
+import WebKit
+
+final class ContextMenuService: BaseService {
+    private struct Request {
+        let id: Int
+        let trigger: String
+        let anchor: [String: Any]
+        let viewport: ContextMenuViewportMetrics
+        let items: [[String: Any]]
+        let callback: Callback
+    }
+
+    private final class MenuCommandReference: NSObject {
+        let requestID: Int
+        let commandID: String
+
+        init(requestID: Int, commandID: String) {
+            self.requestID = requestID
+            self.commandID = commandID
+        }
+    }
+
+    private var coordinator = ContextMenuRequestCoordinator()
+    private var requests: [Int: Request] = [:]
+    private var activeMenu: NSMenu?
+    private var selectedCommands: [Int: String] = [:]
+
+    override func exec(action: String, args: [Any], callback: Callback) {
+        switch action {
+        case "show": show(args, callback)
+        case "cancel":
+            DispatchQueue.main.async {
+                self.apply(self.coordinator.cancelAll(), deferPresentation: true)
+                callback.success()
+            }
+        default: callback.error("Unknown action: \(action)")
+        }
+    }
+
+    private func show(_ args: [Any], _ callback: Callback) {
+        guard let request = args.first as? [String: Any],
+              let id = integer(request["id"]),
+              let trigger = request["trigger"] as? String,
+              ["context", "button", "keyboard"].contains(trigger),
+              let rawItems = request["items"] as? [[String: Any]],
+              let anchor = request["anchor"] as? [String: Any],
+              let rawViewport = request["viewport"] as? [String: Any],
+              let viewport = viewport(rawViewport) else {
+            return callback.error("Invalid context menu request")
+        }
+        DispatchQueue.main.async {
+            guard self.webView != nil else { return callback.error("No workbench view") }
+            guard id > 0,
+                  self.requests[id] == nil,
+                  self.coordinator.activeID != id,
+                  self.coordinator.pendingID != id else {
+                return callback.error("Duplicate context menu request")
+            }
+            guard rawItems.contains(where: { ($0["type"] as? String) != "separator" }) else {
+                return callback.success(nil)
+            }
+            self.requests[id] = Request(
+                id: id,
+                trigger: trigger,
+                anchor: anchor,
+                viewport: viewport,
+                items: rawItems,
+                callback: callback
+            )
+            self.apply(self.coordinator.submit(id), deferPresentation: false)
+        }
+    }
+
+    private func present(_ id: Int) {
+        guard coordinator.canPresent(id),
+              let request = requests[id],
+              let webView else {
+            apply(coordinator.trackingEnded(id, selection: nil), deferPresentation: true)
+            return
+        }
+        let menu = makeMenu(request.items, requestID: id)
+        guard menu.items.contains(where: { !$0.isSeparatorItem }) else {
+            apply(coordinator.trackingEnded(id, selection: nil), deferPresentation: true)
+            return
+        }
+        activeMenu = menu
+        let point = anchorPoint(for: request, in: webView)
+        if request.trigger == "context",
+           let event = (webView as? RecentPointerEventProviding)?.recentContextEvent(near: point) {
+            NSMenu.popUpContextMenu(menu, with: event, for: webView)
+        } else {
+            _ = menu.popUp(positioning: nil, at: point, in: webView)
+        }
+        if activeMenu === menu { activeMenu = nil }
+        let selection = selectedCommands.removeValue(forKey: id)
+        apply(coordinator.trackingEnded(id, selection: selection), deferPresentation: true)
+    }
+
+    private func apply(_ actions: [ContextMenuCoordinatorAction], deferPresentation: Bool) {
+        for action in actions {
+            switch action {
+            case .present(let id):
+                if deferPresentation {
+                    DispatchQueue.main.async { [weak self] in self?.present(id) }
+                } else {
+                    present(id)
+                }
+            case .cancelTracking:
+                activeMenu?.cancelTracking()
+            case .complete(let id, let command):
+                selectedCommands[id] = nil
+                requests.removeValue(forKey: id)?.callback.success(command)
+            }
+        }
+    }
+
+    private func anchorPoint(for request: Request, in webView: WKWebView) -> CGPoint {
+        let isRectangle = request.anchor["kind"] as? String == "rect"
+        let x: CGFloat
+        let y: CGFloat
+        if isRectangle && request.trigger == "keyboard" {
+            x = number(request.anchor["right"])
+            y = number(request.anchor["top"])
+        } else if isRectangle {
+            x = number(request.anchor["left"])
+            y = number(request.anchor["bottom"])
+        } else {
+            x = number(request.anchor["x"])
+            y = number(request.anchor["y"])
+        }
+        return ContextMenuCoordinateConverter.convert(
+            CGPoint(x: x, y: y),
+            viewport: request.viewport,
+            viewBounds: webView.bounds,
+            isFlipped: webView.isFlipped
+        )
+    }
+
+    private func makeMenu(_ rawItems: [[String: Any]], requestID: Int) -> NSMenu {
+        let menu = NSMenu(title: "")
+        menu.autoenablesItems = false
+        menu.showsStateColumn = true
+        for raw in rawItems {
+            switch raw["type"] as? String {
+            case "separator": menu.addItem(.separator())
+            case "submenu":
+                guard let title = raw["label"] as? String,
+                      let children = raw["items"] as? [[String: Any]] else { continue }
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.submenu = makeMenu(children, requestID: requestID)
+                applyImage(raw["macSymbol"] as? String, to: item)
+                menu.addItem(item)
+            case "command":
+                guard let command = raw["command"] as? String,
+                      let title = raw["label"] as? String else { continue }
+                let item = NSMenuItem(title: title, action: #selector(selectCommand(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = MenuCommandReference(requestID: requestID, commandID: command)
+                item.isEnabled = !(raw["disabled"] as? Bool ?? false)
+                if raw["checked"] as? Bool == true { item.state = .on }
+                if raw["danger"] as? Bool == true {
+                    item.attributedTitle = NSAttributedString(
+                        string: title,
+                        attributes: [.foregroundColor: NSColor.systemRed]
+                    )
+                }
+                applyImage(raw["macSymbol"] as? String, to: item)
+                applyShortcut(raw["shortcut"] as? [String: Any], to: item)
+                menu.addItem(item)
+            default: continue
+            }
+        }
+        return menu
+    }
+
+    private func applyImage(_ symbol: String?, to item: NSMenuItem) {
+        guard let symbol, !symbol.isEmpty else { return }
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+    }
+
+    private func applyShortcut(_ raw: [String: Any]?, to item: NSMenuItem) {
+        guard let key = raw?["key"] as? String else { return }
+        item.keyEquivalent = keyEquivalent(key)
+        let modifiers = raw?["modifiers"] as? [String] ?? []
+        item.keyEquivalentModifierMask = modifiers.reduce(into: NSEvent.ModifierFlags()) { result, value in
+            switch value {
+            case "meta": result.insert(.command)
+            case "ctrl": result.insert(.control)
+            case "alt": result.insert(.option)
+            case "shift": result.insert(.shift)
+            default: break
+            }
+        }
+    }
+
+    private func keyEquivalent(_ key: String) -> String {
+        switch key.uppercased() {
+        case "F2": return String(Character(UnicodeScalar(NSF2FunctionKey)!))
+        case "F12": return String(Character(UnicodeScalar(NSF12FunctionKey)!))
+        default: return key.lowercased()
+        }
+    }
+
+    private func number(_ value: Any?) -> CGFloat {
+        if let number = value as? NSNumber { return CGFloat(number.doubleValue) }
+        return 0
+    }
+
+    private func integer(_ value: Any?) -> Int? {
+        (value as? NSNumber)?.intValue
+    }
+
+    private func viewport(_ raw: [String: Any]) -> ContextMenuViewportMetrics? {
+        let required = [
+            "layoutWidth", "layoutHeight", "visualWidth", "visualHeight",
+            "visualOffsetLeft", "visualOffsetTop", "visualScale", "deviceScaleFactor"
+        ]
+        guard required.allSatisfy({ raw[$0] is NSNumber }) else { return nil }
+        return ContextMenuViewportMetrics(
+            layoutWidth: number(raw["layoutWidth"]),
+            layoutHeight: number(raw["layoutHeight"]),
+            visualWidth: number(raw["visualWidth"]),
+            visualHeight: number(raw["visualHeight"]),
+            visualOffsetLeft: number(raw["visualOffsetLeft"]),
+            visualOffsetTop: number(raw["visualOffsetTop"]),
+            visualScale: number(raw["visualScale"]),
+            deviceScaleFactor: number(raw["deviceScaleFactor"])
+        )
+    }
+
+    @objc private func selectCommand(_ sender: NSMenuItem) {
+        guard let reference = sender.representedObject as? MenuCommandReference,
+              coordinator.canSelect(reference.requestID) else { return }
+        selectedCommands[reference.requestID] = reference.commandID
+    }
+}
 
 final class NativeService: BaseService {
-    private static var desktopCommandHandlers: [Callback] = []
+    private struct DesktopCommandHandler {
+        let id: String
+        let callback: Callback
+    }
+    private static var desktopCommandHandler: DesktopCommandHandler?
     private lazy var socket = SocketService(bridge: bridge!)
     static func sendDesktopCommand(_ command: String) {
         DispatchQueue.main.async {
-            desktopCommandHandlers.forEach { $0.success(command, keep: true) }
+            desktopCommandHandler?.callback.success(command, keep: true)
         }
     }
     override func exec(action: String, args: [Any], callback: Callback) {
@@ -21,12 +260,66 @@ final class NativeService: BaseService {
         case "getDeviceInfo": callback.success(["manufacturer":"Apple", "model": Host.current().localizedName ?? "Mac", "product": ProcessInfo.processInfo.operatingSystemVersionString, "isEmulator":false])
         case "openInBrowser": open(args, callback)
         case "setIntentHandler": AppDelegate.shared?.deepLinkHandler = { callback.success($0.absoluteString, keep: true) }; callback.success(nil, keep: true)
-        case "setDesktopCommandHandler": Self.desktopCommandHandlers.append(callback); callback.success(nil, keep: true)
+        case "setDesktopCommandHandler":
+            guard let id = args.first as? String, !id.isEmpty else {
+                callback.error("Desktop command registration ID is required")
+                return
+            }
+            Self.desktopCommandHandler?.callback.success()
+            Self.desktopCommandHandler = DesktopCommandHandler(id: id, callback: callback)
+        case "clearDesktopCommandHandler":
+            if let id = args.first as? String, Self.desktopCommandHandler?.id == id {
+                Self.desktopCommandHandler?.callback.success()
+                Self.desktopCommandHandler = nil
+            }
+            callback.success()
         case "getDesktopCapabilities": callback.success(["localWorkspace": true, "canPickLocalFiles": true, "canRevealLocalPath": true, "canOpenSystemTerminal": false])
-        case "pickLocalFiles": pickLocalFiles(callback)
+        case "pickLocalFiles": pickLocalFiles(args, callback)
+        case "pickLocalDirectory": pickLocalDirectory(args, callback)
         case "revealLocalPath": revealLocalPath(args, callback)
         case "openSystemTerminal": callback.error("System terminal is unavailable")
-        case "setTheme": if let value = args.first as? [String:Any], value["type"] as? String == "light" { NSApp.appearance = NSAppearance(named: .aqua) } else { NSApp.appearance = NSAppearance(named: .darkAqua) }; callback.success()
+        case "setWindowTitle":
+            let rawTitle = args.first as? String ?? "Shellular"
+            DispatchQueue.main.async { self.viewController?.setWindowTitle(rawTitle); callback.success() }
+        case "setDesktopShortcutContext":
+            let context = args.first as? [String: Any]
+            let contextualNew = context?["contextualNew"] as? String
+            let shortcuts = context?["shortcuts"] as? [String: Any]
+            DispatchQueue.main.async {
+                AppDelegate.shared?.updateDesktopShortcutContext(
+                    contextualNew,
+                    shortcuts: shortcuts
+                )
+                callback.success()
+            }
+        case "loadBundledAsset":
+            guard let name = args.first as? String,
+                  ["monaco/editor.worker.js", "monaco/json.worker.js", "monaco/css.worker.js", "monaco/html.worker.js", "monaco/ts.worker.js"].contains(name),
+                  let root = Bundle.main.resourceURL,
+                  let source = try? String(contentsOf: root.appendingPathComponent("bundle").appendingPathComponent(name), encoding: .utf8)
+            else { return callback.error("Bundled editor worker is unavailable") }
+            callback.success(source)
+        case "readClipboardText":
+            DispatchQueue.main.async {
+                callback.success(NSPasteboard.general.string(forType: .string) ?? "")
+            }
+        case "writeClipboardText":
+            let text = args.first as? String ?? ""
+            DispatchQueue.main.async {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(text, forType: .string)
+                callback.success()
+            }
+        case "setTheme":
+            guard let value = args.first as? [String: Any] else {
+                return callback.error("Theme data is required")
+            }
+            NSApp.appearance = NSAppearance(
+                named: value["type"] as? String == "light" ? .aqua : .darkAqua
+            )
+            viewController?.setTheme(value)
+            callback.success()
         case "requestPermission": permission(args, request: true, callback)
         case "requestPermissions": requestMany(args, callback)
         case "hasPermission": permission(args, request: false, callback)
@@ -43,16 +336,49 @@ final class NativeService: BaseService {
     }
     private func share(items: [Any], _ callback: Callback) { DispatchQueue.main.async { guard let view = self.viewController?.view else { return callback.error("No window") }; NSSharingServicePicker(items: items).show(relativeTo: view.bounds, of: view, preferredEdge: .minY); callback.success() } }
     private func open(_ args: [Any], _ callback: Callback) { guard let s = args.first as? String, let u = URL(string:s) else { return callback.error("Invalid URL") }; NSWorkspace.shared.open(u); callback.success() }
-    private func pickLocalFiles(_ callback: Callback) {
+    private func pickLocalFiles(_ args: [Any], _ callback: Callback) {
         DispatchQueue.main.async {
             guard let window = self.viewController?.view.window else { return callback.error("No window") }
             let panel = NSOpenPanel()
             panel.allowsMultipleSelection = true
             panel.canChooseFiles = true
             panel.canChooseDirectories = false
+            if let rootPath = args.first as? String, !rootPath.isEmpty {
+                panel.directoryURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+            }
             panel.beginSheetModal(for: window) { response in
                 guard response == .OK else { return callback.success([]) }
                 callback.success(panel.urls.map(\.path))
+            }
+        }
+    }
+    private func pickLocalDirectory(_ args: [Any], _ callback: Callback) {
+        guard let rootPath = args.first as? String, rootPath.hasPrefix("/") else {
+            return callback.error("A local workspace root is required")
+        }
+        let rootURL = URL(fileURLWithPath: rootPath, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        DispatchQueue.main.async {
+            guard let window = self.viewController?.view.window else { return callback.error("No window") }
+            let panel = NSOpenPanel()
+            panel.title = "Open Folder"
+            panel.prompt = "Open"
+            panel.allowsMultipleSelection = false
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.resolvesAliases = true
+            panel.directoryURL = rootURL
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK else { return callback.success(nil) }
+                guard let selected = panel.url?.standardizedFileURL.resolvingSymlinksInPath() else {
+                    return callback.success(nil)
+                }
+                let root = rootURL.path.hasSuffix("/") ? rootURL.path : rootURL.path + "/"
+                guard selected.path != rootURL.path, selected.path.hasPrefix(root) else {
+                    return callback.error("Choose a folder inside the connected workspace root")
+                }
+                callback.success(selected.path)
             }
         }
     }
@@ -95,7 +421,39 @@ final class DialogService: BaseService {
 
 final class EncryptionService: BaseService { override func exec(action:String,args:[Any],callback:Callback) { guard let text=args[safe:0] as? String, let password=args[safe:1] as? String, !password.isEmpty else{return callback.error("message and password required")}; let key=Array(password.utf8); if action=="encrypt" { callback.success(Data(Array(text.utf8).enumerated().map{$0.element ^ key[$0.offset % key.count]}).base64EncodedString()) } else if action=="decrypt", let data=Data(base64Encoded:text), let value=String(bytes:data.enumerated().map{$0.element ^ key[$0.offset % key.count]},encoding:.utf8){callback.success(value)} else {callback.error("Invalid encrypted data")} } }
 
-final class SecureStoreService: BaseService { override func exec(action:String,args:[Any],callback:Callback) { guard let key=args.first as? String else{return callback.error("key required")}; let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,kSecAttrService as String:"io.foxbiz.shellular.secure-store",kSecAttrAccount as String:key]; if action=="remove"{SecItemDelete(query as CFDictionary);return callback.success()}; if action=="get"{var item:CFTypeRef?;var q=query;q[kSecReturnData as String]=true; let s=SecItemCopyMatching(q as CFDictionary,&item); return callback.success(s==errSecSuccess ? (item as? Data).flatMap{String(data:$0,encoding:.utf8)}:nil)}; guard let value=args[safe:1] as? String, let data=value.data(using:.utf8) else{return callback.error("value required")}; SecItemDelete(query as CFDictionary);var q=query;q[kSecValueData as String]=data; SecItemAdd(q as CFDictionary,nil)==errSecSuccess ? callback.success():callback.error("Keychain write failed") } }
+final class SecureStoreService: BaseService {
+    private let store = PrivateFileStore(namespace: "secure-store")
+
+    override func exec(action: String, args: [Any], callback: Callback) {
+        guard let key = args.first as? String else {
+            return callback.error("key required")
+        }
+
+        do {
+            switch action {
+            case "get":
+                if let value = try store.get(key) {
+                    callback.success(value)
+                } else {
+                    callback.success(nil)
+                }
+            case "set":
+                guard let value = args[safe: 1] as? String else {
+                    return callback.error("value required")
+                }
+                try store.set(value, forKey: key)
+                callback.success()
+            case "remove":
+                try store.remove(key)
+                callback.success()
+            default:
+                callback.error("Unknown action: \(action)")
+            }
+        } catch {
+            callback.error("Private storage \(action) failed")
+        }
+    }
+}
 
 final class NotificationService: BaseService {
     static let shared = NotificationService(); private var entries:[Int:UNMutableNotificationContent]=[:]; private var listeners:[Int:Callback]=[:]; private var next=1

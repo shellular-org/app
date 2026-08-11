@@ -74,13 +74,15 @@ function projectsPath(hostId: string): string {
 	return `${appConfig.DATA_DIR}/projects-${hostId}.json`;
 }
 
+const projectMutationQueues = new Map<string, Promise<Project[]>>();
+
 export async function loadProjects(hostId: string): Promise<Project[]> {
 	try {
 		const path = projectsPath(hostId);
 		const exists = await file.exists(path);
 		if (!exists) return [];
 		const text = (await file.read(path, "text")) as string;
-		return JSON.parse(text) as Project[];
+		return normalizeProjects(JSON.parse(text));
 	} catch {
 		return [];
 	}
@@ -96,23 +98,90 @@ async function saveProjects(
 export async function addProject(
 	hostId: string,
 	path: string,
-	existingProjects: Project[],
 ): Promise<Project[]> {
-	const name = path.split("/").filter(Boolean).pop() || path;
-	// Avoid duplicates
-	if (existingProjects.some((p) => p.path === path)) return existingProjects;
-	const project: Project = { path, name, addedAt: Date.now() };
-	const updated = [...existingProjects, project];
-	await saveProjects(hostId, updated);
-	return updated;
+	return enqueueProjectMutation(hostId, async (projects) => {
+		const normalizedPath = normalizeProjectPath(path);
+		if (projects.some((project) => project.path === normalizedPath)) {
+			return projects;
+		}
+		const name =
+			normalizedPath.split("/").filter(Boolean).pop() || normalizedPath;
+		return [...projects, { path: normalizedPath, name, addedAt: Date.now() }];
+	});
 }
 
 export async function removeProject(
 	hostId: string,
 	path: string,
-	existingProjects: Project[],
 ): Promise<Project[]> {
-	const updated = existingProjects.filter((p) => p.path !== path);
-	await saveProjects(hostId, updated);
-	return updated;
+	return enqueueProjectMutation(hostId, async (projects) => {
+		const normalizedPath = normalizeProjectPath(path);
+		return projects.filter((project) => project.path !== normalizedPath);
+	});
+}
+
+function enqueueProjectMutation(
+	hostId: string,
+	mutate: (projects: Project[]) => Project[] | Promise<Project[]>,
+) {
+	const previous = projectMutationQueues.get(hostId) ?? Promise.resolve([]);
+	const pending = previous
+		.catch(() => [])
+		.then(async () => {
+			const current = await loadProjects(hostId);
+			const updated = normalizeProjects(await mutate(current));
+			if (!sameProjects(current, updated)) await saveProjects(hostId, updated);
+			return updated;
+		});
+	projectMutationQueues.set(hostId, pending);
+	const cleanup = () => {
+		if (projectMutationQueues.get(hostId) === pending) {
+			projectMutationQueues.delete(hostId);
+		}
+	};
+	void pending.then(cleanup, cleanup);
+	return pending;
+}
+
+function normalizeProjects(value: unknown): Project[] {
+	if (!Array.isArray(value)) return [];
+	const projects: Project[] = [];
+	const paths = new Set<string>();
+	for (const candidate of value) {
+		if (!candidate || typeof candidate !== "object") continue;
+		const raw = candidate as Partial<Project>;
+		if (typeof raw.path !== "string" || !raw.path) continue;
+		const path = normalizeProjectPath(raw.path);
+		if (paths.has(path)) continue;
+		paths.add(path);
+		projects.push({
+			path,
+			name:
+				typeof raw.name === "string" && raw.name
+					? raw.name
+					: path.split("/").filter(Boolean).pop() || path,
+			addedAt:
+				typeof raw.addedAt === "number" && Number.isFinite(raw.addedAt)
+					? raw.addedAt
+					: Date.now(),
+		});
+	}
+	return projects;
+}
+
+function normalizeProjectPath(value: string) {
+	const normalized = value.split("\\").join("/");
+	return normalized === "/" ? normalized : normalized.replace(/\/+$/, "");
+}
+
+function sameProjects(left: Project[], right: Project[]) {
+	return (
+		left.length === right.length &&
+		left.every(
+			(project, index) =>
+				project.path === right[index]?.path &&
+				project.name === right[index]?.name &&
+				project.addedAt === right[index]?.addedAt,
+		)
+	);
 }

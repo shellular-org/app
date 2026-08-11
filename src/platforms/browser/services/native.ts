@@ -5,6 +5,7 @@ import toast from "lib/toast";
 let cameraPermissionGranted = false;
 let appTheme: Theme | null = null;
 let intentHandler: Callback | null = null;
+let desktopCommandHandler: { id: string; callback: Callback } | null = null;
 
 type Intent = {
 	action: string;
@@ -131,9 +132,21 @@ export default {
 	setIntentHandler(callback: Callback) {
 		intentHandler = callback;
 	},
-	setDesktopCommandHandler(callback: Callback) {
+	setDesktopCommandHandler(callback: Callback, [id]: [string]) {
+		if (desktopCommandHandler) {
+			desktopCommandHandler.callback.keep = false;
+			desktopCommandHandler.callback.success(null);
+		}
 		callback.keep = true;
-		callback.success(null);
+		desktopCommandHandler = { id, callback };
+	},
+	clearDesktopCommandHandler(callback: Callback, [id]: [string]) {
+		if (desktopCommandHandler?.id === id) {
+			desktopCommandHandler.callback.keep = false;
+			desktopCommandHandler.callback.success(null);
+			desktopCommandHandler = null;
+		}
+		callback.success();
 	},
 	getDesktopCapabilities(callback: Callback) {
 		callback.success({
@@ -151,6 +164,13 @@ export default {
 	},
 	openSystemTerminal(callback: Callback) {
 		callback.error("System terminal is unavailable");
+	},
+	setWindowTitle(callback: Callback, [title]: [string]) {
+		document.title = title;
+		callback.success();
+	},
+	setDesktopShortcutContext(callback: Callback) {
+		callback.success();
 	},
 	getVersionSdkInt(callback: Callback) {
 		callback.success(0);

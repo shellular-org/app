@@ -1,6 +1,6 @@
 import { fetchPorts, type PortEntry } from "state/ports";
-import { addBrowserHistory, getBrowserHistory } from "./history";
-import { buildHomePage } from "./home";
+import { addBrowserHistory } from "./history";
+import { getBrowserHomeDocument } from "./homeDocument";
 import { buildPortsPage } from "./ports";
 import { themeStyles } from "./shared";
 
@@ -37,7 +37,7 @@ export function initBrowserBridge(): void {
 	window.__shellularPage = async (name: string): Promise<string> => {
 		switch (name) {
 			case "home":
-				return buildHomePage(getBrowserHistory());
+				return getBrowserHomeDocument();
 			case "ports": {
 				try {
 					const ports = await fetchPorts();

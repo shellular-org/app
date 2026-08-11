@@ -12,6 +12,7 @@ import {
 	workspaceIntegration,
 } from "workbench/integration";
 import { openInWorkbench } from "workbench/navigation";
+import { showGitHistorySidebar } from "workbench/secondarySidebar";
 import { tryOpenChatSurface, tryOpenFileSurface } from "workbench/openers";
 import { buildProjectMenuItems } from "workbench/projectCommands";
 
@@ -98,6 +99,10 @@ export default function ProjectList({ projects, adding }: Props) {
 	);
 
 	const openGitClient = useCallback(async (project: ProjectInfo) => {
+		if (process.env.IS_DESKTOP_UI) {
+			showGitHistorySidebar(project.path, project.name);
+			return;
+		}
 		if (
 			openInWorkbench({
 				kind: "git",

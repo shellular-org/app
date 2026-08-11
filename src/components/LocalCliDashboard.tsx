@@ -45,7 +45,23 @@ export default function LocalCliDashboard() {
 			</div>
 			{error && (
 				<div className="rounded-lg border border-danger/30 bg-danger/10 p-3 text-xs text-danger">
-					<div>{error}</div>
+					<div className="flex items-start gap-2">
+						<div className="min-w-0 flex-1 break-words">{error}</div>
+						<button
+							type="button"
+							className="flex size-6 shrink-0 items-center justify-center rounded-md border border-danger/30"
+							aria-label="Copy error"
+							title="Copy error"
+							onClick={() =>
+								void copyToClipboard({
+									text: error,
+									successMessage: "Error copied",
+								})
+							}
+						>
+							<span className="icon-copy" aria-hidden="true" />
+						</button>
+					</div>
 					<button
 						type="button"
 						className="mt-2 rounded-md border border-danger/30 px-2 py-1 text-[11px] font-bold"
@@ -70,7 +86,7 @@ export default function LocalCliDashboard() {
 										className="size-44 rounded-lg"
 									/>
 								)}
-								<div className="max-w-full break-all font-mono text-[9px] text-secondary-text opacity-50">
+								<div className="card-subtext max-w-full break-all font-mono text-[9px]">
 									{cli.qrData}
 								</div>
 							</div>
@@ -99,7 +115,7 @@ export default function LocalCliDashboard() {
 												<div className="truncate text-xs font-bold">
 													{client.deviceModel ?? client.platform}
 												</div>
-												<div className="truncate text-[10px] text-secondary-text opacity-60">
+												<div className="card-subtext truncate text-[10px]">
 													{client.clientId}
 													{client.connected ? " · connected" : ""}
 												</div>
@@ -168,7 +184,8 @@ export default function LocalCliDashboard() {
 					)}
 				</>
 			) : (
-				!busy && (
+				!busy &&
+				!error && (
 					<button
 						type="button"
 						className="rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-text-invert"
@@ -202,9 +219,7 @@ function DisclosureButton({
 		>
 			<span>
 				<span className="block text-xs font-bold">{title}</span>
-				<span className="block text-[10px] text-secondary-text opacity-60">
-					{summary}
-				</span>
+				<span className="card-subtext block text-[10px]">{summary}</span>
 			</span>
 			<span
 				className={open ? "icon-chevron-down" : "icon-chevron-right"}
@@ -263,7 +278,7 @@ function LogsDialog({
 function Info({ label, value }: { label: string; value: string }) {
 	return (
 		<div className="min-w-0 rounded-lg border border-card-border bg-popup-background p-3">
-			<div className="text-[10px] font-bold uppercase text-secondary-text opacity-60">
+			<div className="card-subtext text-[10px] font-bold uppercase">
 				{label}
 			</div>
 			<div className="mt-1 truncate font-semibold">{value}</div>

@@ -2,6 +2,7 @@ import "./style.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
 import Mascot from "components/Mascot";
 import { useEffect, useRef, useState } from "react";
+import { ChatDiffContext } from "./ChatDiffContext";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
 import {
@@ -17,6 +18,7 @@ interface ChatBubbleProps {
 	messageRole: "user" | "assistant";
 	assistantName: string;
 	messageKey: string;
+	workspacePath: string;
 	streaming?: boolean;
 }
 
@@ -27,6 +29,7 @@ export default function ChatBubble({
 	messageRole,
 	assistantName,
 	messageKey,
+	workspacePath,
 	streaming = false,
 }: ChatBubbleProps) {
 	const copiedTimeoutRef = useRef<number | null>(null);
@@ -59,40 +62,42 @@ export default function ChatBubble({
 	};
 
 	return (
-		<div
-			className={`chat-bubble chat-bubble--${messageRole}${streaming ? " chat-bubble--streaming" : ""}`}
-		>
-			<div className="chat-bubble-role">
-				{messageRole === "user" ? "You" : assistantName}
+		<ChatDiffContext.Provider value={{ messageKey, workspacePath }}>
+			<div
+				className={`chat-bubble chat-bubble--${messageRole}${streaming ? " chat-bubble--streaming" : ""}`}
+			>
+				<div className="chat-bubble-role">
+					{messageRole === "user" ? "You" : assistantName}
+				</div>
+				<div className="chat-bubble-content">
+					<div className="chat-bubble-text chat-bubble-text--md">
+						{renderMessageParts(parts, messageRole, messageKey)}
+					</div>
+				</div>
+				{canCopy && (
+					<div className="chat-bubble-actions">
+						<button
+							type="button"
+							className={`chat-bubble-copy${copied ? " chat-bubble-copy--copied" : ""}`}
+							onClick={handleCopy}
+							aria-label={copied ? "Copied" : "Copy message"}
+							title={copied ? "Copied" : "Copy message"}
+						>
+							<span
+								className={copied ? "icon-check" : "icon-copy"}
+								aria-hidden="true"
+							/>
+						</button>
+					</div>
+				)}
+				{streaming && (
+					<div className="chat-typing">
+						<Mascot state="thinking" size={34} tone="inline" />
+						<span>{assistantName} is thinking...</span>
+					</div>
+				)}
 			</div>
-			<div className="chat-bubble-content">
-				<div className="chat-bubble-text chat-bubble-text--md">
-					{renderMessageParts(parts, messageRole, messageKey)}
-				</div>
-			</div>
-			{canCopy && (
-				<div className="chat-bubble-actions">
-					<button
-						type="button"
-						className={`chat-bubble-copy${copied ? " chat-bubble-copy--copied" : ""}`}
-						onClick={handleCopy}
-						aria-label={copied ? "Copied" : "Copy message"}
-						title={copied ? "Copied" : "Copy message"}
-					>
-						<span
-							className={copied ? "icon-check" : "icon-copy"}
-							aria-hidden="true"
-						/>
-					</button>
-				</div>
-			)}
-			{streaming && (
-				<div className="chat-typing">
-					<Mascot state="thinking" size={34} tone="inline" />
-					<span>{assistantName} is thinking...</span>
-				</div>
-			)}
-		</div>
+		</ChatDiffContext.Provider>
 	);
 }
 

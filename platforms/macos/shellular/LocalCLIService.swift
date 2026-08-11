@@ -33,15 +33,16 @@ final class LocalCLIManager {
     static let shared = LocalCLIManager()
     private let protocolVersion = 1
     private let devPort = 51238
-    private let token: String
+    private let token = UUID().uuidString + UUID().uuidString
     private let ownerId = UUID().uuidString
+    private let activationClient = LocalCLIActivationClient()
     private let ensureQueue = DispatchQueue(label: "io.foxbiz.shellular.local-cli.ensure")
     private var ensureCallbacks: [(Result<Any, Error>) -> Void] = []
     private var port: Int?
     private var process: Process?
     private var didTryGlobalInstall = false
 
-    private init() { token = Self.loadOrCreateToken() }
+    private init() {}
 
     func capability() -> [String: Any] {
         let sandboxed: Bool
@@ -78,11 +79,54 @@ final class LocalCLIManager {
             return request(path: "/control/status", method: "GET", body: nil) { result in
                 switch result {
                 case .success: completion(result)
-                case .failure: self.startLocal(preferredPort: self.devPort, completion: completion)
+                case .failure: self.activateRunningOrStart(preferredPort: self.devPort, completion: completion)
                 }
             }
         }
-        startLocal(preferredPort: devPort, completion: completion)
+        activateRunningOrStart(preferredPort: devPort, completion: completion)
+    }
+
+    private func activateRunningOrStart(preferredPort: Int, completion: @escaping (Result<Any, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            #if DEBUG
+            let activationPort = preferredPort
+            #else
+            let activationPort = 0
+            #endif
+            do {
+                let activation: LocalCLIActivationResult?
+                do {
+                    activation = try self.activationClient.activate(
+                        token: self.token,
+                        ownerId: self.ownerId,
+                        port: activationPort
+                    )
+                } catch let error as LocalCLIActivationError
+                    where error.code == "PORT_IN_USE" && activationPort != 0
+                {
+                    activation = try self.activationClient.activate(
+                        token: self.token,
+                        ownerId: self.ownerId,
+                        port: 0
+                    )
+                }
+                guard let activation else {
+                    return self.startLocal(preferredPort: preferredPort, completion: completion)
+                }
+                self.port = activation.port
+                self.request(path: "/control/status", method: "GET", body: nil) { result in
+                    switch result {
+                    case .success: completion(result)
+                    case .failure(let error):
+                        completion(.failure(LocalCLIError(
+                            "The running CLI enabled local access, but the app could not connect: \(error.localizedDescription)"
+                        )))
+                    }
+                }
+            } catch {
+                completion(.failure(error))
+            }
+        }
     }
 
     private func startLocal(preferredPort: Int, completion: @escaping (Result<Any, Error>) -> Void) {
@@ -251,16 +295,6 @@ final class LocalCLIManager {
               let marker = line.range(of: "SHELLULAR_LOCAL_ERROR ") else { return nil }
         let json = String(line[marker.upperBound...])
         return try? JSONDecoder().decode(StructuredCLIError.self, from: Data(json.utf8))
-    }
-    private static func loadOrCreateToken() -> String {
-        let account = "local-cli-control-token"
-        let base: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "io.foxbiz.shellular.local-cli", kSecAttrAccount as String: account]
-        var query = base; query[kSecReturnData as String] = true
-        var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data, let token = String(data: data, encoding: .utf8) { return token }
-        let token = UUID().uuidString + UUID().uuidString
-        var insert = base; insert[kSecValueData as String] = Data(token.utf8); SecItemAdd(insert as CFDictionary, nil)
-        return token
     }
 }
 

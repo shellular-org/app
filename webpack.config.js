@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rm } from "node:fs";
 import { join, resolve } from "node:path";
 import ReactRefreshWebpackPlugin from "@pmmmwh/react-refresh-webpack-plugin";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
+import MonacoWebpackPlugin from "monaco-editor-webpack-plugin";
 import {
 	defineReactCompilerLoaderOption,
 	reactCompilerLoader,
@@ -228,7 +229,18 @@ export default (_, { env = {}, mode = "development" }) => {
 				},
 			],
 		},
+		dotenv: {
+			prefix: "DEV_",
+		},
 		plugins: [
+			...(isDesktopUI
+				? [
+						new MonacoWebpackPlugin({
+							filename: "monaco/[name].worker.js",
+							publicPath: "./",
+						}),
+					]
+				: []),
 			...(!isDev ? [new MiniCssExtractPlugin({ ignoreOrder: true })] : []),
 			...(isDev ? [new ReactRefreshWebpackPlugin()] : []),
 			{
@@ -282,6 +294,9 @@ export default (_, { env = {}, mode = "development" }) => {
 		devtool: false,
 		entry: {
 			console: "./src/console.ts",
+		},
+		resolve: {
+			extensions: [".ts", ".js"],
 		},
 		output: {
 			path: outputPath,

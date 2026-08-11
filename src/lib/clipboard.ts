@@ -1,3 +1,4 @@
+import native from "bridge/native";
 import toast from "lib/toast";
 
 interface CopyToClipboardOptions {
@@ -12,7 +13,13 @@ export async function copyToClipboard({
 	errorMessage = "Failed to copy",
 }: CopyToClipboardOptions) {
 	try {
-		await navigator.clipboard.writeText(text);
+		if (process.env.IS_MACOS) {
+			await native.writeClipboardText(text);
+		} else if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(text);
+		} else {
+			throw new Error("Clipboard API is unavailable");
+		}
 		if (!process.env.IS_ANDROID && successMessage) {
 			toast(successMessage);
 		}
@@ -36,4 +43,11 @@ export async function copyToClipboard({
 			document.body.removeChild(textarea);
 		}
 	}
+}
+
+export async function readFromClipboard() {
+	if (process.env.IS_MACOS) return native.readClipboardText();
+	if (!navigator.clipboard?.readText)
+		throw new Error("Clipboard API is unavailable");
+	return navigator.clipboard.readText();
 }

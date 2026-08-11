@@ -14,6 +14,7 @@ declare namespace NodeJS {
 	interface Process {
 		env: {
 			ID: string;
+			DEV_SERVER?: string;
 			IS_IOS: boolean;
 			IS_MACOS: boolean;
 			IS_ANDROID: boolean;

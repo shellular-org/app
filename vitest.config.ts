@@ -10,8 +10,10 @@ export default defineConfig({
 		alias: {
 			App: resolve(srcDir, "App.tsx"),
 			bridge: resolve(srcDir, "bridge"),
+			browser: resolve(srcDir, "browser"),
 			classes: resolve(srcDir, "classes"),
 			components: resolve(srcDir, "components"),
+			"context-menu": resolve(srcDir, "context-menu"),
 			lang: resolve(srcDir, "lang"),
 			lib: resolve(srcDir, "lib"),
 			listeners: resolve(srcDir, "listeners"),
@@ -22,11 +24,15 @@ export default defineConfig({
 			state: resolve(srcDir, "state"),
 			tabs: resolve(srcDir, "tabs"),
 			themes: resolve(srcDir, "themes"),
+			workbench: resolve(srcDir, "workbench"),
 		},
 	},
 	test: {
 		environment: "jsdom",
-		include: ["src/**/*.{test,spec}.{ts,tsx}"],
+		include: [
+			"src/**/*.{test,spec}.{ts,tsx}",
+			"dev/**/*.{test,spec}.js",
+		],
 		setupFiles: ["./src/test/setup.ts"],
 	},
 });

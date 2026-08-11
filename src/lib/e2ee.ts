@@ -4,7 +4,9 @@ let _ready = false;
 const PROXY_BINARY_MAGIC = new Uint8Array([0x53, 0x48, 0x50, 0x42]);
 const PROXY_BINARY_VERSION = 1;
 const PROXY_BINARY_KIND_HTTP_RESPONSE_DATA = 1;
+const PROXY_BINARY_KIND_TCP_TUNNEL_DATA = 2;
 const PROXY_BINARY_HEADER_BYTES = 4 + 1 + 1 + 1 + 24;
+export const TCP_TUNNEL_MAX_FRAME_BYTES = 64 * 1024;
 const textDecoder = new TextDecoder();
 
 export async function initSodium(): Promise<void> {
@@ -71,6 +73,18 @@ export interface ProxyBinaryHttpResponseData {
 	data: Uint8Array;
 }
 
+export interface ProxyBinaryTcpTunnelData {
+	kind: typeof PROXY_BINARY_KIND_TCP_TUNNEL_DATA;
+	clientId: string;
+	tunnelId: string;
+	sequence: number;
+	data: Uint8Array;
+}
+
+export type ProxyBinaryData =
+	| ProxyBinaryHttpResponseData
+	| ProxyBinaryTcpTunnelData;
+
 /**
  * Encrypt a fully-formed message object (already has `id`).
  * Returns the encrypted envelope to send on the wire.
@@ -120,7 +134,7 @@ export function decryptMessage(
 export function decryptProxyBinaryFrame(
 	frame: ArrayBuffer,
 	key: Uint8Array,
-): ProxyBinaryHttpResponseData | null {
+): ProxyBinaryData | null {
 	try {
 		const bytes = new Uint8Array(frame);
 		if (bytes.length < PROXY_BINARY_HEADER_BYTES) return null;
@@ -134,7 +148,8 @@ export function decryptProxyBinaryFrame(
 		const clientIdLength = bytes[6];
 		if (
 			version !== PROXY_BINARY_VERSION ||
-			kind !== PROXY_BINARY_KIND_HTTP_RESPONSE_DATA ||
+			(kind !== PROXY_BINARY_KIND_HTTP_RESPONSE_DATA &&
+				kind !== PROXY_BINARY_KIND_TCP_TUNNEL_DATA) ||
 			clientIdLength === 0
 		) {
 			return null;
@@ -179,12 +194,31 @@ export function decryptProxyBinaryFrame(
 		);
 		if (plaintextClientId !== clientId) return null;
 
+		const identifier = textDecoder.decode(
+			plaintext.subarray(requestIdStart, dataStart),
+		);
+		if (kind === PROXY_BINARY_KIND_TCP_TUNNEL_DATA) {
+			const data = plaintext.subarray(dataStart);
+			if (
+				identifier.length < 8 ||
+				identifier.length > 96 ||
+				data.byteLength === 0 ||
+				data.byteLength > TCP_TUNNEL_MAX_FRAME_BYTES
+			) {
+				return null;
+			}
+			return {
+				kind,
+				clientId,
+				tunnelId: identifier,
+				sequence: chunkIndex,
+				data,
+			};
+		}
 		return {
-			kind: PROXY_BINARY_KIND_HTTP_RESPONSE_DATA,
+			kind,
 			clientId,
-			requestId: textDecoder.decode(
-				plaintext.subarray(requestIdStart, dataStart),
-			),
+			requestId: identifier,
 			chunkIndex,
 			data: plaintext.subarray(dataStart),
 		};
@@ -192,6 +226,51 @@ export function decryptProxyBinaryFrame(
 		console.warn("[E2EE] Failed to decrypt proxy binary frame, dropping");
 		return null;
 	}
+}
+
+export function encryptTcpTunnelDataFrame(
+	clientId: string,
+	tunnelId: string,
+	sequence: number,
+	data: Uint8Array,
+	key: Uint8Array,
+): Uint8Array {
+	if (data.byteLength > TCP_TUNNEL_MAX_FRAME_BYTES) {
+		throw new Error("TCP tunnel frame is too large");
+	}
+	const clientIdBytes = new TextEncoder().encode(clientId);
+	const tunnelIdBytes = new TextEncoder().encode(tunnelId);
+	if (clientIdBytes.length === 0 || clientIdBytes.length > 255) {
+		throw new Error("Invalid client ID");
+	}
+	if (tunnelIdBytes.length === 0 || tunnelIdBytes.length > 65_535) {
+		throw new Error("Invalid tunnel ID");
+	}
+	const plaintext = new Uint8Array(
+		8 + clientIdBytes.length + tunnelIdBytes.length + data.length,
+	);
+	const plaintextView = new DataView(plaintext.buffer);
+	plaintextView.setUint8(0, PROXY_BINARY_KIND_TCP_TUNNEL_DATA);
+	plaintextView.setUint8(1, clientIdBytes.length);
+	plaintextView.setUint16(2, tunnelIdBytes.length, false);
+	plaintextView.setUint32(4, sequence, false);
+	plaintext.set(clientIdBytes, 8);
+	plaintext.set(tunnelIdBytes, 8 + clientIdBytes.length);
+	plaintext.set(data, 8 + clientIdBytes.length + tunnelIdBytes.length);
+
+	const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+	const ciphertext = sodium.crypto_secretbox_easy(plaintext, nonce, key);
+	const frame = new Uint8Array(
+		PROXY_BINARY_HEADER_BYTES + clientIdBytes.length + ciphertext.length,
+	);
+	frame.set(PROXY_BINARY_MAGIC, 0);
+	frame[4] = PROXY_BINARY_VERSION;
+	frame[5] = PROXY_BINARY_KIND_TCP_TUNNEL_DATA;
+	frame[6] = clientIdBytes.length;
+	frame.set(nonce, 7);
+	frame.set(clientIdBytes, PROXY_BINARY_HEADER_BYTES);
+	frame.set(ciphertext, PROXY_BINARY_HEADER_BYTES + clientIdBytes.length);
+	return frame;
 }
 
 /**

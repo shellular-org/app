@@ -34,9 +34,16 @@ keystore.jks
 /build.json
 dev/terminals.config
 
+# Apple build and signing artifacts
 *.xcarchive
+*.ipa
+*.p12
+*.p8
+*.mobileprovision
+platforms/ios/Runner 20??-??-?? ??-??-??/
 xcuserdata
 *.xcuserstate
+.build
 
 *.xcconfig
 

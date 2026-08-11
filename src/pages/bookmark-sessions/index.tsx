@@ -12,13 +12,20 @@ import {
 	type BookmarkedSession,
 	useBookmarkedSessions,
 } from "state/bookmarkSessions";
+import { tryOpenChatSurface } from "workbench/openers";
 
 /**
  * Global bookmarked-chats view, pushed from the Agents tab. Lists every bookmarked
  * session across all agents. The per-agent sessions page filters in place
  * instead of using this page.
  */
-export default function BookmarkSessionsPage() {
+export default function BookmarkSessionsPage({
+	embedded = false,
+	onNavigate,
+}: {
+	embedded?: boolean;
+	onNavigate?: () => void;
+} = {}) {
 	const { agents } = useShellular();
 	const { bookmarked, toggleBookmark } = useBookmarkedSessions();
 	const visibleBookmarks = bookmarked.filter(
@@ -30,6 +37,18 @@ export default function BookmarkSessionsPage() {
 			const agent = agents[bookmark.agentId];
 			if (!agent?.available) return;
 			const tabId = chatTabId(bookmark.agentId, bookmark.sessionId);
+			if (
+				tryOpenChatSurface({
+					id: tabId,
+					agentId: bookmark.agentId,
+					sessionId: bookmark.sessionId,
+					title: bookmark.title,
+					workspacePath: bookmark.workspacePath,
+				})
+			) {
+				onNavigate?.();
+				return;
+			}
 			const ChatConversationPage = await import("pages/chat");
 			pushPage(
 				tabId,
@@ -46,12 +65,16 @@ export default function BookmarkSessionsPage() {
 					agentCapabilities={agent.capabilities}
 				/>,
 			);
+			onNavigate?.();
 		},
-		[agents],
+		[agents, onNavigate],
 	);
 
 	return (
-		<Page className="agent-sessions-page" title="Bookmarked">
+		<Page
+			className={`agent-sessions-page${embedded ? " is-sidebar-embedded" : ""}`}
+			title="Bookmarked"
+		>
 			{!visibleBookmarks.length ? (
 				<EmptyState message="No bookmarked chats yet" mascot="thinking" />
 			) : (

@@ -24,6 +24,10 @@ export interface ChatTab {
 	updatedAt: number;
 }
 
+export interface ProjectChatTab extends ChatTab {
+	projectPath: string;
+}
+
 // ─── In-memory store ──────────────────────────────────────────
 // Keyed by project path; each value is the ordered list of open tabs for that
 // project. We keep a per-project cached snapshot array (stable reference between
@@ -34,8 +38,14 @@ const listeners = new Set<() => void>();
 let loadedForHost = "";
 
 const EMPTY: ChatTab[] = [];
+let allSnapshot: ProjectChatTab[] = [];
 
 function emit() {
+	allSnapshot = Array.from(tabsByProject, ([projectPath, tabs]) =>
+		tabs.map((tab) => ({ ...tab, projectPath })),
+	)
+		.flat()
+		.sort((left, right) => right.updatedAt - left.updatedAt);
 	for (const listener of Array.from(listeners)) listener();
 }
 
@@ -49,6 +59,10 @@ export function subscribeChatTabs(listener: () => void) {
 /** Open tabs for a project, in display order (stable reference between emits). */
 export function getChatTabs(projectPath: string): ChatTab[] {
 	return tabsByProject.get(projectPath) ?? EMPTY;
+}
+
+export function getAllChatTabs(): ProjectChatTab[] {
+	return allSnapshot;
 }
 
 // ─── Persistence ──────────────────────────────────────────────
@@ -175,4 +189,8 @@ export function useChatTabs(projectPath: string): ChatTab[] {
 		[projectPath],
 	);
 	return useSyncExternalStore(subscribeChatTabs, getSnapshot);
+}
+
+export function useAllChatTabs(): ProjectChatTab[] {
+	return useSyncExternalStore(subscribeChatTabs, getAllChatTabs);
 }

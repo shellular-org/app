@@ -47,6 +47,7 @@ import type {
 	FileEntry,
 	GitBranch,
 	GitCommitFileDiff,
+	GitDiffTarget,
 	GitFileStatus,
 	GitLogPage,
 	GitOperation,
@@ -73,7 +74,6 @@ import {
 	addProject,
 	enrichProjectsWithGitInfo,
 	loadProjects,
-	type Project,
 	type ProjectInfo,
 	removeProject,
 } from "./projects";
@@ -166,6 +166,7 @@ interface ShellularContextValue {
 			message?: string;
 			branch?: string;
 			force?: boolean;
+			diffTarget?: import("./filesystem").GitDiffTarget;
 		},
 	) => Promise<{
 		ok: boolean;
@@ -213,6 +214,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		null,
 	);
 	const loadedProjectsForRef = useRef<string>("");
+	const projectsRequestRef = useRef(0);
 
 	// Load saved hosts on mount.
 	useEffect(() => {
@@ -338,6 +340,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 			// Load projects for this device
 			if (hostInfo.id !== loadedProjectsForRef.current) {
 				loadedProjectsForRef.current = hostInfo.id;
+				const request = ++projectsRequestRef.current;
 				setLoadingProjects(true);
 				loadProjects(hostInfo.id)
 					.then(async (loaded) => {
@@ -345,10 +348,20 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 							loaded,
 							hostInfo?.dir,
 						);
+						if (
+							projectsRequestRef.current !== request ||
+							getConnectionSnapshot().hostInfo?.id !== hostInfo.id
+						) {
+							return;
+						}
 						setProjects(enriched);
 					})
 					.catch(console.error)
-					.finally(() => setLoadingProjects(false));
+					.finally(() => {
+						if (projectsRequestRef.current === request) {
+							setLoadingProjects(false);
+						}
+					});
 				loadBookmarkedSessions(hostInfo.id).catch(console.error);
 				loadChatTabs(hostInfo.id).catch(console.error);
 			}
@@ -375,6 +388,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		setOnConnectedCallback(handleConnected);
 
 		setOnDisconnectedCallback(() => {
+			projectsRequestRef.current += 1;
 			detachAllTerminals();
 			setProjects([]);
 			setAgents({});
@@ -454,40 +468,48 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		};
 	}, []);
 
-	const handleAddProject = useCallback(
-		async (path: string) => {
-			const { hostInfo } = getConnectionSnapshot();
-			if (!hostInfo) {
-				return;
-			}
+	const handleAddProject = useCallback(async (path: string) => {
+		const { hostInfo } = getConnectionSnapshot();
+		if (!hostInfo) {
+			return;
+		}
 
-			const rawProjects: Project[] = projects.map((p) => ({
-				path: p.path,
-				name: p.name,
-				addedAt: p.addedAt,
-			}));
-			const updated = await addProject(hostInfo.id, path, rawProjects);
-			setProjects(await enrichProjectsWithGitInfo(updated, hostInfo?.dir));
-		},
-		[projects],
-	);
-
-	const handleRemoveProject = useCallback(
-		async (path: string) => {
-			const { hostInfo } = getConnectionSnapshot();
-			if (!hostInfo) {
-				return;
+		const request = ++projectsRequestRef.current;
+		setLoadingProjects(true);
+		try {
+			const updated = await addProject(hostInfo.id, path);
+			const enriched = await enrichProjectsWithGitInfo(updated, hostInfo.dir);
+			if (
+				projectsRequestRef.current === request &&
+				getConnectionSnapshot().hostInfo?.id === hostInfo.id
+			) {
+				setProjects(enriched);
 			}
-			const rawProjects: Project[] = projects.map((p) => ({
-				path: p.path,
-				name: p.name,
-				addedAt: p.addedAt,
-			}));
-			const updated = await removeProject(hostInfo.id, path, rawProjects);
-			setProjects(await enrichProjectsWithGitInfo(updated, hostInfo?.dir));
-		},
-		[projects],
-	);
+		} finally {
+			if (projectsRequestRef.current === request) setLoadingProjects(false);
+		}
+	}, []);
+
+	const handleRemoveProject = useCallback(async (path: string) => {
+		const { hostInfo } = getConnectionSnapshot();
+		if (!hostInfo) {
+			return;
+		}
+		const request = ++projectsRequestRef.current;
+		setLoadingProjects(true);
+		try {
+			const updated = await removeProject(hostInfo.id, path);
+			const enriched = await enrichProjectsWithGitInfo(updated, hostInfo.dir);
+			if (
+				projectsRequestRef.current === request &&
+				getConnectionSnapshot().hostInfo?.id === hostInfo.id
+			) {
+				setProjects(enriched);
+			}
+		} finally {
+			if (projectsRequestRef.current === request) setLoadingProjects(false);
+		}
+	}, []);
 
 	const value: ShellularContextValue = {
 		...connection,
@@ -548,6 +570,7 @@ export type {
 	GitCommit,
 	GitCommitFile,
 	GitCommitFileDiff,
+	GitDiffTarget,
 	GitFileStatus,
 	GitLogPage,
 	GitOperation,

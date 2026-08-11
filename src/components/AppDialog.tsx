@@ -7,7 +7,24 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./AppDialog.scss";
 
-type DialogKind = "alert" | "confirm" | "prompt";
+type DialogKind = "alert" | "confirm" | "prompt" | "select" | "select-text";
+
+export interface AppDialogOption {
+	value: string;
+	label: string;
+}
+
+export interface AppDialogSelectTextValue {
+	selectedValue: string;
+	textValue: string;
+}
+
+type DialogValue =
+	| boolean
+	| string
+	| AppDialogSelectTextValue
+	| null
+	| undefined;
 
 type DialogRequest = {
 	id: number;
@@ -15,13 +32,21 @@ type DialogRequest = {
 	message: string;
 	title?: string;
 	defaultValue?: string;
-	resolve: (value: boolean | string | null | undefined) => void;
+	textDefaultValue?: string;
+	selectLabel?: string;
+	textLabel?: string;
+	options?: AppDialogOption[];
+	resolve: (value: DialogValue) => void;
 };
 
 type DialogOptions = {
 	message: string;
 	title?: string;
 	defaultValue?: string;
+	textDefaultValue?: string;
+	selectLabel?: string;
+	textLabel?: string;
+	options?: AppDialogOption[];
 };
 
 let requestId = 0;
@@ -40,6 +65,14 @@ export function openAppDialog(
 	kind: "prompt",
 	options: DialogOptions,
 ): Promise<string | null>;
+export function openAppDialog(
+	kind: "select",
+	options: DialogOptions,
+): Promise<string | null>;
+export function openAppDialog(
+	kind: "select-text",
+	options: DialogOptions,
+): Promise<AppDialogSelectTextValue | null>;
 export function openAppDialog(kind: DialogKind, options: DialogOptions) {
 	return new Promise((resolve) => {
 		if (!submitDialog) {
@@ -49,6 +82,10 @@ export function openAppDialog(kind: DialogKind, options: DialogOptions) {
 				message: options.message,
 				title: options.title,
 				defaultValue: options.defaultValue,
+				textDefaultValue: options.textDefaultValue,
+				selectLabel: options.selectLabel,
+				textLabel: options.textLabel,
+				options: options.options,
 				resolve,
 			});
 			return;
@@ -60,6 +97,10 @@ export function openAppDialog(kind: DialogKind, options: DialogOptions) {
 			message: options.message,
 			title: options.title,
 			defaultValue: options.defaultValue,
+			textDefaultValue: options.textDefaultValue,
+			selectLabel: options.selectLabel,
+			textLabel: options.textLabel,
+			options: options.options,
 			resolve,
 		});
 	});
@@ -79,13 +120,15 @@ export default function AppDialogHost() {
 		};
 	}, []);
 
-	const close = (value: boolean | string | null | undefined) => {
+	const close = (value: DialogValue) => {
 		if (!current) return;
 		current.resolve(value);
 		setQueue((prev) => prev.slice(1));
 	};
 
-	return current ? <DialogSurface request={current} close={close} /> : null;
+	return current ? (
+		<DialogSurface key={current.id} request={current} close={close} />
+	) : null;
 }
 
 function DialogSurface({
@@ -93,10 +136,12 @@ function DialogSurface({
 	close,
 }: {
 	request: DialogRequest;
-	close: (value: boolean | string | null | undefined) => void;
+	close: (value: DialogValue) => void;
 }) {
 	const [value, setValue] = useState(request.defaultValue ?? "");
+	const [textValue, setTextValue] = useState(request.textDefaultValue ?? "");
 	const inputRef = useRef<HTMLInputElement>(null);
+	const selectRef = useRef<HTMLSelectElement>(null);
 	const cancelRef = useRef<HTMLButtonElement>(null);
 	const okRef = useRef<HTMLButtonElement>(null);
 
@@ -104,13 +149,24 @@ function DialogSurface({
 		if (request.title) return request.title;
 		if (request.kind === "confirm") return "Confirm action";
 		if (request.kind === "prompt") return "Input required";
+		if (request.kind === "select" || request.kind === "select-text") {
+			return "Choose an option";
+		}
 		return "Notice";
 	}, [request.kind, request.title]);
 
 	useEffect(() => {
-		if (request.kind === "prompt") {
-			inputRef.current?.focus();
-			inputRef.current?.select();
+		if (
+			request.kind === "prompt" ||
+			request.kind === "select" ||
+			request.kind === "select-text"
+		) {
+			if (request.kind === "prompt") {
+				inputRef.current?.focus();
+				inputRef.current?.select();
+			} else {
+				selectRef.current?.focus();
+			}
 			return;
 		}
 		if (request.kind === "confirm") {
@@ -128,7 +184,11 @@ function DialogSurface({
 			close(true);
 			return;
 		}
-		if (request.kind === "prompt") {
+		if (request.kind === "select-text") {
+			close({ selectedValue: value, textValue });
+			return;
+		}
+		if (request.kind === "prompt" || request.kind === "select") {
 			close(value);
 			return;
 		}
@@ -181,6 +241,67 @@ function DialogSurface({
 							/>
 						</form>
 					)}
+					{request.kind === "select" && (
+						<form
+							className="app-dialog-form"
+							onSubmit={(event) => {
+								event.preventDefault();
+								submit();
+							}}
+						>
+							<select
+								ref={selectRef}
+								value={value}
+								onChange={(event) => setValue(event.target.value)}
+							>
+								<option value="" disabled>
+									Select…
+								</option>
+								{request.options?.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
+						</form>
+					)}
+					{request.kind === "select-text" && (
+						<form
+							className="app-dialog-form app-dialog-form--stacked"
+							onSubmit={(event) => {
+								event.preventDefault();
+								submit();
+							}}
+						>
+							<label>
+								<span>{request.selectLabel ?? "Option"}</span>
+								<select
+									ref={selectRef}
+									value={value}
+									onChange={(event) => setValue(event.target.value)}
+								>
+									<option value="" disabled>
+										Select…
+									</option>
+									{request.options?.map((option) => (
+										<option key={option.value} value={option.value}>
+											{option.label}
+										</option>
+									))}
+								</select>
+							</label>
+							<label>
+								<span>{request.textLabel ?? "Value"}</span>
+								<input
+									type="text"
+									value={textValue}
+									onChange={(event) => setTextValue(event.target.value)}
+									autoCapitalize="none"
+									autoCorrect="off"
+								/>
+							</label>
+						</form>
+					)}
 					<div className="app-dialog__actions col-span-full flex justify-end gap-2">
 						{request.kind !== "alert" && (
 							<button
@@ -196,6 +317,11 @@ function DialogSurface({
 							ref={okRef}
 							type="button"
 							className="app-dialog__button haptic-trigger"
+							disabled={
+								(request.kind === "select" && !value) ||
+								(request.kind === "select-text" &&
+									(!value || !textValue.trim()))
+							}
 							onClick={submit}
 						>
 							{request.kind === "confirm" ? "Confirm" : "OK"}

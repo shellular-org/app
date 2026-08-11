@@ -155,7 +155,7 @@
   }
 
   .local-connection-card {
-    margin: 0 18px 18px;
+    margin: 0 var(--workbench-sidebar-gutter, 18px) var(--workbench-sidebar-gutter, 18px);
     display: flex;
     align-items: center;
     gap: 12px;

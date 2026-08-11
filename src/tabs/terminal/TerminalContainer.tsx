@@ -1,6 +1,8 @@
 import "./TerminalContainer.scss";
 import native from "bridge/native";
 import type { AppMenuItem } from "components/AppMenu";
+import { showContextMenuForEvent } from "context-menu/service";
+import { copyToClipboard, readFromClipboard } from "lib/clipboard";
 import keyboard from "lib/keyboard";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useShellular } from "state";
@@ -18,12 +20,16 @@ interface Props {
 	activeTerminalId: string | null;
 	menuItems: AppMenuItem[];
 	terminalIds?: string[];
+	onRename?: () => void | Promise<void>;
+	onKill?: () => void | Promise<void>;
 }
 
 export default function TerminalContainer({
 	activeTerminalId,
 	menuItems,
 	terminalIds,
+	onRename,
+	onKill,
 }: Props) {
 	const { activeTerminals, getTerminalContainer, getXterm } = useShellular();
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -189,6 +195,41 @@ export default function TerminalContainer({
 		if (!container) return;
 
 		const onContextmenu = (event: MouseEvent) => {
+			if (process.env.IS_DESKTOP_UI) {
+				const xterm = activeIdRef.current
+					? getXterm(activeIdRef.current)
+					: null;
+				if (!xterm) return;
+				void showContextMenuForEvent(event, {
+					menuId: "terminal",
+					target: {
+						handlers: {
+							"edit.copy": {
+								run: () =>
+									copyToClipboard({
+										text: xterm.getSelection(),
+										successMessage: "",
+									}),
+								enabled: () => xterm.hasSelection(),
+							},
+							"edit.paste": {
+								run: async () => xterm.paste(await readFromClipboard()),
+							},
+							"edit.selectAll": { run: () => xterm.selectAll() },
+							"terminal.clear": { run: () => xterm.clear() },
+							"terminal.rename": {
+								run: () => onRename?.(),
+								visible: Boolean(onRename),
+							},
+							"terminal.kill": {
+								run: () => onKill?.(),
+								visible: Boolean(onKill),
+							},
+						},
+					},
+				});
+				return;
+			}
 			if (event.isTrusted) return;
 			event.preventDefault();
 			if (isAndroidSystemGestureEdge(event.clientX)) return;
@@ -204,7 +245,7 @@ export default function TerminalContainer({
 		container.addEventListener("contextmenu", onContextmenu);
 
 		return () => container.removeEventListener("contextmenu", onContextmenu);
-	}, []);
+	}, [getXterm, onKill, onRename]);
 
 	useEffect(() => {
 		const menu = menuRef.current;
@@ -254,7 +295,7 @@ export default function TerminalContainer({
 				onTouchStart={onTouchStart}
 				ref={containerRef}
 			/>
-			{showContextMenu && (
+			{showContextMenu && !process.env.IS_DESKTOP_UI && (
 				<>
 					<div
 						className="fixed top-0 left-0 h-screen w-screen"

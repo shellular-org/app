@@ -2,7 +2,6 @@ import { pushPage, toToTab } from "App";
 import AgentIcon from "components/AgentIcon";
 import AppMenu from "components/AppMenu";
 import { getAgentIcon, getInstallationOptions } from "lib/agents";
-import ChatSessionsPage from "pages/sessions";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcpAgentInfo } from "state/acp";
 import { getHostInfo } from "state/connection";
@@ -12,12 +11,14 @@ import {
 } from "state/sessions";
 import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
 import { openInWorkbench } from "workbench/navigation";
+import { showSessionsSidebar } from "workbench/secondarySidebar";
 
 interface AgentTileProps {
 	agent: AcpAgentInfo;
+	onSelect?: (agent: AcpAgentInfo) => void;
 }
 
-export default function AgentTile({ agent }: AgentTileProps) {
+export default function AgentTile({ agent, onSelect }: AgentTileProps) {
 	const [isStreaming, setIsStreaming] = useState(getAgentStreaming(agent.id));
 	const [installing, setInstalling] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -87,7 +88,7 @@ export default function AgentTile({ agent }: AgentTileProps) {
 						<span className="agent-tile-label">
 							{agent.title || agent.name}
 						</span>
-						<span className="agent-tile-desc">
+						<span className="agent-tile-desc card-subtext">
 							{getAgentDescription(agent)}
 						</span>
 					</div>
@@ -125,8 +126,16 @@ export default function AgentTile({ agent }: AgentTileProps) {
 			<button
 				type="button"
 				className="agent-tile haptic-trigger"
-				onClick={() => {
+				onClick={async () => {
 					if (!agent.id) return;
+					if (onSelect) {
+						onSelect(agent);
+						return;
+					}
+					if (process.env.IS_DESKTOP_UI) {
+						showSessionsSidebar({ agentId: agent.id });
+						return;
+					}
 					if (
 						openInWorkbench({
 							kind: "agent-sessions",
@@ -137,9 +146,10 @@ export default function AgentTile({ agent }: AgentTileProps) {
 						})
 					)
 						return;
+					const ChatSessionsPage = await import("pages/sessions");
 					pushPage(
 						`agent-${agent.id}`,
-						<ChatSessionsPage backend={agent.id} agent={agent} />,
+						<ChatSessionsPage.default backend={agent.id} agent={agent} />,
 					);
 				}}
 			>
@@ -148,7 +158,9 @@ export default function AgentTile({ agent }: AgentTileProps) {
 				</div>
 				<div className="agent-tile-text">
 					<span className="agent-tile-label">{agent.title || agent.name}</span>
-					<span className="agent-tile-desc">{getAgentDescription(agent)}</span>
+					<span className="agent-tile-desc card-subtext">
+						{getAgentDescription(agent)}
+					</span>
 				</div>
 				{isStreaming && <span className="badge" />}
 				<span
