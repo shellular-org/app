@@ -186,6 +186,9 @@ export function readElicitationRequest(
 
 // MsgType.AI_ELICITATION_REPLY once the published protocol catches up.
 const AI_ELICITATION_REPLY = "ai:elicitation:reply";
+const AI_PROMPT_QUEUE_UPDATE = "ai:prompt-queue:update";
+const AI_PROMPT_QUEUE_REMOVE = "ai:prompt-queue:remove";
+const AI_PROMPT_QUEUE_PAUSE = "ai:prompt-queue:pause";
 
 /**
  * Fire-and-forget by design: resolution comes back over the event stream
@@ -208,7 +211,7 @@ export function acpElicitationReply(
 			action,
 			...(content ? { content } : {}),
 		},
-	} as unknown as SendableMsg);
+	} as SendableMsg);
 }
 
 // The published protocol types may trail the CLI's; new optional fields ride
@@ -236,6 +239,16 @@ export interface AcpPromptCallbacks {
 	onPermission?: (permission: AcpPermissionRequest) => void;
 	onEnd: (stopReason?: string) => void;
 	onError: (error: string) => void;
+}
+
+export interface AcpQueuedPrompt {
+	id: string;
+	backend: AiBackend;
+	sessionId: string;
+	text: string;
+	content: AcpContentBlock[];
+	createdAt: number;
+	updatedAt: number;
 }
 
 export interface AcpPermissionRequest {
@@ -515,8 +528,8 @@ export function acpPrompt(
 		}
 
 		if (msg.data.type === "message") {
-			const message = msg.data.properties.message;
-			if (message) callbacks.onMessage(message as AcpMessage);
+			// The attached session subscriber owns message reconciliation. Handling
+			// the same event here as well creates two consumers for every ACP message.
 			return;
 		}
 
@@ -570,6 +583,79 @@ export function acpPrompt(
 		closed = true;
 		unsubscribe();
 	};
+}
+
+export function acpQueuePrompt(
+	agentId: AiBackend,
+	sessionId: string,
+	text: string,
+	content?: AcpContentBlock[],
+): void {
+	sendConnectionMessage({
+		type: MsgType.AI_PROMPT,
+		data: {
+			backend: agentId,
+			sessionId,
+			text,
+			content: content?.length ? content : [{ type: "text", text }],
+		} as AiPromptMsg["data"],
+	} as SendableMsg);
+}
+
+export async function acpUpdateQueuedPrompt(
+	agentId: AiBackend,
+	sessionId: string,
+	queueId: string,
+	text: string,
+	content?: AcpContentBlock[],
+): Promise<AcpQueuedPrompt[]> {
+	const result = await sendRequest<{
+		error?: string;
+		data?: { queue?: AcpQueuedPrompt[] };
+	}>({
+		type: AI_PROMPT_QUEUE_UPDATE,
+		data: {
+			backend: agentId,
+			sessionId,
+			queueId,
+			text,
+			content: content?.length ? content : [{ type: "text", text }],
+		},
+	} as unknown as SendableMsg);
+	assertNoError(result);
+	return result.data?.queue ?? [];
+}
+
+export async function acpRemoveQueuedPrompt(
+	agentId: AiBackend,
+	sessionId: string,
+	queueId: string,
+): Promise<AcpQueuedPrompt[]> {
+	const result = await sendRequest<{
+		error?: string;
+		data?: { queue?: AcpQueuedPrompt[] };
+	}>({
+		type: AI_PROMPT_QUEUE_REMOVE,
+		data: { backend: agentId, sessionId, queueId },
+	} as unknown as SendableMsg);
+	assertNoError(result);
+	return result.data?.queue ?? [];
+}
+
+export async function acpSetPromptQueuePaused(
+	agentId: AiBackend,
+	sessionId: string,
+	paused: boolean,
+): Promise<AcpQueuedPrompt[]> {
+	const result = await sendRequest<{
+		error?: string;
+		data?: { queue?: AcpQueuedPrompt[] };
+	}>({
+		type: AI_PROMPT_QUEUE_PAUSE,
+		data: { backend: agentId, sessionId, paused },
+	} as unknown as SendableMsg);
+	assertNoError(result);
+	return result.data?.queue ?? [];
 }
 
 export async function acpPermissionReply(

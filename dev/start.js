@@ -6,6 +6,7 @@ import getIp from "./getIp.js";
 const args = process.argv.slice(2);
 const platform = args.find((arg) => /(android|ios|browser)/i.test(arg)) || "android";
 const isRelease = args.includes("--release") || args.includes("-r") || false;
+const noServer = args.includes("--no-server");
 
 const { default: start } = await import(`./${platform}/start.js`);
 
@@ -29,9 +30,12 @@ async function main() {
   let appRan = false;
   let command;
   let devServer = null;
+  const buildsOnce = isRelease || noServer;
 
   if (isRelease) {
     command = `webpack --mode production --env platform=${platform}`;
+  } else if (noServer) {
+    command = `webpack --mode development --env platform=${platform}`;
   } else {
     const host = getIp();
     const port = getPort();
@@ -63,9 +67,17 @@ async function main() {
     }
     // For android/ios, wait until the first successful compilation so the
     // bundle with the current port is on disk before installing the APK.
-    // For browser, any output is fine — the browser will wait for the page.
-    const needsBundle = platform === "android" || platform === "ios";
+    // For one-shot builds, also wait for a real compile before starting.
+    // For browser dev server, any output is fine because the browser can wait.
+    const needsBundle = platform === "android" || platform === "ios" || buildsOnce;
     if (needsBundle && !chunk.includes("compiled successfully")) {
+      return;
+    }
+    startApp();
+  }
+
+  function startApp() {
+    if (appRan) {
       return;
     }
     appRan = true;
@@ -82,7 +94,18 @@ async function main() {
     process.exit(1);
   });
 
-  // when app is closed, kill the webpack server
+  webpack.on("close", (code) => {
+    if (code && code !== 0) {
+      console.error(`${YELLOW}-> Webpack exited with code ${code}${NC}`);
+      process.exit(code);
+    }
+
+    if (buildsOnce) {
+      startApp();
+    }
+  });
+
+  // when app is closed, kill the webpack process
   process.on("exit", () => {
     webpack.kill();
   });
