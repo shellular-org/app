@@ -2,6 +2,10 @@ import "./GitReviewContextPart.scss";
 import type { GitReviewComment } from "pages/git-client/reviewComments";
 import { useMemo, useState } from "react";
 
+function basename(path: string) {
+	return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
 export default function GitReviewContextPart({
 	comments,
 }: {
@@ -41,8 +45,7 @@ export default function GitReviewContextPart({
 			{expanded && (
 				<ol className="chat-review-summary__comments">
 					{comments.map((comment) => {
-						const fileName =
-							comment.path.split(/[\\/]/).filter(Boolean).pop() || comment.path;
+						const fileName = basename(comment.path);
 						const side = comment.side === "additions" ? "R" : "L";
 						const range =
 							comment.startLine === comment.endLine

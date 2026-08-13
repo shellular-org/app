@@ -125,8 +125,12 @@ export function upsertMessage(
 		return { messages: next, ...unchanged };
 	}
 
-	if (context.isStreaming && incoming.role === "user") {
-		if (!context.localUserId) return { messages: prev, ...unchanged };
+	// The optimistic id is written synchronously before the prompt is sent,
+	// whereas the React `isStreaming` state is updated through the activity
+	// subscription and may still be false when the server echo arrives. The
+	// outstanding local bubble is therefore the reliable reconciliation signal.
+	// Once the turn settles it is cleared, so later user messages still append.
+	if (incoming.role === "user" && context.localUserId) {
 		const localUserIndex = prev.findIndex(
 			(message) => message.id === context.localUserId,
 		);

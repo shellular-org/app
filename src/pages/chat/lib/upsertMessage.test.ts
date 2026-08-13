@@ -159,6 +159,18 @@ describe("upsertMessage", () => {
 		expect(result.messages[0].id).toBe("srv_user");
 	});
 
+	it("reconciles before streaming state propagation catches up", () => {
+		const prev = [message("user_local_1000", "user", "hi")];
+		const result = upsertMessage(
+			prev,
+			message("srv_user", "user", "hi"),
+			streamingContext({ isStreaming: false }),
+			mergeLocalUserText,
+		);
+		expect(result.messages).toHaveLength(1);
+		expect(result.messages[0].id).toBe("srv_user");
+	});
+
 	it("appends when not streaming", () => {
 		const prev = [message("srv_a", "assistant", "A")];
 		const result = upsertMessage(
