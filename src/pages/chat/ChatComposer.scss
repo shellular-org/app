@@ -138,6 +138,48 @@
     margin: 0 -12px;
   }
 
+  .chat-review-context {
+    align-self: flex-start;
+    height: 29px;
+    max-width: 100%;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-color));
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 10%, var(--surface-soft));
+    color: var(--accent);
+    display: inline-flex;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .chat-review-context-main {
+    min-width: 0;
+    height: 100%;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: inherit;
+    font-size: 12px;
+    font-weight: 650;
+
+    > span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .chat-review-context-remove {
+    width: 28px;
+    height: 100%;
+    border-left: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--secondary-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
   .chat-attachment-badges {
     display: flex;
     flex-wrap: nowrap;

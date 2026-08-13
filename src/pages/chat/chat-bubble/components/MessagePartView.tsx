@@ -1,9 +1,11 @@
 import "./MessagePartView.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
+import { parseGitReviewPrompt } from "pages/git-client/reviewComments";
 import { messagePartToMarkdown } from "../lib/messageParts";
 import ChatDisclosure from "./ChatDisclosure";
 import FileChangePartView from "./FileChangePartView";
 import FileReferencePartView from "./FileReferencePartView";
+import GitReviewContextPart from "./GitReviewContextPart";
 import MarkdownPart from "./MarkdownPart";
 import PlanPartView from "./PlanPartView";
 import TerminalOutputView from "./TerminalOutputView";
@@ -20,6 +22,15 @@ export default function MessagePartView({
 	switch (part.type) {
 		case "text": {
 			if (role === "user") {
+				const review = parseGitReviewPrompt(part.text);
+				if (review) {
+					return (
+						<>
+							{review.visibleText && <UserTextPart text={review.visibleText} />}
+							<GitReviewContextPart comments={review.comments} />
+						</>
+					);
+				}
 				return <UserTextPart text={part.text} />;
 			}
 			return <MarkdownPart text={part.text} />;

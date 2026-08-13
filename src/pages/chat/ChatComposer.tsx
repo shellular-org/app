@@ -65,6 +65,9 @@ type ChatComposerProps = {
 	configControls: React.ReactNode;
 	contextMeter?: React.ReactNode;
 	imageAttachments: ComposerAttachment[];
+	reviewCommentCount: number;
+	onOpenGitReview: () => void;
+	onClearReviewComments: () => void;
 	onPromptSuggestion: (suggestion: PromptSuggestion) => void;
 	onPromptSuggestionHover: (index: number) => void;
 	onInput: () => void;
@@ -90,6 +93,9 @@ export function ChatComposer({
 	configControls,
 	contextMeter,
 	imageAttachments,
+	reviewCommentCount,
+	onOpenGitReview,
+	onClearReviewComments,
 	onPromptSuggestion,
 	onPromptSuggestionHover,
 	onInput,
@@ -130,6 +136,29 @@ export function ChatComposer({
 
 	return (
 		<div ref={inputBarRef} className="chat-composer">
+			{reviewCommentCount > 0 && (
+				<div className="chat-review-context">
+					<button
+						type="button"
+						className="chat-review-context-main"
+						onClick={onOpenGitReview}
+					>
+						<span className="icon-message-square" aria-hidden="true" />
+						<span>
+							{reviewCommentCount} review{" "}
+							{reviewCommentCount === 1 ? "comment" : "comments"}
+						</span>
+					</button>
+					<button
+						type="button"
+						className="chat-review-context-remove"
+						onClick={onClearReviewComments}
+						aria-label="Remove review comments"
+					>
+						<span className="icon-x" aria-hidden="true" />
+					</button>
+				</div>
+			)}
 			{imageAttachments.length > 0 && (
 				<AttachmentBadgeRow
 					attachments={imageAttachments}
