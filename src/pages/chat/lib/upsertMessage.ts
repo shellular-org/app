@@ -125,8 +125,36 @@ export function upsertMessage(
 		return { messages: next, ...unchanged };
 	}
 
-	if (context.isStreaming && incoming.role === "user") {
-		if (!context.localUserId) return { messages: prev, ...unchanged };
+	// The CLI may emit an optimistic queue message before ACP emits the agent's
+	// authoritative user message. Match only our temporary ids and identical
+	// text, so two intentional prompts with the same text remain separate.
+	if (incoming.role === "user") {
+		const incomingText = userMessageText(incoming);
+		const optimisticUserIndex =
+			incomingText.length > 0
+				? [...prev].reverse().findIndex((message) => {
+						if (message.role !== "user" || !isOptimisticUser(message.id)) {
+							return false;
+						}
+						return userMessageText(message) === incomingText;
+					})
+				: -1;
+		if (optimisticUserIndex >= 0) {
+			const index = prev.length - 1 - optimisticUserIndex;
+			const next = [...prev];
+			next[index] = {
+				...mergeLocalUserText(incoming, prev[index]),
+				id: incoming.id || prev[index].id,
+			};
+			return {
+				messages: next,
+				localAssistantId: context.localAssistantId,
+				localUserId: incoming.id || prev[index].id || context.localUserId,
+			};
+		}
+	}
+
+	if (incoming.role === "user" && context.localUserId) {
 		const localUserIndex = prev.findIndex(
 			(message) => message.id === context.localUserId,
 		);
@@ -137,9 +165,12 @@ export function upsertMessage(
 				id: incoming.id || context.localUserId,
 				requestId: incoming.requestId || context.localUserId,
 			};
-			return { messages: next, ...unchanged };
+			return {
+				messages: next,
+				localAssistantId: context.localAssistantId,
+				localUserId: incoming.id || context.localUserId,
+			};
 		}
-		return { messages: prev, ...unchanged };
 	}
 
 	// An unrecognized assistant message always appends. The composer inserts no
@@ -155,4 +186,19 @@ export function upsertMessage(
 				? incoming.id
 				: context.localAssistantId,
 	};
+}
+
+function isOptimisticUser(id: string | undefined): boolean {
+	return (
+		id?.startsWith("user_local_") === true ||
+		id?.startsWith("prompt_queue_") === true
+	);
+}
+
+function userMessageText(message: AcpMessage): string {
+	return message.parts
+		.filter((part) => part.type === "text")
+		.map((part) => ("text" in part ? part.text : ""))
+		.join("")
+		.trim();
 }

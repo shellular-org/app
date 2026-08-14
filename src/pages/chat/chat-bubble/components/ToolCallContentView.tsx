@@ -37,9 +37,15 @@ export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 				copyLabel="Copy tool call"
 				summary={
 					<>
-						<NameIcon name={part.name} />
-						<span>{part.title}</span>
-						<Status status={part.status} />
+						<span className="shrink-0">
+							<NameIcon name={part.name} />
+						</span>
+						<span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-normal [overflow-wrap:anywhere] [word-break:break-word]">
+							{part.title}
+						</span>
+						<span className="shrink-0">
+							<Status status={part.status} />
+						</span>
 					</>
 				}
 			>
@@ -60,8 +66,10 @@ export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 				copyLabel="Copy tool call"
 				summary={
 					<>
-						<span className="icon-tool" />
-						<span>{part.title}</span>
+						<span className="icon-tool shrink-0" />
+						<span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-normal [overflow-wrap:anywhere] [word-break:break-word]">
+							{part.title}
+						</span>
 					</>
 				}
 				className="chat-part-card"

@@ -1,7 +1,12 @@
-import "./PermissionRequestCard.scss";
 import Mascot from "components/Mascot";
 import type { AcpPermissionRequest } from "state/acp";
 import NameIcon from "./NameIcon";
+import {
+	permissionActionsClass,
+	permissionButtonClass,
+	permissionCardClass,
+	permissionTitleClass,
+} from "./permissionClasses";
 import ToolCallContentView from "./ToolCallContentView";
 import ToolOutputView from "./ToolOutputView";
 
@@ -16,20 +21,27 @@ export default function PermissionRequestCard({
 	const title = getTitle(permission);
 	const content = getContent(permission, title);
 	return (
-		<div className="chat-permission-card chat-bubble chat-bubble--assistant">
-			<div className="chat-permission-title">
+		<div className={permissionCardClass}>
+			<div className={permissionTitleClass}>
 				<NameIcon name={permission.kind} />
-				<big>Permission</big>
-				<Mascot state="permission" size={34} tone="inline" />
+				<big className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+					Permission
+				</big>
+				<Mascot
+					state="permission"
+					size={34}
+					tone="inline"
+					className="ml-auto shrink-0"
+				/>
 			</div>
-			<span className="chat-permission-title">{title}</span>
+			<span className={permissionTitleClass}>{title}</span>
 			{content}
-			<div className="chat-permission-actions">
+			<div className={permissionActionsClass}>
 				{options.map((option) => (
 					<button
 						type="button"
 						key={option.optionId}
-						className={`chat-permission-btn chat-permission-btn--${permissionOptionTone(option.kind)}`}
+						className={permissionButtonClass(option.kind)}
 						onClick={() => onReply(permission, option.optionId)}
 					>
 						{option.name}
@@ -171,10 +183,4 @@ function getExecuteTitle(
 	}
 
 	return reason;
-}
-
-function permissionOptionTone(kind: string): string {
-	if (kind.startsWith("reject")) return "reject";
-	if (kind === "allow_always") return "always";
-	return "allow";
 }
