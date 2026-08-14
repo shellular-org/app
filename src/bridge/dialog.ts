@@ -1,11 +1,20 @@
 import { openAppDialog } from "components/AppDialog";
 
+type ConfirmOptions = {
+	confirmLabel?: string;
+	cancelLabel?: string;
+};
+
 export default {
 	message(message: string, title = ""): Promise<void> {
 		return openAppDialog("alert", { message, title });
 	},
-	confirm(message: string, title = ""): Promise<boolean> {
-		return openAppDialog("confirm", { message, title });
+	confirm(
+		message: string,
+		title = "",
+		options?: ConfirmOptions,
+	): Promise<boolean> {
+		return openAppDialog("confirm", { message, title, ...options });
 	},
 	textInput(
 		message: string,

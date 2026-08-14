@@ -6,6 +6,7 @@ import type {
 	AcpMessagePart,
 	AiBackend,
 } from "@shellular/protocol";
+import dialog from "bridge/dialog";
 import native from "bridge/native";
 import AppCombobox from "components/AppCombobox";
 import AppSelect from "components/AppSelect";
@@ -33,6 +34,7 @@ import { useShellular } from "state";
 import type {
 	AcpPermissionRequest,
 	AcpPromptCallbacks,
+	AcpPromptError,
 	AcpSessionEvent,
 	AiSessionConfigOption,
 } from "state/acp";
@@ -44,6 +46,7 @@ import {
 	acpCreateSession,
 	acpDetachSession,
 	acpElicitationReply,
+	acpKillSessionOwner,
 	acpMessagesPage,
 	acpPermissionReply,
 	acpPrompt,
@@ -56,6 +59,7 @@ import {
 	acpUpdateQueuedPrompt,
 	acpWriteAttachmentBase64,
 	readElicitationRequest,
+	readSessionOwnerError,
 } from "state/acp";
 import { recordChatTab } from "state/chatTabs";
 import { listDir, searchProjectFiles } from "state/filesystem";
@@ -114,6 +118,20 @@ const STOP_REASON_METADATA = "stop-reason";
 // Placeholder title used for not-yet-named chats. Treated as "no real title" so
 // it never overwrites an actual session/activity title.
 const PLACEHOLDER_TITLE = "New Chat";
+
+function getErrorMessage(error: unknown, fallback = "Unknown error"): string {
+	if (error instanceof Error && error.message) return error.message;
+	if (typeof error === "string" && error) return error;
+	return fallback;
+}
+
+function acpMessageText(message: AcpMessage): string {
+	return message.parts
+		.filter((part) => part.type === "text")
+		.map((part) => part.text)
+		.join("")
+		.trim();
+}
 
 function isRealTitle(value: unknown): value is string {
 	return (
@@ -281,6 +299,14 @@ export default function ChatConversationPage({
 	// only as the suffix beyond what the last `message` event already carried.
 	const streamedTextRef = useRef(new Map<string, string>());
 	const sentTurnStartRef = useRef(0);
+	const ownerRecoveryRef = useRef<{
+		sessionId: string;
+		userMessageId: string;
+		parts: ComposerPart[];
+		imageAttachments: ComposerAttachment[];
+	} | null>(null);
+	const ownerRetryRef = useRef<(() => void) | null>(null);
+	const ownerDialogOpenRef = useRef(false);
 	const allMessagesLengthRef = useRef(0);
 	const upsertAcpMessageRef = useRef<(msg: AcpMessage) => void>(() => {});
 	// Transcript index of allMessages[0] on the CLI, and the transcript
@@ -531,7 +557,7 @@ export default function ChatConversationPage({
 				// transcript store), not "no more history" — surface it instead of
 				// silently capping scroll-back. hasMoreRemote stays set so the
 				// sentinel retries on the next nudge.
-				setError((err as Error).message || "Failed to load older messages");
+				setError(getErrorMessage(err, "Failed to load older messages"));
 				setLoadingMore(false);
 			});
 	}, [
@@ -703,6 +729,11 @@ export default function ChatConversationPage({
 
 		if (event.type === "error" || event.type === "prompt_error") {
 			finishStreamingTurn();
+			const ownerError = readSessionOwnerError(event.properties);
+			if (ownerError) {
+				void handleSessionOwnerError(ownerError);
+				return;
+			}
 			setError(String(event.properties.error ?? "Prompt failed"));
 			return;
 		}
@@ -968,7 +999,7 @@ export default function ChatConversationPage({
 			})
 			.catch((err) => {
 				if (!cancelled) {
-					setError((err as Error).message);
+					setError(getErrorMessage(err));
 					setLoading(false);
 					setSyncing(false);
 				}
@@ -1327,6 +1358,91 @@ export default function ChatConversationPage({
 		};
 	}, [chatIsStreaming]);
 
+	const handleSessionOwnerError = useEffectEvent(
+		async (details: AcpPromptError) => {
+			if (ownerDialogOpenRef.current) return;
+			ownerDialogOpenRef.current = true;
+			try {
+				const shouldEndProcess = await dialog.confirm(
+					`This chat is currently owned by the Codex process running on your machine (PID ${details.owner.pid}) in ${details.owner.cwd}. Shellular cannot take ownership while that process is running.\n\nEnding it will stop its current in-memory work, but it will not delete the saved conversation history.`,
+					"Chat is read-only",
+					{
+						confirmLabel: "End Codex process",
+						cancelLabel: "Keep read-only",
+					},
+				);
+				if (!shouldEndProcess) {
+					setError("This chat remains read-only while Codex owns it.");
+					return;
+				}
+
+				const recovery = ownerRecoveryRef.current;
+				const retryPrompt = ownerRetryRef.current;
+				const targetSessionId =
+					recovery?.sessionId ?? activeSessionIdRef.current;
+				if (!targetSessionId) {
+					setError("The read-only session could not be identified.");
+					return;
+				}
+
+				await acpKillSessionOwner(agentId, targetSessionId);
+				const refreshed = await acpAttachSession(
+					agentId,
+					targetSessionId,
+					resolvedWorkspacePath,
+				);
+				setAllMessages(refreshed.messages);
+				setVisibleCount(PAGE_SIZE);
+				setSyncing(Boolean(refreshed.syncing));
+				setConfigOptions(refreshed.configOptions);
+				setAvailableCommands(refreshed.availableCommands);
+				remoteBaseIdxRef.current = refreshed.from ?? 0;
+				remoteGenerationRef.current = refreshed.generation;
+				setHasMoreRemote(refreshed.hasMoreBefore === true);
+
+				if (recovery && retryPrompt) {
+					setAllMessages((messages) => {
+						const lastMessage = messages[messages.length - 1];
+						const recoveredText = composerPartsToText(recovery.parts).trim();
+						if (
+							lastMessage?.role === "user" &&
+							acpMessageText(lastMessage) === recoveredText
+						) {
+							return messages;
+						}
+						return [
+							...messages,
+							{
+								id: recovery.userMessageId,
+								requestId: recovery.userMessageId,
+								role: "user",
+								parts: composerPartsToMessageParts(recovery.parts),
+								timestamp: Date.now(),
+							},
+						];
+					});
+					await retryPrompt();
+					return;
+				}
+
+				if (recovery) {
+					replaceComposerParts(promptInputRef.current, recovery.parts);
+					setComposerParts(recovery.parts);
+					setImageAttachments(recovery.imageAttachments);
+					saveComposerDraft(draftKey, promptInputRef.current);
+				}
+				ownerRecoveryRef.current = null;
+				setError(
+					"The Codex process was ended. Your saved chat is intact; review the restored prompt and send it again.",
+				);
+			} catch (error) {
+				setError(error instanceof Error ? error.message : String(error));
+			} finally {
+				ownerDialogOpenRef.current = false;
+			}
+		},
+	);
+
 	if (connectionStatus !== "connected" && !allMessages.length) {
 		return (
 			<Page title={displayTitle} subtitle={providerName} noBottomSafeArea>
@@ -1631,12 +1747,16 @@ export default function ChatConversationPage({
 		stickToBottomRef.current = true;
 
 		const queuedSessionId = activeSessionId || sessionId;
-		if (chatIsStreaming && queuedSessionId) {
+		const hasActiveLocalPrompt = cleanupSendRef.current !== null;
+		if (
+			queuedSessionId &&
+			(hasActiveLocalPrompt || promptQueueRunning)
+		) {
 			try {
 				const content = await composerPartsToAcpContent(parts);
 				acpQueuePrompt(agentId, queuedSessionId, text, content);
 			} catch (err) {
-				setError((err as Error).message);
+				setError(getErrorMessage(err));
 			}
 			return;
 		}
@@ -1644,6 +1764,12 @@ export default function ChatConversationPage({
 		const sentAt = Date.now();
 		sentTurnStartRef.current = sentAt;
 		const userId = `user_local_${sentAt}`;
+		ownerRecoveryRef.current = {
+			sessionId: activeSessionId || sessionId,
+			userMessageId: userId,
+			parts,
+			imageAttachments: pendingImages,
+		};
 		streamingUserIdRef.current = userId;
 		streamingAssistantIdRef.current = null;
 		streamedTextRef.current.clear();
@@ -1665,14 +1791,22 @@ export default function ChatConversationPage({
 				if (nextUsage) setContextWindowUsage(nextUsage);
 			},
 			onEnd: (stopReason) => {
+				ownerRecoveryRef.current = null;
+				ownerRetryRef.current = null;
 				if (shouldShowStopReason(stopReason)) {
 					appendStopReason(stopReason);
 				}
 				finishStreamingTurn();
 			},
-			onError: (err) => {
+			onError: (err, details) => {
 				finishStreamingTurn();
-				setError(err);
+				if (details) {
+					void handleSessionOwnerError(details);
+				} else {
+					ownerRecoveryRef.current = null;
+					ownerRetryRef.current = null;
+					setError(err);
+				}
 			},
 			onMessage: (msg) => {
 				upsertAcpMessageRef.current(msg);
@@ -1707,6 +1841,9 @@ export default function ChatConversationPage({
 				}
 				const result = await createSessionPromiseRef.current;
 				targetSessionId = result.sessionId;
+				if (ownerRecoveryRef.current) {
+					ownerRecoveryRef.current.sessionId = targetSessionId;
+				}
 				setActiveSessionId(targetSessionId);
 				activeSessionIdRef.current = targetSessionId;
 				setConfigOptions(result.configOptions);
@@ -1731,18 +1868,22 @@ export default function ChatConversationPage({
 				await flushPendingConfigChanges(targetSessionId);
 			}
 			const content = await composerPartsToAcpContent(parts);
-			setSessionStreaming(agentId, targetSessionId, true);
-			const cleanup = acpPrompt(
-				agentId,
-				targetSessionId,
-				text,
-				callbacks,
-				content,
-			);
-			cleanupSendRef.current = cleanup;
+			const sendPrompt = () => {
+				setSessionStreaming(agentId, targetSessionId, true);
+				const cleanup = acpPrompt(
+					agentId,
+					targetSessionId,
+					text,
+					callbacks,
+					content,
+				);
+				cleanupSendRef.current = cleanup;
+			};
+			ownerRetryRef.current = sendPrompt;
+			sendPrompt();
 		} catch (err) {
 			finishStreamingTurn();
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 	}
 
@@ -1797,7 +1938,7 @@ export default function ChatConversationPage({
 					: [...prev, permission],
 			);
 			setPermissionScrollTick((tick) => tick + 1);
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 	}
 
@@ -1808,7 +1949,7 @@ export default function ChatConversationPage({
 			await acpCancel(agentId, targetSessionId);
 		} catch (err) {
 			finishStreamingTurn(targetSessionId);
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 	}
 
@@ -1841,7 +1982,7 @@ export default function ChatConversationPage({
 			requestAnimationFrame(() => promptInputRef.current?.focus());
 		} catch (err) {
 			queuedEditComposerBackupRef.current = null;
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		} finally {
 			setQueueEditBusy(false);
 		}
@@ -1888,7 +2029,7 @@ export default function ChatConversationPage({
 			restoreQueuedEditComposer();
 			setEditingQueuedPrompt(null);
 		} catch (err) {
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 		setQueueEditBusy(false);
 	}
@@ -1905,7 +2046,7 @@ export default function ChatConversationPage({
 			restoreQueuedEditComposer();
 			setEditingQueuedPrompt(null);
 		} catch (err) {
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 		setQueueEditBusy(false);
 	}
@@ -1937,7 +2078,7 @@ export default function ChatConversationPage({
 			);
 			setQueuedPrompts(queue);
 		} catch (err) {
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 	}
 
@@ -2031,7 +2172,7 @@ export default function ChatConversationPage({
 					if (nextOptions.length) setConfigOptions(nextOptions);
 				}
 			} catch (err) {
-				setError((err as Error).message);
+				setError(getErrorMessage(err));
 			}
 		}
 	}
@@ -2074,7 +2215,7 @@ export default function ChatConversationPage({
 				if (nextOptions.length) setConfigOptions(nextOptions);
 			}
 		} catch (err) {
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		} finally {
 			setConfigSavingId(null);
 		}
@@ -2140,7 +2281,7 @@ export default function ChatConversationPage({
 						),
 					);
 					updateInputOffset();
-					setError((err as Error).message);
+					setError(getErrorMessage(err));
 				});
 		}
 	}

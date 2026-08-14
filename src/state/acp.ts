@@ -16,6 +16,9 @@ import {
 	type AiSessionDetachResultMsg,
 	type AiSessionListResultMsg,
 	type AiSessionModeSetResultMsg,
+	type AiSessionOwner,
+	type AiSessionOwnerKillResultMsg,
+	AiSessionOwnerSchema,
 	type AiSessionRuntimeState,
 	MsgType,
 } from "@shellular/protocol";
@@ -186,9 +189,6 @@ export function readElicitationRequest(
 
 // MsgType.AI_ELICITATION_REPLY once the published protocol catches up.
 const AI_ELICITATION_REPLY = "ai:elicitation:reply";
-const AI_PROMPT_QUEUE_UPDATE = "ai:prompt-queue:update";
-const AI_PROMPT_QUEUE_REMOVE = "ai:prompt-queue:remove";
-const AI_PROMPT_QUEUE_PAUSE = "ai:prompt-queue:pause";
 
 /**
  * Fire-and-forget by design: resolution comes back over the event stream
@@ -238,7 +238,26 @@ export interface AcpPromptCallbacks {
 	onUsage?: (usage: Record<string, unknown>) => void;
 	onPermission?: (permission: AcpPermissionRequest) => void;
 	onEnd: (stopReason?: string) => void;
-	onError: (error: string) => void;
+	onError: (error: string, details?: AcpPromptError) => void;
+}
+
+export interface AcpPromptError {
+	code: string;
+	owner: AiSessionOwner;
+}
+
+export function readSessionOwnerError(
+	properties: Record<string, unknown>,
+): AcpPromptError | null {
+	if (properties.errorCode !== "ESESSION_OWNED_BY_PROCESS") return null;
+	const details = properties.errorDetails;
+	if (!details || typeof details !== "object" || Array.isArray(details)) {
+		return null;
+	}
+	const owner = AiSessionOwnerSchema.safeParse(Reflect.get(details, "owner"));
+	return owner.success
+		? { code: "ESESSION_OWNED_BY_PROCESS", owner: owner.data }
+		: null;
 }
 
 export interface AcpQueuedPrompt {
@@ -547,7 +566,10 @@ export function acpPrompt(
 		if (msg.data.type === "error" || msg.data.type === "prompt_error") {
 			closed = true;
 			unsubscribe();
-			callbacks.onError(String(msg.data.properties.error ?? "Prompt failed"));
+			callbacks.onError(
+				String(msg.data.properties.error ?? "Prompt failed"),
+				readSessionOwnerError(msg.data.properties) ?? undefined,
+			);
 			return;
 		}
 
@@ -613,7 +635,7 @@ export async function acpUpdateQueuedPrompt(
 		error?: string;
 		data?: { queue?: AcpQueuedPrompt[] };
 	}>({
-		type: AI_PROMPT_QUEUE_UPDATE,
+		type: MsgType.AI_PROMPT_QUEUE_UPDATE,
 		data: {
 			backend: agentId,
 			sessionId,
@@ -621,7 +643,7 @@ export async function acpUpdateQueuedPrompt(
 			text,
 			content: content?.length ? content : [{ type: "text", text }],
 		},
-	} as unknown as SendableMsg);
+	});
 	assertNoError(result);
 	return result.data?.queue ?? [];
 }
@@ -635,9 +657,9 @@ export async function acpRemoveQueuedPrompt(
 		error?: string;
 		data?: { queue?: AcpQueuedPrompt[] };
 	}>({
-		type: AI_PROMPT_QUEUE_REMOVE,
+		type: MsgType.AI_PROMPT_QUEUE_REMOVE,
 		data: { backend: agentId, sessionId, queueId },
-	} as unknown as SendableMsg);
+	});
 	assertNoError(result);
 	return result.data?.queue ?? [];
 }
@@ -651,9 +673,9 @@ export async function acpSetPromptQueuePaused(
 		error?: string;
 		data?: { queue?: AcpQueuedPrompt[] };
 	}>({
-		type: AI_PROMPT_QUEUE_PAUSE,
+		type: MsgType.AI_PROMPT_QUEUE_PAUSE,
 		data: { backend: agentId, sessionId, paused },
-	} as unknown as SendableMsg);
+	});
 	assertNoError(result);
 	return result.data?.queue ?? [];
 }
@@ -677,6 +699,21 @@ export async function acpCancel(agentId: AiBackend, sessionId: string) {
 		data: { backend: agentId, sessionId },
 	});
 	assertNoError(result);
+}
+
+export async function acpKillSessionOwner(
+	agentId: AiBackend,
+	sessionId: string,
+): Promise<number> {
+	const result = await sendRequest<AiSessionOwnerKillResultMsg>({
+		type: MsgType.AI_SESSION_OWNER_KILL,
+		data: { backend: agentId, sessionId },
+	});
+	assertNoError(result);
+	if (!result.data?.ok || result.data.pid === undefined) {
+		throw new Error("The owning agent process could not be terminated");
+	}
+	return result.data.pid;
 }
 
 export async function acpWriteAttachmentBase64(options: {
