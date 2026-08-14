@@ -1,9 +1,11 @@
 import "./MessagePartView.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
+import { parseGitReviewPrompt } from "pages/git-client/reviewComments";
 import { messagePartToMarkdown } from "../lib/messageParts";
 import ChatDisclosure from "./ChatDisclosure";
 import FileChangePartView from "./FileChangePartView";
 import FileReferencePartView from "./FileReferencePartView";
+import GitReviewContextPart from "./GitReviewContextPart";
 import MarkdownPart from "./MarkdownPart";
 import PlanPartView from "./PlanPartView";
 import TerminalOutputView from "./TerminalOutputView";
@@ -20,6 +22,15 @@ export default function MessagePartView({
 	switch (part.type) {
 		case "text": {
 			if (role === "user") {
+				const review = parseGitReviewPrompt(part.text);
+				if (review) {
+					return (
+						<>
+							{review.visibleText && <UserTextPart text={review.visibleText} />}
+							<GitReviewContextPart comments={review.comments} />
+						</>
+					);
+				}
 				return <UserTextPart text={part.text} />;
 			}
 			return <MarkdownPart text={part.text} />;
@@ -55,9 +66,11 @@ export default function MessagePartView({
 					copyLabel="Copy command"
 					summary={
 						<>
-							<span className="icon-terminal" aria-hidden="true" />
-							<span>{part.command}</span>
-							{part.status && <em>{part.status}</em>}
+							<span className="icon-terminal shrink-0" aria-hidden="true" />
+							<span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-normal [overflow-wrap:anywhere] [word-break:break-word]">
+								{part.command}
+							</span>
+							{part.status && <em className="shrink-0">{part.status}</em>}
 						</>
 					}
 				>

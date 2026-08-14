@@ -1,11 +1,12 @@
 import "./style.scss";
-import { pushPage } from "App";
+import { closePage, pushPage } from "App";
 import type {
 	AcpAvailableCommand,
 	AcpMessage,
 	AcpMessagePart,
 	AiBackend,
 } from "@shellular/protocol";
+import dialog from "bridge/dialog";
 import native from "bridge/native";
 import AppCombobox from "components/AppCombobox";
 import AppSelect from "components/AppSelect";
@@ -19,6 +20,10 @@ import { registerShellularDiffThemes } from "lib/diffsTheme";
 import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
 import EditorPage from "pages/editor";
+import {
+	formatGitReviewPrompt,
+	type GitReviewComment,
+} from "pages/git-client/reviewComments";
 import type React from "react";
 import {
 	useCallback,
@@ -33,24 +38,32 @@ import { useShellular } from "state";
 import type {
 	AcpPermissionRequest,
 	AcpPromptCallbacks,
+	AcpPromptError,
 	AcpSessionEvent,
 	AiSessionConfigOption,
 } from "state/acp";
 import {
 	type AcpElicitationRequest,
+	type AcpQueuedPrompt,
 	acpAttachSession,
 	acpCancel,
 	acpCreateSession,
 	acpDetachSession,
 	acpElicitationReply,
+	acpKillSessionOwner,
 	acpMessagesPage,
 	acpPermissionReply,
 	acpPrompt,
+	acpQueuePrompt,
+	acpRemoveQueuedPrompt,
 	acpSetConfigOption,
 	acpSetMode,
+	acpSetPromptQueuePaused,
 	acpSubscribeSessionEvents,
+	acpUpdateQueuedPrompt,
 	acpWriteAttachmentBase64,
 	readElicitationRequest,
+	readSessionOwnerError,
 } from "state/acp";
 import { recordChatTab } from "state/chatTabs";
 import { listDir, searchProjectFiles } from "state/filesystem";
@@ -78,6 +91,7 @@ import {
 	insertComposerParts,
 	type PromptSuggestion,
 	readComposerParts,
+	replaceComposerParts,
 	replaceComposerTrigger,
 	restoreComposerDraft,
 	saveComposerDraft,
@@ -105,9 +119,24 @@ import { normalizeEditorPath } from "./pathUtils";
 
 const PAGE_SIZE = 30;
 const STOP_REASON_METADATA = "stop-reason";
+const reviewCommentDrafts = new Map<string, GitReviewComment[]>();
 // Placeholder title used for not-yet-named chats. Treated as "no real title" so
 // it never overwrites an actual session/activity title.
 const PLACEHOLDER_TITLE = "New Chat";
+
+function getErrorMessage(error: unknown, fallback = "Unknown error"): string {
+	if (error instanceof Error && error.message) return error.message;
+	if (typeof error === "string" && error) return error;
+	return fallback;
+}
+
+function acpMessageText(message: AcpMessage): string {
+	return message.parts
+		.filter((part) => part.type === "text")
+		.map((part) => part.text)
+		.join("")
+		.trim();
+}
 
 function isRealTitle(value: unknown): value is string {
 	return (
@@ -175,6 +204,8 @@ export default function ChatConversationPage({
 	const [isStreaming, setIsStreaming] = useState(
 		getSessionStreaming(agentId, sessionId),
 	);
+	const activeSessionIdRef = useRef(activeSessionId);
+	activeSessionIdRef.current = activeSessionId;
 	const [composerParts, setComposerParts] = useState<ComposerPart[]>([]);
 	const [imageAttachments, setImageAttachments] = useState<
 		ComposerAttachment[]
@@ -199,12 +230,18 @@ export default function ChatConversationPage({
 	const [pendingElicitations, setPendingElicitations] = useState<
 		AcpElicitationRequest[]
 	>([]);
+	const [queuedPrompts, setQueuedPrompts] = useState<AcpQueuedPrompt[]>([]);
+	const [editingQueuedPrompt, setEditingQueuedPrompt] =
+		useState<AcpQueuedPrompt | null>(null);
+	const [queueEditBusy, setQueueEditBusy] = useState(false);
+	const [promptQueueRunning, setPromptQueueRunning] = useState(false);
 	const [contextWindowUsage, setContextWindowUsage] =
 		useState<ContextWindowUsage | null>(null);
 	const [permissionScrollTick, setPermissionScrollTick] = useState(0);
 	const [historyScrollReady, setHistoryScrollReady] = useState(false);
 	const [activePromptSuggestionIndex, setActivePromptSuggestionIndex] =
 		useState(0);
+	const chatIsStreaming = isStreaming || promptQueueRunning;
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const sentinelRef = useRef<HTMLDivElement>(null);
@@ -246,6 +283,11 @@ export default function ChatConversationPage({
 	const draftKey = liveSessionId
 		? `chat-draft:${agentId}:${liveSessionId}`
 		: `chat-draft:new:${agentId}:${workspacePath}`;
+	const [reviewComments, setReviewComments] = useState<GitReviewComment[]>(() =>
+		(reviewCommentDrafts.get(draftKey) ?? []).map((comment) => ({
+			...comment,
+		})),
+	);
 	// Config picks made in a draft chat, before any session existed to send them
 	// to. Replayed onto the real session right after it is created, keyed by
 	// option id so the last pick for an option wins.
@@ -255,6 +297,10 @@ export default function ChatConversationPage({
 			{ option: AiSessionConfigOption; value: string | boolean }
 		>(),
 	);
+	const queuedEditComposerBackupRef = useRef<{
+		parts: ComposerPart[];
+		imageAttachments: ComposerAttachment[];
+	} | null>(null);
 	// Tail of the current turn: the newest assistant message seen. Read-only
 	// bookkeeping — incoming messages never overwrite it.
 	const streamingAssistantIdRef = useRef<string | null>(null);
@@ -263,6 +309,14 @@ export default function ChatConversationPage({
 	// only as the suffix beyond what the last `message` event already carried.
 	const streamedTextRef = useRef(new Map<string, string>());
 	const sentTurnStartRef = useRef(0);
+	const ownerRecoveryRef = useRef<{
+		sessionId: string;
+		userMessageId: string;
+		parts: ComposerPart[];
+		imageAttachments: ComposerAttachment[];
+	} | null>(null);
+	const ownerRetryRef = useRef<(() => void) | null>(null);
+	const ownerDialogOpenRef = useRef(false);
 	const allMessagesLengthRef = useRef(0);
 	const upsertAcpMessageRef = useRef<(msg: AcpMessage) => void>(() => {});
 	// Transcript index of allMessages[0] on the CLI, and the transcript
@@ -276,6 +330,14 @@ export default function ChatConversationPage({
 	const draftConfigRefreshRef = useRef<string | null>(null);
 
 	connectionStatusRef.current = connectionStatus;
+
+	useEffect(() => {
+		if (reviewComments.length) {
+			reviewCommentDrafts.set(draftKey, reviewComments);
+		} else {
+			reviewCommentDrafts.delete(draftKey);
+		}
+	}, [draftKey, reviewComments]);
 
 	const visibleMessages = useMemo(
 		() => allMessages.slice(-Math.min(visibleCount, allMessages.length)),
@@ -321,7 +383,7 @@ export default function ChatConversationPage({
 	// call in the streaming message. Falls back to "thinking" when it's just
 	// generating text.
 	const streamingStatusLabel = useMemo(() => {
-		if (!isStreaming || lastVisibleMessage?.role !== "assistant") {
+		if (!chatIsStreaming || lastVisibleMessage?.role !== "assistant") {
 			return undefined;
 		}
 		for (let index = lastVisibleMessage.parts.length - 1; index >= 0; index--) {
@@ -340,7 +402,7 @@ export default function ChatConversationPage({
 			return undefined;
 		}
 		return undefined;
-	}, [isStreaming, lastVisibleMessage]);
+	}, [chatIsStreaming, lastVisibleMessage]);
 
 	useEffect(() => {
 		allMessagesLengthRef.current = allMessages.length;
@@ -360,8 +422,10 @@ export default function ChatConversationPage({
 		() =>
 			composerParts.some(
 				(part) => part.type === "attachment" || part.text.trim().length > 0,
-			) || imageAttachments.length > 0,
-		[composerParts, imageAttachments],
+			) ||
+			imageAttachments.length > 0 ||
+			reviewComments.length > 0,
+		[composerParts, imageAttachments, reviewComments.length],
 	);
 	const attachmentsUploading = useMemo(
 		() =>
@@ -513,7 +577,7 @@ export default function ChatConversationPage({
 				// transcript store), not "no more history" — surface it instead of
 				// silently capping scroll-back. hasMoreRemote stays set so the
 				// sentinel retries on the next nudge.
-				setError((err as Error).message || "Failed to load older messages");
+				setError(getErrorMessage(err, "Failed to load older messages"));
 				setLoadingMore(false);
 			});
 	}, [
@@ -634,6 +698,15 @@ export default function ChatConversationPage({
 			return;
 		}
 
+		if (event.type === "prompt_queue.updated") {
+			const queue = event.properties.queue;
+			setPromptQueueRunning(event.properties.running === true);
+			setQueuedPrompts(
+				Array.isArray(queue) ? (queue as AcpQueuedPrompt[]) : [],
+			);
+			return;
+		}
+
 		if (event.type === "session.snapshot") {
 			const messages = event.properties.messages;
 			if (Array.isArray(messages)) {
@@ -675,7 +748,12 @@ export default function ChatConversationPage({
 		}
 
 		if (event.type === "error" || event.type === "prompt_error") {
-			finishStreamingTurn(activeSessionId || sessionId);
+			finishStreamingTurn();
+			const ownerError = readSessionOwnerError(event.properties);
+			if (ownerError) {
+				void handleSessionOwnerError(ownerError);
+				return;
+			}
 			setError(String(event.properties.error ?? "Prompt failed"));
 			return;
 		}
@@ -691,7 +769,7 @@ export default function ChatConversationPage({
 			if (typeof stopReason === "string" && shouldShowStopReason(stopReason)) {
 				appendStopReason(stopReason);
 			}
-			finishStreamingTurn(activeSessionId || sessionId);
+			finishStreamingTurn();
 		}
 	});
 
@@ -831,10 +909,13 @@ export default function ChatConversationPage({
 
 	useEffect(() => {
 		setActiveSessionId(sessionId);
+		activeSessionIdRef.current = sessionId;
 		stickToBottomRef.current = true;
 		streamedTextRef.current.clear();
 		setPendingPermissions([]);
 		setPendingElicitations([]);
+		setQueuedPrompts([]);
+		setPromptQueueRunning(false);
 		setHistoryScrollReady(false);
 	}, [sessionId]);
 
@@ -938,7 +1019,7 @@ export default function ChatConversationPage({
 			})
 			.catch((err) => {
 				if (!cancelled) {
-					setError((err as Error).message);
+					setError(getErrorMessage(err));
 					setLoading(false);
 					setSyncing(false);
 				}
@@ -1283,7 +1364,7 @@ export default function ChatConversationPage({
 					prev,
 					incomingMessage,
 					{
-						isStreaming,
+						isStreaming: chatIsStreaming,
 						localUserId: streamingUserIdRef.current,
 						localAssistantId: streamingAssistantIdRef.current,
 						turnStartedAt: sentTurnStartRef.current,
@@ -1295,7 +1376,115 @@ export default function ChatConversationPage({
 				return result.messages;
 			});
 		};
-	}, [isStreaming]);
+	}, [chatIsStreaming]);
+
+	const handleSessionOwnerError = useEffectEvent(
+		async (details: AcpPromptError) => {
+			if (ownerDialogOpenRef.current) return;
+			ownerDialogOpenRef.current = true;
+			try {
+				const shouldEndProcess = await dialog.confirm(
+					`This chat is currently owned by the Codex process running on your machine (PID ${details.owner.pid}) in ${details.owner.cwd}. Shellular cannot take ownership while that process is running.\n\nEnding it will stop its current in-memory work, but it will not delete the saved conversation history.`,
+					"Chat is read-only",
+					{
+						confirmLabel: "End Codex process",
+						cancelLabel: "Keep read-only",
+					},
+				);
+				if (!shouldEndProcess) {
+					setError("This chat remains read-only while Codex owns it.");
+					return;
+				}
+
+				const recovery = ownerRecoveryRef.current;
+				const retryPrompt = ownerRetryRef.current;
+				const targetSessionId =
+					recovery?.sessionId ?? activeSessionIdRef.current;
+				if (!targetSessionId) {
+					setError("The read-only session could not be identified.");
+					return;
+				}
+
+				await acpKillSessionOwner(agentId, targetSessionId);
+				const refreshed = await acpAttachSession(
+					agentId,
+					targetSessionId,
+					resolvedWorkspacePath,
+				);
+				setAllMessages(refreshed.messages);
+				setVisibleCount(PAGE_SIZE);
+				setSyncing(Boolean(refreshed.syncing));
+				setConfigOptions(refreshed.configOptions);
+				setAvailableCommands(refreshed.availableCommands);
+				remoteBaseIdxRef.current = refreshed.from ?? 0;
+				remoteGenerationRef.current = refreshed.generation;
+				setHasMoreRemote(refreshed.hasMoreBefore === true);
+
+				if (recovery && retryPrompt) {
+					setAllMessages((messages) => {
+						const lastMessage = messages[messages.length - 1];
+						const recoveredText = composerPartsToText(recovery.parts).trim();
+						if (
+							lastMessage?.role === "user" &&
+							acpMessageText(lastMessage) === recoveredText
+						) {
+							return messages;
+						}
+						return [
+							...messages,
+							{
+								id: recovery.userMessageId,
+								requestId: recovery.userMessageId,
+								role: "user",
+								parts: composerPartsToMessageParts(recovery.parts),
+								timestamp: Date.now(),
+							},
+						];
+					});
+					await retryPrompt();
+					return;
+				}
+
+				if (recovery) {
+					replaceComposerParts(promptInputRef.current, recovery.parts);
+					setComposerParts(recovery.parts);
+					setImageAttachments(recovery.imageAttachments);
+					saveComposerDraft(draftKey, promptInputRef.current);
+				}
+				ownerRecoveryRef.current = null;
+				setError(
+					"The Codex process was ended. Your saved chat is intact; review the restored prompt and send it again.",
+				);
+			} catch (error) {
+				setError(error instanceof Error ? error.message : String(error));
+			} finally {
+				ownerDialogOpenRef.current = false;
+			}
+		},
+	);
+
+	const openGitReview = useCallback(async () => {
+		if (!resolvedWorkspacePath) return;
+		const reviewPageId = `git-review-${resolvedWorkspacePath}`;
+		const GitClientPage = await import("pages/git-client");
+		pushPage(
+			reviewPageId,
+			<GitClientPage.default
+				projectPath={resolvedWorkspacePath}
+				projectName={
+					resolvedWorkspacePath.split(/[\\/]/).filter(Boolean).pop() ||
+					"Project"
+				}
+				initialReviewComments={reviewComments}
+				onReviewDraftChange={setReviewComments}
+				onSubmitReview={(comments) => {
+					setReviewComments(comments);
+					closePage(reviewPageId);
+					requestAnimationFrame(() => promptInputRef.current?.focus());
+				}}
+			/>,
+		);
+	}, [resolvedWorkspacePath, reviewComments]);
 
 	if (connectionStatus !== "connected" && !allMessages.length) {
 		return (
@@ -1319,10 +1508,29 @@ export default function ChatConversationPage({
 				/>
 			}
 			rightSlot={
-				<>
+				<div className="chat-header-actions">
 					{syncing && allMessages.length > 0 && (
 						<Loader size={18} mascot={false} />
 					)}
+					<button
+						type="button"
+						className="chat-header-review haptic-trigger"
+						onClick={openGitReview}
+						disabled={connectionStatus !== "connected" || syncing}
+						aria-label={
+							reviewComments.length
+								? `Review Git changes, ${reviewComments.length} pending ${reviewComments.length === 1 ? "comment" : "comments"}`
+								: "Review Git changes"
+						}
+						title="Review Git changes"
+					>
+						<span className="icon-git-pull-request" aria-hidden="true" />
+						{reviewComments.length > 0 && (
+							<span className="chat-header-review-count">
+								{reviewComments.length}
+							</span>
+						)}
+					</button>
 					{chatTabId && (
 						<button
 							type="button"
@@ -1333,7 +1541,7 @@ export default function ChatConversationPage({
 							<span className="icon-menu" aria-hidden="true" />
 						</button>
 					)}
-				</>
+				</div>
 			}
 		>
 			{loading && allMessages.length === 0 && (
@@ -1342,7 +1550,7 @@ export default function ChatConversationPage({
 			{!loading &&
 				!syncing &&
 				allMessages.length === 0 &&
-				!isStreaming &&
+				!chatIsStreaming &&
 				pendingPermissions.length === 0 && (
 					<EmptyState message="No messages yet" mascot="greeting" />
 				)}
@@ -1366,7 +1574,7 @@ export default function ChatConversationPage({
 								copyParts={groupParts}
 								statusLabel={streamingStatusLabel}
 								streaming={
-									isStreaming &&
+									chatIsStreaming &&
 									msg.role === "assistant" &&
 									msg === lastVisibleMessage
 								}
@@ -1374,7 +1582,7 @@ export default function ChatConversationPage({
 						);
 					},
 				)}
-				{isStreaming && lastVisibleMessage?.role === "user" && (
+				{chatIsStreaming && lastVisibleMessage?.role === "user" && (
 					<ChatBubble
 						key="assistant-streaming-placeholder"
 						messageKey="assistant-streaming-placeholder"
@@ -1417,7 +1625,8 @@ export default function ChatConversationPage({
 				agentAvailable={agentAvailable}
 				isConnected={connectionStatus === "connected" && !syncing}
 				unavailableMessage={unavailableMessage}
-				isStreaming={isStreaming}
+				isStreaming={chatIsStreaming}
+				isEditingQueuedPrompt={editingQueuedPrompt !== null}
 				canSendPrompt={canSendPrompt}
 				sendBlockedReason={sendBlockedReason}
 				promptSuggestions={promptSuggestions}
@@ -1430,16 +1639,33 @@ export default function ChatConversationPage({
 				onAttachFiles={handleAttachFiles}
 				onRemoveImageAttachment={handleRemoveImageAttachment}
 				imageAttachments={imageAttachments}
+				reviewCommentCount={reviewComments.length}
+				onOpenGitReview={openGitReview}
+				onClearReviewComments={() => setReviewComments([])}
 				onSend={handleSend}
 				onStop={handleStop}
 				contextMeter={contextMeter}
+				queueControls={
+					<PromptQueueStrip
+						items={queuedPrompts}
+						onEdit={handleEditQueuedPrompt}
+						onRemove={handleRemoveQueuedPrompt}
+						editingItem={editingQueuedPrompt}
+						editBusy={queueEditBusy}
+						onSaveEdit={handleSaveQueuedPrompt}
+						onCancelEdit={handleCancelQueuedPrompt}
+					/>
+				}
 				configControls={
 					<button
 						type="button"
-						className="chat-config-trigger"
+						className="inline-flex h-[34px] min-w-0 max-w-full cursor-pointer items-center gap-[5px] overflow-hidden rounded-[9px] border-0 bg-transparent px-2 text-[12px] font-medium leading-none text-secondary-text transition-[background] duration-150 active:bg-surface-soft [-webkit-tap-highlight-color:transparent]"
 						onClick={() => setShowConfigSheet(true)}
 					>
-						<span className="icon-settings" aria-hidden="true" />
+						<span
+							className="icon-settings shrink-0 text-[1.15rem]"
+							aria-hidden="true"
+						/>
 						{getProminentConfigOptions(configOptions).flatMap((option, i) => {
 							const options = flattenConfigValues(option);
 							const current = options.find(
@@ -1448,7 +1674,7 @@ export default function ChatConversationPage({
 							const tag = (
 								<span
 									key={`${option.id}-value`}
-									className={`chat-config-tag chat-config-tag--${option.category ?? "default"}`}
+									className={`min-w-[3ch] max-w-[90px] shrink overflow-hidden text-ellipsis whitespace-nowrap ${option.category === "mode" ? "text-accent" : option.category === "model" ? "text-warning" : option.category === "thought_level" ? "text-[#818cf8]" : ""}`}
 								>
 									{current?.name ?? String(option.currentValue)}
 								</span>
@@ -1456,7 +1682,10 @@ export default function ChatConversationPage({
 							return i === 0
 								? [tag]
 								: [
-										<span key={`${option.id}-sep`} className="chat-config-sep">
+										<span
+											key={`${option.id}-sep`}
+											className="mx-[3px] shrink-0 opacity-50"
+										>
 											·
 										</span>,
 										tag,
@@ -1537,11 +1766,15 @@ export default function ChatConversationPage({
 	);
 
 	async function handleSend() {
+		if (editingQueuedPrompt) return;
 		const composerOnlyParts = readComposerParts(promptInputRef.current);
 		const text = composerPartsToText(composerOnlyParts).trim();
 		const pendingImages = imageAttachments;
+		const pendingReviewComments = reviewComments;
+		const reviewPrompt = formatGitReviewPrompt(pendingReviewComments);
+		const promptText = [text, reviewPrompt].filter(Boolean).join("\n\n");
 		if (
-			!text &&
+			!promptText &&
 			!composerOnlyParts.some((part) => part.type === "attachment") &&
 			pendingImages.length === 0
 		) {
@@ -1569,6 +1802,7 @@ export default function ChatConversationPage({
 		setError("");
 		setComposerParts([]);
 		setImageAttachments([]);
+		setReviewComments([]);
 		setComposerTrigger(null);
 		setFileSuggestions([]);
 		clearComposer(promptInputRef.current);
@@ -1581,9 +1815,27 @@ export default function ChatConversationPage({
 		scrollToBottom(true);
 		stickToBottomRef.current = true;
 
+		const queuedSessionId = activeSessionId || sessionId;
+		const hasActiveLocalPrompt = cleanupSendRef.current !== null;
+		if (queuedSessionId && (hasActiveLocalPrompt || promptQueueRunning)) {
+			try {
+				const content = await composerPartsToAcpContent(parts);
+				acpQueuePrompt(agentId, queuedSessionId, text, content);
+			} catch (err) {
+				setError(getErrorMessage(err));
+			}
+			return;
+		}
+
 		const sentAt = Date.now();
 		sentTurnStartRef.current = sentAt;
 		const userId = `user_local_${sentAt}`;
+		ownerRecoveryRef.current = {
+			sessionId: activeSessionId || sessionId,
+			userMessageId: userId,
+			parts,
+			imageAttachments: pendingImages,
+		};
 		streamingUserIdRef.current = userId;
 		streamingAssistantIdRef.current = null;
 		streamedTextRef.current.clear();
@@ -1593,7 +1845,12 @@ export default function ChatConversationPage({
 				id: userId,
 				requestId: userId,
 				role: "user",
-				parts: composerPartsToMessageParts(parts),
+				parts: [
+					...composerPartsToMessageParts(parts),
+					...(reviewPrompt
+						? [{ type: "text" as const, text: `\n\n${reviewPrompt}` }]
+						: []),
+				],
 				timestamp: Date.now(),
 			},
 		]);
@@ -1605,14 +1862,22 @@ export default function ChatConversationPage({
 				if (nextUsage) setContextWindowUsage(nextUsage);
 			},
 			onEnd: (stopReason) => {
+				ownerRecoveryRef.current = null;
+				ownerRetryRef.current = null;
 				if (shouldShowStopReason(stopReason)) {
 					appendStopReason(stopReason);
 				}
-				finishStreamingTurn(activeSessionId || sessionId);
+				finishStreamingTurn();
 			},
-			onError: (err) => {
-				finishStreamingTurn(activeSessionId || sessionId);
-				setError(err);
+			onError: (err, details) => {
+				finishStreamingTurn();
+				if (details) {
+					void handleSessionOwnerError(details);
+				} else {
+					ownerRecoveryRef.current = null;
+					ownerRetryRef.current = null;
+					setError(err);
+				}
 			},
 			onMessage: (msg) => {
 				upsertAcpMessageRef.current(msg);
@@ -1647,7 +1912,11 @@ export default function ChatConversationPage({
 				}
 				const result = await createSessionPromiseRef.current;
 				targetSessionId = result.sessionId;
+				if (ownerRecoveryRef.current) {
+					ownerRecoveryRef.current.sessionId = targetSessionId;
+				}
 				setActiveSessionId(targetSessionId);
+				activeSessionIdRef.current = targetSessionId;
 				setConfigOptions(result.configOptions);
 				setAvailableCommands(result.availableCommands);
 				// A freshly created session has no history, but the optimistic user
@@ -1670,18 +1939,23 @@ export default function ChatConversationPage({
 				await flushPendingConfigChanges(targetSessionId);
 			}
 			const content = await composerPartsToAcpContent(parts);
-			setSessionStreaming(agentId, targetSessionId, true);
-			const cleanup = acpPrompt(
-				agentId,
-				targetSessionId,
-				text,
-				callbacks,
-				content,
-			);
-			cleanupSendRef.current = cleanup;
+			if (reviewPrompt) content.push({ type: "text", text: reviewPrompt });
+			const sendPrompt = () => {
+				setSessionStreaming(agentId, targetSessionId, true);
+				const cleanup = acpPrompt(
+					agentId,
+					targetSessionId,
+					promptText,
+					callbacks,
+					content,
+				);
+				cleanupSendRef.current = cleanup;
+			};
+			ownerRetryRef.current = sendPrompt;
+			sendPrompt();
 		} catch (err) {
-			finishStreamingTurn(activeSessionId || sessionId);
-			setError((err as Error).message);
+			finishStreamingTurn();
+			setError(getErrorMessage(err));
 		}
 	}
 
@@ -1722,7 +1996,7 @@ export default function ChatConversationPage({
 		try {
 			await acpPermissionReply(
 				agentId,
-				permission.sessionId || activeSessionId || sessionId,
+				permission.sessionId || activeSessionIdRef.current || sessionId,
 				permission.id,
 				optionId,
 			);
@@ -1736,16 +2010,147 @@ export default function ChatConversationPage({
 					: [...prev, permission],
 			);
 			setPermissionScrollTick((tick) => tick + 1);
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		}
 	}
 
 	async function handleStop() {
+		const targetSessionId = activeSessionIdRef.current || sessionId;
+		if (!targetSessionId) return;
 		try {
-			if (activeSessionId) await acpCancel(agentId, activeSessionId);
+			await acpCancel(agentId, targetSessionId);
 		} catch (err) {
-			finishStreamingTurn(activeSessionId);
-			setError((err as Error).message);
+			finishStreamingTurn(targetSessionId);
+			setError(getErrorMessage(err));
+		}
+	}
+
+	async function handleEditQueuedPrompt(item: AcpQueuedPrompt) {
+		if (queueEditBusy || editingQueuedPrompt) return;
+		queuedEditComposerBackupRef.current = {
+			parts: readComposerParts(promptInputRef.current),
+			imageAttachments: [...imageAttachments],
+		};
+		setQueueEditBusy(true);
+		try {
+			setError("");
+			const pausedQueue = await acpSetPromptQueuePaused(
+				agentId,
+				item.sessionId,
+				true,
+			);
+			setQueuedPrompts(pausedQueue);
+			const pausedItem =
+				pausedQueue.find((queuedItem) => queuedItem.id === item.id) ?? item;
+			setEditingQueuedPrompt(pausedItem);
+			setImageAttachments([]);
+			setComposerTrigger(null);
+			setFileSuggestions([]);
+			replaceComposerParts(
+				promptInputRef.current,
+				queuedPromptToComposerParts(pausedItem, resolvedWorkspacePath),
+			);
+			syncComposerState();
+			requestAnimationFrame(() => promptInputRef.current?.focus());
+		} catch (err) {
+			queuedEditComposerBackupRef.current = null;
+			setError(getErrorMessage(err));
+		} finally {
+			setQueueEditBusy(false);
+		}
+	}
+
+	async function handleSaveQueuedPrompt() {
+		const item = editingQueuedPrompt;
+		if (!item || queueEditBusy) return;
+		const composerOnlyParts = readComposerParts(promptInputRef.current);
+		const parts: ComposerPart[] = [
+			...composerOnlyParts,
+			...imageAttachments.map((attachment) => ({
+				type: "attachment" as const,
+				attachment,
+			})),
+		];
+		const text = composerPartsToText(parts).trim();
+		if (!text && !parts.some((part) => part.type === "attachment")) {
+			native.toast("Queued prompt cannot be empty");
+			return;
+		}
+		if (
+			parts.some((part) => part.type === "attachment" && part.attachment.status)
+		) {
+			native.toast("Resolve the attachment before saving this prompt");
+			return;
+		}
+
+		setQueueEditBusy(true);
+		try {
+			setError("");
+			const content = await composerPartsToAcpContent(parts);
+			const queue = await acpUpdateQueuedPrompt(
+				agentId,
+				item.sessionId,
+				item.id,
+				text,
+				content,
+			);
+			setQueuedPrompts(queue);
+			setQueuedPrompts(
+				await acpSetPromptQueuePaused(agentId, item.sessionId, false),
+			);
+			restoreQueuedEditComposer();
+			setEditingQueuedPrompt(null);
+		} catch (err) {
+			setError(getErrorMessage(err));
+		}
+		setQueueEditBusy(false);
+	}
+
+	async function handleCancelQueuedPrompt() {
+		const item = editingQueuedPrompt;
+		if (!item || queueEditBusy) return;
+		setQueueEditBusy(true);
+		try {
+			setError("");
+			setQueuedPrompts(
+				await acpSetPromptQueuePaused(agentId, item.sessionId, false),
+			);
+			restoreQueuedEditComposer();
+			setEditingQueuedPrompt(null);
+		} catch (err) {
+			setError(getErrorMessage(err));
+		}
+		setQueueEditBusy(false);
+	}
+
+	function restoreQueuedEditComposer() {
+		const backup = queuedEditComposerBackupRef.current;
+		if (backup) {
+			replaceComposerParts(promptInputRef.current, backup.parts);
+			setImageAttachments(backup.imageAttachments);
+		} else {
+			clearComposer(promptInputRef.current);
+			setImageAttachments([]);
+		}
+		queuedEditComposerBackupRef.current = null;
+		setComposerTrigger(null);
+		setFileSuggestions([]);
+		syncComposerState();
+		saveComposerDraft(draftKey, promptInputRef.current);
+		requestAnimationFrame(() => promptInputRef.current?.focus());
+	}
+
+	async function handleRemoveQueuedPrompt(item: AcpQueuedPrompt) {
+		try {
+			setError("");
+			const queue = await acpRemoveQueuedPrompt(
+				agentId,
+				item.sessionId,
+				item.id,
+			);
+			setQueuedPrompts(queue);
+		} catch (err) {
+			setError(getErrorMessage(err));
 		}
 	}
 
@@ -1804,7 +2209,9 @@ export default function ChatConversationPage({
 		});
 	}
 
-	function finishStreamingTurn(sessionIdToUse: string) {
+	function finishStreamingTurn(
+		sessionIdToUse = activeSessionIdRef.current || sessionId,
+	) {
 		cleanupSendRef.current?.();
 		cleanupSendRef.current = null;
 		setSessionStreaming(agentId, sessionIdToUse, false);
@@ -1837,7 +2244,7 @@ export default function ChatConversationPage({
 					if (nextOptions.length) setConfigOptions(nextOptions);
 				}
 			} catch (err) {
-				setError((err as Error).message);
+				setError(getErrorMessage(err));
 			}
 		}
 	}
@@ -1880,7 +2287,7 @@ export default function ChatConversationPage({
 				if (nextOptions.length) setConfigOptions(nextOptions);
 			}
 		} catch (err) {
-			setError((err as Error).message);
+			setError(getErrorMessage(err));
 		} finally {
 			setConfigSavingId(null);
 		}
@@ -1946,7 +2353,7 @@ export default function ChatConversationPage({
 						),
 					);
 					updateInputOffset();
-					setError((err as Error).message);
+					setError(getErrorMessage(err));
 				});
 		}
 	}
@@ -2042,16 +2449,149 @@ export default function ChatConversationPage({
 				);
 				return;
 			}
-
-			if (e.key === "Enter") {
-				e.preventDefault();
-			}
-		}
-		if (e.key === "Enter" && !e.shiftKey) {
-			e.preventDefault();
-			handleSend();
 		}
 	}
+}
+
+function queuedPromptToComposerParts(
+	item: AcpQueuedPrompt,
+	workspacePath: string,
+): ComposerPart[] {
+	const parts = item.content.flatMap<ComposerPart>((block, index) => {
+		if (block.type === "text") {
+			return block.text ? [{ type: "text", text: block.text }] : [];
+		}
+		if (block.type !== "resource_link") return [];
+
+		const path = normalizeEditorPath(block.uri, workspacePath).path;
+		const relativePath = block.title || block.name || path;
+		const name =
+			block.name ||
+			relativePath.split(/[\\/]/).pop() ||
+			`attachment-${index + 1}`;
+		return [
+			{
+				type: "attachment",
+				attachment: {
+					id: `queued:${item.id}:${index}`,
+					path,
+					relativePath,
+					name,
+					size: block.size ?? undefined,
+					mimeType: block.mimeType ?? undefined,
+				},
+			},
+		];
+	});
+	return parts.length || !item.text
+		? parts
+		: [{ type: "text", text: item.text }];
+}
+
+function PromptQueueStrip({
+	items,
+	onEdit,
+	onRemove,
+	editingItem,
+	editBusy,
+	onSaveEdit,
+	onCancelEdit,
+}: {
+	items: AcpQueuedPrompt[];
+	onEdit: (item: AcpQueuedPrompt) => void;
+	onRemove: (item: AcpQueuedPrompt) => void;
+	editingItem: AcpQueuedPrompt | null;
+	editBusy: boolean;
+	onSaveEdit: () => void;
+	onCancelEdit: () => void;
+}) {
+	if (!items.length && !editingItem) return null;
+
+	return (
+		<section
+			className="flex min-w-0 flex-col gap-1.5 pb-0.5"
+			aria-label="Queued prompts"
+		>
+			<div className="inline-flex items-center gap-1.5 text-[12px] font-semibold leading-none text-secondary-text">
+				<span className="icon-clock" aria-hidden="true" />
+				<span>{items.length} queued</span>
+			</div>
+			<div className="flex max-h-[156px] flex-col gap-1.5 overflow-y-auto pr-0.5 [-webkit-overflow-scrolling:touch]">
+				{items.map((item, index) => {
+					const isEditing = editingItem?.id === item.id;
+					return (
+						<div
+							key={item.id}
+							className={`grid min-h-[34px] w-full shrink-0 grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-1 rounded-lg border bg-surface-soft pl-2 pr-[3px] text-primary-text ${isEditing ? "border-[color-mix(in_srgb,var(--accent)_55%,var(--border-color))] bg-[color-mix(in_srgb,var(--accent)_12%,var(--surface-soft))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent)_18%,transparent)]" : "border-card-border"}`}
+							aria-current={isEditing ? "true" : undefined}
+						>
+							<span
+								className={`grid h-[18px] w-[18px] place-items-center rounded-full text-[11px] font-bold leading-none ${isEditing ? "bg-accent text-[var(--active-text-color)]" : "bg-secondary text-secondary-text"}`}
+							>
+								{index + 1}
+							</span>
+							<span className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[12px] leading-tight">
+								{isEditing && (
+									<span className="inline-flex shrink-0 items-center gap-[3px] rounded px-[5px] py-0.5 text-[10px] font-bold uppercase leading-none text-accent bg-[color-mix(in_srgb,var(--accent)_20%,transparent)]">
+										<span className="icon-edit-3" aria-hidden="true" />
+										Editing
+									</span>
+								)}
+								<span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+									{item.text}
+								</span>
+							</span>
+							<div className="flex shrink-0 items-center gap-0.5">
+								{isEditing ? (
+									<>
+										<button
+											type="button"
+											className="haptic-trigger inline-flex min-h-7 items-center justify-center gap-1 rounded-md border-0 bg-secondary px-2 text-[11px] font-semibold whitespace-nowrap text-secondary-text disabled:cursor-default disabled:opacity-45"
+											onClick={onCancelEdit}
+											disabled={editBusy}
+										>
+											<span className="icon-x" aria-hidden="true" />
+											Cancel
+										</button>
+										<button
+											type="button"
+											className="haptic-trigger inline-flex min-h-7 items-center justify-center gap-1 rounded-md border-0 bg-accent px-2 text-[11px] font-semibold whitespace-nowrap text-[var(--active-text-color)] disabled:cursor-default disabled:opacity-45"
+											onClick={onSaveEdit}
+											disabled={editBusy}
+										>
+											<span className="icon-check" aria-hidden="true" />
+											{editBusy ? "Saving..." : "Save"}
+										</button>
+									</>
+								) : (
+									<>
+										<button
+											type="button"
+											className="haptic-trigger flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent p-0 text-[13px] text-secondary-text [-webkit-tap-highlight-color:transparent] active:bg-card-border active:text-primary-text disabled:cursor-default disabled:opacity-35"
+											onClick={() => onEdit(item)}
+											disabled={editBusy || editingItem !== null}
+											aria-label="Edit queued prompt"
+										>
+											<span className="icon-edit-3" aria-hidden="true" />
+										</button>
+										<button
+											type="button"
+											className="haptic-trigger flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent p-0 text-[13px] text-secondary-text [-webkit-tap-highlight-color:transparent] active:bg-card-border active:text-primary-text disabled:cursor-default disabled:opacity-35"
+											onClick={() => onRemove(item)}
+											disabled={editBusy || editingItem !== null}
+											aria-label="Remove queued prompt"
+										>
+											<span className="icon-x" aria-hidden="true" />
+										</button>
+									</>
+								)}
+							</div>
+						</div>
+					);
+				})}
+			</div>
+		</section>
+	);
 }
 
 function ChatHistorySkeleton() {

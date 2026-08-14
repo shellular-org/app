@@ -159,6 +159,43 @@ describe("upsertMessage", () => {
 		expect(result.messages[0].id).toBe("srv_user");
 	});
 
+	it("reconciles before streaming state propagation catches up", () => {
+		const prev = [message("user_local_1000", "user", "hi")];
+		const result = upsertMessage(
+			prev,
+			message("srv_user", "user", "hi"),
+			streamingContext({ isStreaming: false }),
+			mergeLocalUserText,
+		);
+		expect(result.messages).toHaveLength(1);
+		expect(result.messages[0].id).toBe("srv_user");
+	});
+
+	it("reconciles a queue message even before streaming state updates", () => {
+		const prev = [message("user_local_1000", "user", "queued")];
+		const result = upsertMessage(
+			prev,
+			message("prompt_queue_1", "user", "queued"),
+			streamingContext({ isStreaming: false }),
+			mergeLocalUserText,
+		);
+		expect(result.messages).toHaveLength(1);
+		expect(result.messages[0].id).toBe("prompt_queue_1");
+		expect(result.localUserId).toBe("prompt_queue_1");
+	});
+
+	it("reconciles ACP's user message after the queue's optimistic message", () => {
+		const prev = [message("prompt_queue_1", "user", "queued")];
+		const result = upsertMessage(
+			prev,
+			message("srv_user", "user", "queued"),
+			streamingContext({ isStreaming: false, localUserId: "prompt_queue_1" }),
+			mergeLocalUserText,
+		);
+		expect(result.messages).toHaveLength(1);
+		expect(result.messages[0].id).toBe("srv_user");
+	});
+
 	it("appends when not streaming", () => {
 		const prev = [message("srv_a", "assistant", "A")];
 		const result = upsertMessage(
