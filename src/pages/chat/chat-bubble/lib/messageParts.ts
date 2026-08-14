@@ -1,4 +1,8 @@
 import type { AcpMessage, AcpMessagePart } from "@shellular/protocol";
+import {
+	formatGitReviewSummary,
+	parseGitReviewPrompt,
+} from "pages/git-client/reviewComments";
 
 export type ToolCallPart = AcpMessagePart & { type: "tool_call" };
 
@@ -97,8 +101,14 @@ export function messagePartsToMarkdown(parts: AcpMessagePart[]): string {
 
 export function messagePartToMarkdown(part: AcpMessagePart): string {
 	switch (part.type) {
-		case "text":
-			return part.text || "";
+		case "text": {
+			const review = parseGitReviewPrompt(part.text || "");
+			return review
+				? [review.visibleText, formatGitReviewSummary(review.comments)]
+						.filter(Boolean)
+						.join("\n\n")
+				: part.text || "";
+		}
 		case "tool_call": {
 			const sections = [part.title || part.name || "Tool call"];
 			if (part.arguments) {

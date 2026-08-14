@@ -125,9 +125,14 @@ export function upsertMessage(
 		return { messages: next, ...unchanged };
 	}
 
-	// The CLI may emit an optimistic queue message before ACP emits the agent's
-	// authoritative user message. Match only our temporary ids and identical
-	// text, so two intentional prompts with the same text remain separate.
+	// The optimistic id is written synchronously before the prompt is sent,
+	// whereas the React `isStreaming` state is updated through the activity
+	// subscription and may still be false when the server echo arrives. The
+	// outstanding local bubble is therefore the reliable reconciliation signal.
+	// Once the turn settles it is cleared, so later user messages still append.
+	// The CLI may emit an optimistic queue message before ACP emits the
+	// authoritative user message. Match only temporary ids and identical text,
+	// so two intentional prompts with the same text remain separate.
 	if (incoming.role === "user") {
 		const incomingText = userMessageText(incoming);
 		const optimisticUserIndex =

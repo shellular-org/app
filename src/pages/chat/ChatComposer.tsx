@@ -66,6 +66,9 @@ type ChatComposerProps = {
 	queueControls?: React.ReactNode;
 	isEditingQueuedPrompt?: boolean;
 	imageAttachments: ComposerAttachment[];
+	reviewCommentCount: number;
+	onOpenGitReview: () => void;
+	onClearReviewComments: () => void;
 	onPromptSuggestion: (suggestion: PromptSuggestion) => void;
 	onPromptSuggestionHover: (index: number) => void;
 	onInput: () => void;
@@ -93,6 +96,9 @@ export function ChatComposer({
 	queueControls,
 	isEditingQueuedPrompt = false,
 	imageAttachments,
+	reviewCommentCount,
+	onOpenGitReview,
+	onClearReviewComments,
 	onPromptSuggestion,
 	onPromptSuggestionHover,
 	onInput,
@@ -137,6 +143,29 @@ export function ChatComposer({
 			className="fixed bottom-[calc(var(--keyboard-height,0px)+8px)] left-[max(10px,var(--sal))] right-[max(10px,var(--sar))] mx-auto flex w-auto max-w-[840px] flex-col gap-2 rounded-xl border border-card-border bg-secondary p-3 shadow-[0_10px_36px_var(--shadow-color),0_1px_0_var(--line-soft)_inset] transition-[border-radius,padding] duration-300 ease-in ios:rounded-[12px_12px_48px_48px] md:ios:rounded-xl ios-kbd:rounded-xl android:bottom-[max(8px,var(--sab))] android-kbd:bottom-[calc(var(--keyboard-height,8px)+8px)] browser:w-[calc(100%-32px)] browser:max-w-[1150px]"
 		>
 			{queueControls}
+			{reviewCommentCount > 0 && (
+				<div className="inline-flex h-[29px] max-w-full self-start items-center overflow-hidden rounded-[9px] border border-accent/30 bg-accent/10 text-accent">
+					<button
+						type="button"
+						className="inline-flex h-full min-w-0 items-center gap-1.5 px-2 text-xs font-semibold text-inherit"
+						onClick={onOpenGitReview}
+					>
+						<span className="icon-message-square" aria-hidden="true" />
+						<span className="overflow-hidden text-ellipsis whitespace-nowrap">
+							{reviewCommentCount} review{" "}
+							{reviewCommentCount === 1 ? "comment" : "comments"}
+						</span>
+					</button>
+					<button
+						type="button"
+						className="flex h-full w-7 shrink-0 items-center justify-center border-l border-accent/20 text-secondary-text"
+						onClick={onClearReviewComments}
+						aria-label="Remove review comments"
+					>
+						<span className="icon-x" aria-hidden="true" />
+					</button>
+				</div>
+			)}
 			{imageAttachments.length > 0 && (
 				<AttachmentBadgeRow
 					attachments={imageAttachments}
