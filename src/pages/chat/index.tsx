@@ -1,5 +1,5 @@
 import "./style.scss";
-import { pushPage } from "App";
+import { closePage, pushPage } from "App";
 import type {
 	AcpAvailableCommand,
 	AcpMessage,
@@ -19,6 +19,10 @@ import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
 import windowResize from "lib/windowResize";
 import EditorPage from "pages/editor";
+import {
+	formatGitReviewPrompt,
+	type GitReviewComment,
+} from "pages/git-client/reviewComments";
 import type React from "react";
 import {
 	useCallback,
@@ -125,6 +129,7 @@ import { normalizeEditorPath } from "./pathUtils";
 
 const PAGE_SIZE = 30;
 const STOP_REASON_METADATA = "stop-reason";
+const reviewCommentDrafts = new Map<string, GitReviewComment[]>();
 // Placeholder title used for not-yet-named chats. Treated as "no real title" so
 // it never overwrites an actual session/activity title.
 const PLACEHOLDER_TITLE = "New Chat";
@@ -301,6 +306,11 @@ export default function ChatConversationPage({
 	const draftKey = liveSessionId
 		? `chat-draft:${agentId}:${liveSessionId}`
 		: `chat-draft:new:${agentId}:${workspacePath}`;
+	const [reviewComments, setReviewComments] = useState<GitReviewComment[]>(() =>
+		(reviewCommentDrafts.get(draftKey) ?? []).map((comment) => ({
+			...comment,
+		})),
+	);
 	// Config picks made in a draft chat, before any session existed to send them
 	// to. Replayed onto the real session right after it is created, keyed by
 	// option id so the last pick for an option wins.
@@ -343,6 +353,14 @@ export default function ChatConversationPage({
 	const draftConfigRefreshRef = useRef<string | null>(null);
 
 	connectionStatusRef.current = connectionStatus;
+
+	useEffect(() => {
+		if (reviewComments.length) {
+			reviewCommentDrafts.set(draftKey, reviewComments);
+		} else {
+			reviewCommentDrafts.delete(draftKey);
+		}
+	}, [draftKey, reviewComments]);
 
 	const visibleMessages = useMemo(
 		() => allMessages.slice(-Math.min(visibleCount, allMessages.length)),
@@ -427,8 +445,10 @@ export default function ChatConversationPage({
 		() =>
 			composerParts.some(
 				(part) => part.type === "attachment" || part.text.trim().length > 0,
-			) || imageAttachments.length > 0,
-		[composerParts, imageAttachments],
+			) ||
+			imageAttachments.length > 0 ||
+			reviewComments.length > 0,
+		[composerParts, imageAttachments, reviewComments.length],
 	);
 	const attachmentsUploading = useMemo(
 		() =>
@@ -1486,6 +1506,29 @@ export default function ChatConversationPage({
 		},
 	);
 
+	const openGitReview = useCallback(async () => {
+		if (!resolvedWorkspacePath) return;
+		const reviewPageId = `git-review-${resolvedWorkspacePath}`;
+		const GitClientPage = await import("pages/git-client");
+		pushPage(
+			reviewPageId,
+			<GitClientPage.default
+				projectPath={resolvedWorkspacePath}
+				projectName={
+					resolvedWorkspacePath.split(/[\\/]/).filter(Boolean).pop() ||
+					"Project"
+				}
+				initialReviewComments={reviewComments}
+				onReviewDraftChange={setReviewComments}
+				onSubmitReview={(comments) => {
+					setReviewComments(comments);
+					closePage(reviewPageId);
+					requestAnimationFrame(() => promptInputRef.current?.focus());
+				}}
+			/>,
+		);
+	}, [resolvedWorkspacePath, reviewComments]);
+
 	if (connectionStatus !== "connected" && !allMessages.length) {
 		return (
 			<Page title={displayTitle} subtitle={providerName} noBottomSafeArea>
@@ -1531,10 +1574,29 @@ export default function ChatConversationPage({
 				/>
 			}
 			rightSlot={
-				<>
+				<div className="chat-header-actions">
 					{syncing && allMessages.length > 0 && (
 						<Loader size={18} mascot={false} />
 					)}
+					<button
+						type="button"
+						className="chat-header-review haptic-trigger"
+						onClick={openGitReview}
+						disabled={connectionStatus !== "connected" || syncing}
+						aria-label={
+							reviewComments.length
+								? `Review Git changes, ${reviewComments.length} pending ${reviewComments.length === 1 ? "comment" : "comments"}`
+								: "Review Git changes"
+						}
+						title="Review Git changes"
+					>
+						<span className="icon-git-pull-request" aria-hidden="true" />
+						{reviewComments.length > 0 && (
+							<span className="chat-header-review-count">
+								{reviewComments.length}
+							</span>
+						)}
+					</button>
 					{chatTabId && (
 						<button
 							type="button"
@@ -1564,7 +1626,7 @@ export default function ChatConversationPage({
 							<span className="icon-menu" aria-hidden="true" />
 						</button>
 					)}
-				</>
+				</div>
 			}
 		>
 			{loading && allMessages.length === 0 && (
@@ -1665,6 +1727,9 @@ export default function ChatConversationPage({
 				onAttachFiles={handleAttachFiles}
 				onRemoveImageAttachment={handleRemoveImageAttachment}
 				imageAttachments={imageAttachments}
+				reviewCommentCount={reviewComments.length}
+				onOpenGitReview={openGitReview}
+				onClearReviewComments={() => setReviewComments([])}
 				onSend={handleSend}
 				onStop={handleStop}
 				contextMeter={contextMeter}
@@ -1784,8 +1849,11 @@ export default function ChatConversationPage({
 		const composerOnlyParts = readComposerParts(promptInputRef.current);
 		const text = composerPartsToText(composerOnlyParts).trim();
 		const pendingImages = imageAttachments;
+		const pendingReviewComments = reviewComments;
+		const reviewPrompt = formatGitReviewPrompt(pendingReviewComments);
+		const promptText = [text, reviewPrompt].filter(Boolean).join("\n\n");
 		if (
-			!text &&
+			!promptText &&
 			!composerOnlyParts.some((part) => part.type === "attachment") &&
 			pendingImages.length === 0
 		) {
@@ -1813,6 +1881,7 @@ export default function ChatConversationPage({
 		setError("");
 		setComposerParts([]);
 		setImageAttachments([]);
+		setReviewComments([]);
 		setComposerTrigger(null);
 		setFileSuggestions([]);
 		clearComposer(promptInputRef.current);
@@ -1827,10 +1896,7 @@ export default function ChatConversationPage({
 
 		const queuedSessionId = activeSessionId || sessionId;
 		const hasActiveLocalPrompt = cleanupSendRef.current !== null;
-		if (
-			queuedSessionId &&
-			(hasActiveLocalPrompt || promptQueueRunning)
-		) {
+		if (queuedSessionId && (hasActiveLocalPrompt || promptQueueRunning)) {
 			try {
 				const content = await composerPartsToAcpContent(parts);
 				acpQueuePrompt(agentId, queuedSessionId, text, content);
@@ -1858,7 +1924,12 @@ export default function ChatConversationPage({
 				id: userId,
 				requestId: userId,
 				role: "user",
-				parts: composerPartsToMessageParts(parts),
+				parts: [
+					...composerPartsToMessageParts(parts),
+					...(reviewPrompt
+						? [{ type: "text" as const, text: `\n\n${reviewPrompt}` }]
+						: []),
+				],
 				timestamp: Date.now(),
 			},
 		]);
@@ -1947,12 +2018,13 @@ export default function ChatConversationPage({
 				await flushPendingConfigChanges(targetSessionId);
 			}
 			const content = await composerPartsToAcpContent(parts);
+			if (reviewPrompt) content.push({ type: "text", text: reviewPrompt });
 			const sendPrompt = () => {
 				setSessionStreaming(agentId, targetSessionId, true);
 				const cleanup = acpPrompt(
 					agentId,
 					targetSessionId,
-					text,
+					promptText,
 					callbacks,
 					content,
 				);

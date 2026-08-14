@@ -284,8 +284,6 @@ export async function saveSettings(
 }
 
 export async function getBaseServerUrl(): Promise<string> {
-	// birajlog
-	return "https://server.shellular.dev"; // biome-ignore lint/correctness/noUnreachable: need this for dev
 	const settings = await loadSettings();
 	const domain = normalizeDomain(settings.server.domain);
 	return `${settings.server.protocol}://${domain || DEFAULT_SERVER_SETTINGS.domain}`;

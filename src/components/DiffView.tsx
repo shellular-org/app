@@ -1,5 +1,9 @@
 import "./DiffView.scss";
-import type { FileContents } from "@pierre/diffs";
+import type {
+	DiffLineAnnotation,
+	FileContents,
+	SelectedLineRange,
+} from "@pierre/diffs";
 import { MultiFileDiff } from "@pierre/diffs/react";
 import {
 	diffThemeName,
@@ -26,16 +30,26 @@ registerShellularDiffThemes();
  * @pierre/diffs. This is feature-agnostic — it knows nothing about agents,
  * commits, or where the texts come from. Wrap it for feature-specific chrome.
  */
-export default function DiffView({
+export default function DiffView<LAnnotation = undefined>({
 	path,
 	oldText,
 	newText,
 	className,
+	lineAnnotations,
+	selectedLines,
+	renderAnnotation,
+	onLineSelectionEnd,
 }: {
 	path: string;
 	oldText: string;
 	newText: string;
 	className?: string;
+	lineAnnotations?: DiffLineAnnotation<LAnnotation>[];
+	selectedLines?: SelectedLineRange | null;
+	renderAnnotation?: (
+		annotation: DiffLineAnnotation<LAnnotation>,
+	) => React.ReactNode;
+	onLineSelectionEnd?: (range: SelectedLineRange | null) => void;
 }) {
 	const oldFile = useMemo<FileContents>(
 		() => ({
@@ -105,11 +119,14 @@ export default function DiffView({
 	}, []);
 
 	return (
-		<MultiFileDiff
+		<MultiFileDiff<LAnnotation>
 			className={`diff-view${className ? ` ${className}` : ""}`}
 			style={diffStyle}
 			oldFile={oldFile}
 			newFile={newFile}
+			lineAnnotations={lineAnnotations}
+			selectedLines={selectedLines}
+			renderAnnotation={renderAnnotation}
 			disableWorkerPool
 			options={{
 				theme: {
@@ -120,7 +137,11 @@ export default function DiffView({
 				diffStyle: "unified",
 				diffIndicators: "bars",
 				overflow: editorSettings.wordWrap ? "wrap" : "scroll",
-				disableLineNumbers: !editorSettings.lineNumbers,
+				// Review selection is anchored in the gutter, so line numbers must stay
+				// available even when the general editor preference hides them.
+				disableLineNumbers: onLineSelectionEnd
+					? false
+					: !editorSettings.lineNumbers,
 				expandUnchanged: false,
 				hunkSeparators: "line-info",
 				collapsedContextThreshold: 10,
@@ -128,6 +149,9 @@ export default function DiffView({
 				lineDiffType: "char",
 				maxLineDiffLength: 2400,
 				disableFileHeader: true,
+				enableLineSelection: Boolean(onLineSelectionEnd),
+				controlledSelection: Boolean(onLineSelectionEnd),
+				onLineSelectionEnd,
 			}}
 		/>
 	);

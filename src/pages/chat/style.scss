@@ -280,7 +280,14 @@
 }
 
 // ─── Chat navigation content ───────────────────────────────────
-.chat-sidebar-toggle {
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chat-sidebar-toggle,
+.chat-header-review {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -300,6 +307,29 @@
   span[class^="icon-"] {
     font-size: 20px;
   }
+
+  &:disabled {
+    opacity: 0.35;
+  }
+}
+
+.chat-header-review-count {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 2px solid var(--primary);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--button-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px !important;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .project-chat-drawer-body {

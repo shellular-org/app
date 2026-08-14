@@ -1,5 +1,6 @@
 import "./style.scss";
 import { pushPage } from "App";
+import type { DiffLineAnnotation, SelectedLineRange } from "@pierre/diffs";
 import dialog from "bridge/dialog";
 import AppMenu from "components/AppMenu";
 import AppSelect from "components/AppSelect";
@@ -10,6 +11,7 @@ import Page from "components/Page";
 import { getFileIcon } from "lib/fileIcon";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
 import { formatRelativeTime } from "lib/utils";
+import { nanoid } from "nanoid";
 import CommitDetailPage from "pages/git-history/CommitDetail";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -25,6 +27,12 @@ import BranchPicker from "./BranchPicker";
 import { type BranchActionError, getBranchActionError } from "./branchErrors";
 import CommitComposer from "./CommitComposer";
 import { buildGitChangeTree, type GitChangeTreeNode } from "./gitChangeTree";
+import {
+	type GitReviewComment,
+	type GitReviewLocation,
+	getReviewCode,
+	normalizeReviewSelection,
+} from "./reviewComments";
 
 type GitTab = "changes" | "history";
 type Filter = "all" | "staged" | "unstaged";
@@ -71,9 +79,17 @@ function saveChangeViewMode(mode: ChangeViewMode) {
 interface Props {
 	projectPath: string;
 	projectName: string;
+	initialReviewComments?: GitReviewComment[];
+	onReviewDraftChange?: (comments: GitReviewComment[]) => void;
+	onSubmitReview?: (comments: GitReviewComment[]) => void;
 }
 
-export default function GitClientPage({ projectPath }: Props) {
+export default function GitClientPage({
+	projectPath,
+	initialReviewComments = [],
+	onReviewDraftChange,
+	onSubmitReview,
+}: Props) {
 	const { connectionStatus, hostDir, runGitOperation, getGitLog } =
 		useShellular();
 	const [activeTab, setActiveTab] = useState<GitTab>("changes");
@@ -95,6 +111,9 @@ export default function GitClientPage({ projectPath }: Props) {
 		null,
 	);
 	const [activeBranchRef, setActiveBranchRef] = useState<string | null>(null);
+	const [reviewComments, setReviewComments] = useState<GitReviewComment[]>(() =>
+		initialReviewComments.map((comment) => ({ ...comment })),
+	);
 
 	const [commits, setCommits] = useState<GitCommit[]>([]);
 	const [historyLoading, setHistoryLoading] = useState(false);
@@ -233,10 +252,32 @@ export default function GitClientPage({ projectPath }: Props) {
 		(file: GitWorkingTreeFile) => {
 			pushPage(
 				`git-diff-${projectPath}-${file.path}`,
-				<WorkingTreeDiffPage projectPath={projectPath} file={file} />,
+				<WorkingTreeDiffPage
+					projectPath={projectPath}
+					file={file}
+					reviewComments={
+						onSubmitReview
+							? reviewComments.filter((comment) => comment.path === file.path)
+							: undefined
+					}
+					onReviewCommentsChange={
+						onSubmitReview
+							? (fileComments) => {
+									const next = [
+										...reviewComments.filter(
+											(comment) => comment.path !== file.path,
+										),
+										...fileComments,
+									];
+									setReviewComments(next);
+									onReviewDraftChange?.(next);
+								}
+							: undefined
+					}
+				/>,
 			);
 		},
-		[projectPath],
+		[onReviewDraftChange, onSubmitReview, projectPath, reviewComments],
 	);
 
 	const toggleFile = (path: string) => {
@@ -393,9 +434,9 @@ export default function GitClientPage({ projectPath }: Props) {
 
 	return (
 		<Page
-			title="Git"
+			title={onSubmitReview ? "Review changes" : "Git"}
 			subtitle={displayPath}
-			className="git-client-page"
+			className={`git-client-page${onSubmitReview ? " git-review-page" : ""}`}
 			titleSlot={
 				<span className="git-header-logo" aria-hidden="true">
 					<span className="icon-git-branch" />
@@ -455,25 +496,27 @@ export default function GitClientPage({ projectPath }: Props) {
 			}
 		>
 			{/* Tab Switcher — matches settings page pattern */}
-			<div className="git-tab-bar">
-				<button
-					type="button"
-					className={`git-tab-item${activeTab === "changes" ? " git-tab-active" : ""}`}
-					onClick={() => setActiveTab("changes")}
-				>
-					Changes
-					{totalChanges > 0 && (
-						<span className="git-tab-badge">{totalChanges}</span>
-					)}
-				</button>
-				<button
-					type="button"
-					className={`git-tab-item${activeTab === "history" ? " git-tab-active" : ""}`}
-					onClick={() => setActiveTab("history")}
-				>
-					History
-				</button>
-			</div>
+			{!onSubmitReview && (
+				<div className="git-tab-bar">
+					<button
+						type="button"
+						className={`git-tab-item${activeTab === "changes" ? " git-tab-active" : ""}`}
+						onClick={() => setActiveTab("changes")}
+					>
+						Changes
+						{totalChanges > 0 && (
+							<span className="git-tab-badge">{totalChanges}</span>
+						)}
+					</button>
+					<button
+						type="button"
+						className={`git-tab-item${activeTab === "history" ? " git-tab-active" : ""}`}
+						onClick={() => setActiveTab("history")}
+					>
+						History
+					</button>
+				</div>
+			)}
 
 			{activeTab === "changes" ? (
 				<ChangesTab
@@ -501,6 +544,7 @@ export default function GitClientPage({ projectPath }: Props) {
 					openBranches={openBranches}
 					branchLoading={branchLoading}
 					commitAndPush={commitAndPush}
+					reviewMode={Boolean(onSubmitReview)}
 				/>
 			) : (
 				<HistoryTab
@@ -513,6 +557,30 @@ export default function GitClientPage({ projectPath }: Props) {
 					loadMore={loadMore}
 					openCommit={openCommit}
 				/>
+			)}
+
+			{onSubmitReview && (
+				<div className="git-review-submit-bar">
+					<div className="git-review-submit-copy">
+						<span className="icon-message-square" aria-hidden="true" />
+						{reviewComments.length ? (
+							<span>
+								<strong>{reviewComments.length}</strong>{" "}
+								{reviewComments.length === 1 ? "comment" : "comments"} ready
+							</span>
+						) : (
+							<span>Select lines in a changed file to comment</span>
+						)}
+					</div>
+					<button
+						type="button"
+						onClick={() => onSubmitReview(reviewComments)}
+						disabled={!reviewComments.length}
+					>
+						Add to prompt
+						<span className="icon-arrow-right" aria-hidden="true" />
+					</button>
+				</div>
 			)}
 
 			{showBranchModal && (
@@ -877,6 +945,7 @@ interface ChangesTabProps {
 	openBranches: () => void;
 	branchLoading: boolean;
 	commitAndPush: () => void;
+	reviewMode?: boolean;
 }
 
 function ChangesTab({
@@ -904,6 +973,7 @@ function ChangesTab({
 	openBranches,
 	branchLoading,
 	commitAndPush,
+	reviewMode,
 }: ChangesTabProps) {
 	const [viewMode, setViewMode] = useState<ChangeViewMode>(
 		getInitialChangeViewMode,
@@ -1146,14 +1216,16 @@ function ChangesTab({
 					</div>
 				</div>
 			)}
-			<CommitComposer
-				busy={busy}
-				canCommit={canCommit}
-				message={commitMessage}
-				onChange={setCommitMessage}
-				onCommit={commit}
-				onCommitAndPush={commitAndPush}
-			/>
+			{!reviewMode && (
+				<CommitComposer
+					busy={busy}
+					canCommit={canCommit}
+					message={commitMessage}
+					onChange={setCommitMessage}
+					onCommit={commit}
+					onCommitAndPush={commitAndPush}
+				/>
+			)}
 		</div>
 	);
 }
@@ -1236,14 +1308,23 @@ function HistoryTab({
 function WorkingTreeDiffPage({
 	projectPath,
 	file,
+	reviewComments,
+	onReviewCommentsChange,
 }: {
 	projectPath: string;
 	file: GitWorkingTreeFile;
+	reviewComments?: GitReviewComment[];
+	onReviewCommentsChange?: (comments: GitReviewComment[]) => void;
 }) {
 	const { connectionStatus, runGitOperation } = useShellular();
 	const [diff, setDiff] = useState<GitWorkingTreeFileDiff | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+	const [comments, setComments] = useState<GitReviewComment[]>(
+		() => reviewComments?.map((comment) => ({ ...comment })) ?? [],
+	);
+	const [selection, setSelection] = useState<SelectedLineRange | null>(null);
+	const [draft, setDraft] = useState("");
 
 	const load = useCallback(async () => {
 		setLoading(true);
@@ -1264,11 +1345,63 @@ function WorkingTreeDiffPage({
 		if (connectionStatus === "connected") load();
 	}, [connectionStatus, load]);
 
+	const reviewLocation = selection ? normalizeReviewSelection(selection) : null;
+	const annotations = useMemo<DiffLineAnnotation<ReviewAnnotation>[]>(() => {
+		const next: DiffLineAnnotation<ReviewAnnotation>[] = comments.map(
+			(comment) => ({
+				side: comment.side,
+				lineNumber: comment.endLine,
+				metadata: { type: "comment" as const, comment },
+			}),
+		);
+		if (reviewLocation) {
+			next.push({
+				side: reviewLocation.side,
+				lineNumber: reviewLocation.endLine,
+				metadata: { type: "draft" as const, location: reviewLocation },
+			});
+		}
+		return next;
+	}, [comments, reviewLocation]);
+
+	const updateComments = (next: GitReviewComment[]) => {
+		setComments(next);
+		onReviewCommentsChange?.(next);
+	};
+
+	const addComment = (location: GitReviewLocation) => {
+		const body = draft.trim();
+		if (!body || !diff) return;
+		updateComments([
+			...comments,
+			{
+				id: nanoid(),
+				path: file.path,
+				side: location.side,
+				startLine: location.startLine,
+				endLine: location.endLine,
+				body,
+				code: getReviewCode(diff.oldText, diff.newText, location),
+			},
+		]);
+		setDraft("");
+		setSelection(null);
+	};
+
+	const cancelDraft = () => {
+		setDraft("");
+		setSelection(null);
+	};
+
 	return (
 		<Page
 			title={file.path.split("/").pop() || file.path}
-			subtitle={file.path}
-			className="diff-page"
+			subtitle={
+				onReviewCommentsChange
+					? `${file.path} · Select line numbers to comment`
+					: file.path
+			}
+			className={`diff-page${onReviewCommentsChange ? " git-review-diff-page" : ""}`}
 		>
 			{loading ? (
 				<EmptyState message="Loading diff..." mascot="loading" />
@@ -1282,13 +1415,140 @@ function WorkingTreeDiffPage({
 			) : diff && diff.oldText === diff.newText ? (
 				<EmptyState message="No textual changes" mascot="idle" />
 			) : diff ? (
-				<DiffView
+				<DiffView<ReviewAnnotation>
 					path={diff.path}
 					oldText={diff.oldText}
 					newText={diff.newText}
+					lineAnnotations={onReviewCommentsChange ? annotations : undefined}
+					selectedLines={selection}
+					onLineSelectionEnd={
+						onReviewCommentsChange
+							? (range) => {
+									setDraft("");
+									setSelection(range);
+								}
+							: undefined
+					}
+					renderAnnotation={(annotation) => {
+						const metadata = annotation.metadata;
+						return metadata.type === "draft" ? (
+							<ReviewDraft
+								location={metadata.location}
+								value={draft}
+								onChange={setDraft}
+								onAdd={addComment}
+								onCancel={cancelDraft}
+							/>
+						) : (
+							<ReviewCommentCard
+								comment={metadata.comment}
+								onRemove={() =>
+									updateComments(
+										comments.filter(
+											(comment) => comment.id !== metadata.comment.id,
+										),
+									)
+								}
+							/>
+						);
+					}}
 				/>
 			) : null}
 		</Page>
+	);
+}
+
+type ReviewAnnotation =
+	| { type: "draft"; location: GitReviewLocation }
+	| { type: "comment"; comment: GitReviewComment };
+
+function ReviewDraft({
+	location,
+	value,
+	onChange,
+	onAdd,
+	onCancel,
+}: {
+	location: GitReviewLocation;
+	value: string;
+	onChange: (value: string) => void;
+	onAdd: (location: GitReviewLocation) => void;
+	onCancel: () => void;
+}) {
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		textareaRef.current?.focus();
+	}, []);
+	const side = location.side === "additions" ? "R" : "L";
+	const range =
+		location.startLine === location.endLine
+			? `${side}${location.startLine}`
+			: `${side}${location.startLine}–${side}${location.endLine}`;
+	return (
+		<div className="git-review-annotation git-review-draft">
+			<div className="git-review-annotation-heading">
+				<span className="git-review-local-mark" aria-hidden="true">
+					<span className="icon-message-square" />
+				</span>
+				<strong>Local comment</strong>
+				<span className="git-review-location">Comment on {range}</span>
+			</div>
+			<textarea
+				ref={textareaRef}
+				value={value}
+				onChange={(event) => onChange(event.target.value)}
+				onKeyDown={(event) => {
+					if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+						event.preventDefault();
+						onAdd(location);
+					}
+				}}
+				placeholder="Request change"
+				aria-label={`Comment on ${range}`}
+			/>
+			<div className="git-review-annotation-actions">
+				<button type="button" className="git-review-cancel" onClick={onCancel}>
+					Cancel
+				</button>
+				<button
+					type="button"
+					className="git-review-add"
+					onClick={() => onAdd(location)}
+					disabled={!value.trim()}
+				>
+					Comment
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function ReviewCommentCard({
+	comment,
+	onRemove,
+}: {
+	comment: GitReviewComment;
+	onRemove: () => void;
+}) {
+	const side = comment.side === "additions" ? "R" : "L";
+	const range =
+		comment.startLine === comment.endLine
+			? `${side}${comment.startLine}`
+			: `${side}${comment.startLine}–${side}${comment.endLine}`;
+	return (
+		<div className="git-review-annotation git-review-comment">
+			<div className="git-review-annotation-heading">
+				<span className="git-review-local-mark" aria-hidden="true">
+					<span className="icon-message-square" />
+				</span>
+				<strong>Local comment</strong>
+				<span className="git-review-location">Comment on {range}</span>
+				<button type="button" onClick={onRemove} aria-label="Remove comment">
+					<span className="icon-x" aria-hidden="true" />
+				</button>
+			</div>
+			<p>{comment.body}</p>
+		</div>
 	);
 }
 
