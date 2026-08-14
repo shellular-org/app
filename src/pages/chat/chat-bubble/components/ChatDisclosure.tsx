@@ -97,7 +97,7 @@ export default function ChatDisclosure({
 
 	return (
 		<div
-			className={`${card ? "chat-part-card" : "chat-disclosure-root"}${
+			className={`${card ? "chat-part-card" : "chat-disclosure-root"} min-w-0 max-w-full overflow-hidden${
 				className ? ` ${className}` : ""
 			}`}
 			data-open={open ? "true" : "false"}
@@ -105,7 +105,7 @@ export default function ChatDisclosure({
 		>
 			<button
 				type="button"
-				className="chat-part-card-title chat-disclosure"
+				className="chat-part-card-title chat-disclosure min-w-0 max-w-full overflow-hidden"
 				aria-expanded={open}
 				onClick={() => {
 					rootRef.current?.dispatchEvent(

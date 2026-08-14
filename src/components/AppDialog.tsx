@@ -36,6 +36,8 @@ type DialogRequest = {
 	selectLabel?: string;
 	textLabel?: string;
 	options?: AppDialogOption[];
+	confirmLabel?: string;
+	cancelLabel?: string;
 	resolve: (value: DialogValue) => void;
 };
 
@@ -47,6 +49,8 @@ type DialogOptions = {
 	selectLabel?: string;
 	textLabel?: string;
 	options?: AppDialogOption[];
+	confirmLabel?: string;
+	cancelLabel?: string;
 };
 
 let requestId = 0;
@@ -86,6 +90,8 @@ export function openAppDialog(kind: DialogKind, options: DialogOptions) {
 				selectLabel: options.selectLabel,
 				textLabel: options.textLabel,
 				options: options.options,
+				confirmLabel: options.confirmLabel,
+				cancelLabel: options.cancelLabel,
 				resolve,
 			});
 			return;
@@ -101,6 +107,8 @@ export function openAppDialog(kind: DialogKind, options: DialogOptions) {
 			selectLabel: options.selectLabel,
 			textLabel: options.textLabel,
 			options: options.options,
+			confirmLabel: options.confirmLabel,
+			cancelLabel: options.cancelLabel,
 			resolve,
 		});
 	});
@@ -310,7 +318,7 @@ function DialogSurface({
 								className="app-dialog__button app-dialog__button--ghost haptic-trigger"
 								onClick={() => close(null)}
 							>
-								Cancel
+								{request.cancelLabel ?? "Cancel"}
 							</button>
 						)}
 						<button
@@ -324,7 +332,9 @@ function DialogSurface({
 							}
 							onClick={submit}
 						>
-							{request.kind === "confirm" ? "Confirm" : "OK"}
+							{request.kind === "confirm"
+								? (request.confirmLabel ?? "Confirm")
+								: "OK"}
 						</button>
 					</div>
 				</DialogPanel>

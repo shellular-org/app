@@ -55,9 +55,11 @@ export default function MessagePartView({
 					copyLabel="Copy command"
 					summary={
 						<>
-							<span className="icon-terminal" aria-hidden="true" />
-							<span>{part.command}</span>
-							{part.status && <em>{part.status}</em>}
+							<span className="icon-terminal shrink-0" aria-hidden="true" />
+							<span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-normal [overflow-wrap:anywhere] [word-break:break-word]">
+								{part.command}
+							</span>
+							{part.status && <em className="shrink-0">{part.status}</em>}
 						</>
 					}
 				>

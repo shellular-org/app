@@ -1,4 +1,3 @@
-import "./ChatComposer.scss";
 import { Combobox, ComboboxOption, ComboboxOptions } from "@headlessui/react";
 import type {
 	AcpAvailableCommand,
@@ -64,6 +63,8 @@ type ChatComposerProps = {
 	activePromptSuggestionIndex: number;
 	configControls: React.ReactNode;
 	contextMeter?: React.ReactNode;
+	queueControls?: React.ReactNode;
+	isEditingQueuedPrompt?: boolean;
 	imageAttachments: ComposerAttachment[];
 	onPromptSuggestion: (suggestion: PromptSuggestion) => void;
 	onPromptSuggestionHover: (index: number) => void;
@@ -89,6 +90,8 @@ export function ChatComposer({
 	activePromptSuggestionIndex,
 	configControls,
 	contextMeter,
+	queueControls,
+	isEditingQueuedPrompt = false,
 	imageAttachments,
 	onPromptSuggestion,
 	onPromptSuggestionHover,
@@ -129,7 +132,11 @@ export function ChatComposer({
 	};
 
 	return (
-		<div ref={inputBarRef} className="chat-composer">
+		<div
+			ref={inputBarRef}
+			className="fixed bottom-[calc(var(--keyboard-height,0px)+8px)] left-[max(10px,var(--sal))] right-[max(10px,var(--sar))] mx-auto flex w-auto max-w-[840px] flex-col gap-2 rounded-xl border border-card-border bg-secondary p-3 shadow-[0_10px_36px_var(--shadow-color),0_1px_0_var(--line-soft)_inset] transition-[border-radius,padding] duration-300 ease-in ios:rounded-[12px_12px_48px_48px] md:ios:rounded-xl ios-kbd:rounded-xl android:bottom-[max(8px,var(--sab))] android-kbd:bottom-[calc(var(--keyboard-height,8px)+8px)] browser:w-[calc(100%-32px)] browser:max-w-[1150px] desktop-ui:w-[calc(100%-32px)] desktop-ui:max-w-[1150px]"
+		>
+			{queueControls}
 			{imageAttachments.length > 0 && (
 				<AttachmentBadgeRow
 					attachments={imageAttachments}
@@ -142,14 +149,14 @@ export function ChatComposer({
 					if (suggestion) onPromptSuggestion(suggestion);
 				}}
 				as="div"
-				className="chat-prompt-combobox"
+				className="flex min-w-0 flex-col"
 				disabled={!agentAvailable || !isConnected}
 			>
 				{promptSuggestions.length > 0 && (
 					<ComboboxOptions
 						static
 						id="chat-prompt-suggestions"
-						className="chat-command-menu"
+						className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-[10001] flex max-h-[min(300px,calc(100dvh-230px))] flex-col gap-1 overflow-y-auto rounded-xl border border-popup-border-color bg-popup-background p-1.5 shadow-[0_10px_32px_var(--shadow-color)] [animation:fade-in_120ms_ease_both] [backdrop-filter:var(--popup-backdrop-filter)] [-webkit-backdrop-filter:var(--popup-backdrop-filter)]"
 						aria-label="Prompt suggestions"
 					>
 						{promptSuggestions.map((suggestion, index) => (
@@ -157,20 +164,29 @@ export function ChatComposer({
 								key={suggestion.id}
 								value={suggestion}
 								className={({ focus }) =>
-									`chat-command-item${focus || index === activePromptSuggestionIndex ? " chat-command-item--active" : ""}`
+									`flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-[inherit] text-[13px] text-primary-text hover:bg-popup-active-background hover:text-popup-active-text focus:bg-popup-active-background focus:text-popup-active-text ${focus || index === activePromptSuggestionIndex ? "bg-popup-active-background text-popup-active-text" : ""}`
 								}
 								onMouseEnter={() => onPromptSuggestionHover(index)}
 							>
-								<span className={suggestion.icon} aria-hidden="true" />
-								<span className="chat-command-main">
-									<strong>
+								<span
+									className={`${suggestion.icon} shrink-0 text-accent`}
+									aria-hidden="true"
+								/>
+								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+									<strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px] font-bold">
 										{suggestion.trigger}
 										{suggestion.title}
 									</strong>
-									{suggestion.description && <em>{suggestion.description}</em>}
+									{suggestion.description && (
+										<em className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] not-italic text-secondary-text opacity-75">
+											{suggestion.description}
+										</em>
+									)}
 								</span>
 								{suggestion.hint && (
-									<span className="chat-command-hint">{suggestion.hint}</span>
+									<span className="max-w-[38%] overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-secondary-text opacity-65">
+										{suggestion.hint}
+									</span>
 								)}
 							</ComboboxOption>
 						))}
@@ -181,7 +197,7 @@ export function ChatComposer({
 					ref={(element) => {
 						inputRef.current = element;
 					}}
-					className="chat-input"
+					className="relative max-h-[120px] min-h-[58px] w-full cursor-text overflow-y-auto bg-secondary px-0.5 py-0 font-[inherit] text-[14px] leading-[1.5] text-primary-text outline-none [overflow-wrap:break-word] [white-space:pre-wrap] [user-select:text] [-webkit-overflow-scrolling:touch] [-webkit-tap-highlight-color:transparent] before:pointer-events-none before:absolute before:left-0.5 before:top-0 before:text-secondary-text before:opacity-40 data-[empty=true]:before:content-[attr(data-placeholder)] focus:outline-none aria-disabled:opacity-40"
 					// Stays editable while the connection is down: a reconnect is
 					// usually brief, and losing what you were mid-sentence on is worse
 					// than being able to type something you can't send yet. Sending is
@@ -210,34 +226,36 @@ export function ChatComposer({
 					aria-disabled={!agentAvailable || !isConnected}
 				/>
 			</Combobox>
-			<div className="chat-input-toolbar">
+			<div className="flex min-w-0 items-center gap-2 ios:px-3 ios-kbd:p-0">
 				<input
 					ref={fileInputRef}
 					type="file"
 					accept="image/*"
 					multiple
-					className="chat-attach-input"
+					className="hidden"
 					tabIndex={-1}
 					aria-hidden="true"
 					onChange={handleFileInputChange}
 				/>
-				<div className="chat-toolbar-group">
+				<div className="flex min-w-0 flex-1 items-center gap-0.5">
 					<button
 						type="button"
-						className="chat-toolbar-btn chat-attach-btn haptic-trigger"
+						className="haptic-trigger flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent p-0 text-[1.15rem] text-secondary-text transition-[background,opacity] duration-150 active:bg-surface-soft disabled:cursor-default disabled:opacity-35 [-webkit-tap-highlight-color:transparent]"
 						onClick={() => fileInputRef.current?.click()}
 						disabled={!agentAvailable || !isConnected}
 						aria-label="Attach image"
 					>
 						<span className="icon-image" aria-hidden="true" />
 					</button>
-					<div className="chat-config-controls">{configControls}</div>
+					<div className="z-0 flex min-w-0 flex-1 items-center justify-start gap-1.5">
+						{configControls}
+					</div>
 				</div>
 				{contextMeter}
-				{isStreaming ? (
+				{isEditingQueuedPrompt ? null : isStreaming && !canSendPrompt ? (
 					<button
 						type="button"
-						className="chat-send-btn chat-send-btn--stop"
+						className="haptic-trigger flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent p-0 text-[1.15rem] text-danger transition-opacity duration-150 [-webkit-tap-highlight-color:transparent]"
 						onClick={onStop}
 						aria-label="Stop generation"
 					>
@@ -250,7 +268,7 @@ export function ChatComposer({
 						// *why* (e.g. an image is still uploading) via a toast instead of
 						// silently doing nothing. The dimmed look is a class, not the
 						// native `disabled` attribute, which would swallow the tap.
-						className={`chat-send-btn${canSendPrompt && isConnected && agentAvailable ? "" : " chat-send-btn--blocked"}`}
+						className={`haptic-trigger flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent p-0 text-[1.15rem] text-[var(--active-text-color)] transition-opacity duration-150 disabled:opacity-35 [-webkit-tap-highlight-color:transparent] ${canSendPrompt && isConnected && agentAvailable ? "" : "opacity-35"}`}
 						onClick={() => {
 							if (canSendPrompt && isConnected && agentAvailable) {
 								onSend();
@@ -259,7 +277,7 @@ export function ChatComposer({
 							}
 						}}
 						aria-disabled={!canSendPrompt || !isConnected || !agentAvailable}
-						aria-label="Send"
+						aria-label={isStreaming ? "Queue prompt" : "Send"}
 					>
 						<span className="icon-send" aria-hidden="true" />
 					</button>
@@ -307,8 +325,12 @@ function AttachmentBadgeRow({
 	}, [measure]);
 
 	return (
-		<div className="chat-attachment-row">
-			<div ref={rowRef} className="chat-attachment-badges" onScroll={measure}>
+		<div className="relative mx-[-12px]">
+			<div
+				ref={rowRef}
+				className="flex snap-x snap-proximity flex-nowrap gap-1.5 overflow-x-auto overflow-y-hidden px-3 pb-px [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden"
+				onScroll={measure}
+			>
 				{attachments.map((attachment) => (
 					<ImageAttachmentBadge
 						key={attachment.id}
@@ -319,7 +341,7 @@ function AttachmentBadgeRow({
 			</div>
 			{hiddenCount > 0 && (
 				<span
-					className="chat-attachment-overflow"
+					className="pointer-events-none absolute right-0 top-0 bottom-px inline-flex items-center bg-[linear-gradient(to_right,transparent,var(--secondary)_40%)] px-3 pl-6 text-[11px] font-semibold leading-none text-secondary-text"
 					title={`${hiddenCount} more attachment${hiddenCount > 1 ? "s" : ""}`}
 				>
 					+{hiddenCount}
@@ -338,9 +360,11 @@ function ImageAttachmentBadge({
 }) {
 	const icon = getFileIcon(attachment.name);
 	const className = [
-		"chat-attachment-badge",
-		attachment.status === "pending" ? "chat-attachment-badge--pending" : "",
-		attachment.status === "error" ? "chat-attachment-badge--error" : "",
+		"chat-attachment-badge inline-flex h-[26px] shrink-0 snap-start items-center gap-[5px] rounded-lg border border-border-color bg-surface-soft px-1 pl-2 text-[12px] leading-none text-accent",
+		attachment.status === "pending"
+			? "border-dashed text-secondary-text opacity-[0.82]"
+			: "",
+		attachment.status === "error" ? "border-error text-error" : "",
 	]
 		.filter(Boolean)
 		.join(" ");
@@ -361,22 +385,19 @@ function ImageAttachmentBadge({
 						: attachment.relativePath
 			}
 		>
-			<span
-				className={`chat-attachment-badge__icon ${icon}`}
-				aria-hidden="true"
-			/>
-			<span className="chat-attachment-badge__name">
+			<span className={`shrink-0 text-[13px] ${icon}`} aria-hidden="true" />
+			<span className="min-w-0 max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap">
 				{attachment.relativePath}
 			</span>
 			{statusIcon && (
 				<span
-					className={`chat-attachment-badge__status ${statusIcon}`}
+					className={`shrink-0 text-[12px] opacity-85 ${statusIcon}`}
 					aria-hidden="true"
 				/>
 			)}
 			<button
 				type="button"
-				className="chat-attachment-badge__remove haptic-trigger"
+				className="haptic-trigger flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-[12px] text-secondary-text transition-[background,color] duration-150 [-webkit-tap-highlight-color:transparent] active:bg-card-border active:text-primary-text"
 				onClick={onRemove}
 				aria-label={`Remove ${attachment.relativePath}`}
 			>
@@ -425,6 +446,10 @@ export function readComposerParts(root: HTMLDivElement | null): ComposerPart[] {
 			appendText("\n");
 			return;
 		}
+		const isBlock = ["DIV", "LI", "P", "BLOCKQUOTE", "PRE"].includes(
+			node.tagName,
+		);
+		if (isBlock && parts.length > 0) appendText("\n");
 		for (const child of Array.from(node.childNodes)) {
 			readNode(child);
 		}
@@ -513,6 +538,15 @@ export async function composerPartsToAcpContent(
 
 export function clearComposer(root: HTMLDivElement | null) {
 	if (root) root.replaceChildren();
+}
+
+export function replaceComposerParts(
+	root: HTMLDivElement | null,
+	parts: ComposerPart[],
+) {
+	if (!root) return;
+	root.replaceChildren(...composerPartsToNodes(parts));
+	placeCaretAtOffset(root, composerPartsToText(parts).length);
 }
 
 /**
@@ -746,12 +780,11 @@ function applyAttachmentChipData(
 ) {
 	const icon = getFileIcon(attachment.name);
 	chip.className = [
-		"composer-attachment",
-		attachment.mimeType?.startsWith("image/")
-			? "composer-attachment--image"
+		"composer-attachment inline-flex max-w-[min(100%,280px)] items-center gap-1 overflow-hidden rounded-md border border-border-color bg-surface-soft px-[5px] py-px align-baseline font-['JetBrainsMono_Nerd_Font',ui-monospace,Menlo,monospace] text-[0.9em] text-accent [user-select:none] [-webkit-user-select:none]",
+		attachment.status === "pending"
+			? "border-dashed text-secondary-text opacity-[0.82]"
 			: "",
-		attachment.status === "pending" ? "composer-attachment--pending" : "",
-		attachment.status === "error" ? "composer-attachment--error" : "",
+		attachment.status === "error" ? "border-error text-error" : "",
 	]
 		.filter(Boolean)
 		.join(" ");
@@ -784,11 +817,11 @@ function applyAttachmentChipData(
 				: attachment.relativePath;
 	const statusIcon =
 		attachment.status === "pending"
-			? '<span class="icon-clock composer-attachment-status" aria-hidden="true"></span>'
+			? '<span class="icon-clock shrink-0 text-[0.95em] opacity-85" aria-hidden="true"></span>'
 			: attachment.status === "error"
-				? '<span class="icon-alert-triangle composer-attachment-status" aria-hidden="true"></span>'
+				? '<span class="icon-alert-triangle shrink-0 text-[0.95em] opacity-85" aria-hidden="true"></span>'
 				: "";
-	chip.innerHTML = `<span class="${icon}" aria-hidden="true"></span><span>${escapeHtml(attachment.relativePath)}</span>${statusIcon}`;
+	chip.innerHTML = `<span class="${icon} shrink-0" aria-hidden="true"></span><span class="min-w-0 overflow-hidden text-ellipsis">${escapeHtml(attachment.relativePath)}</span>${statusIcon}`;
 }
 
 function readAttachmentStatus(node: HTMLElement): ComposerAttachment["status"] {

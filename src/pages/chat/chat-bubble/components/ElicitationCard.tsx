@@ -1,6 +1,12 @@
 import Mascot from "components/Mascot";
 import { useState } from "react";
 import type { AcpElicitationRequest } from "state/acp";
+import {
+	permissionActionsClass,
+	permissionButtonClass,
+	permissionCardClass,
+	permissionTitleClass,
+} from "./permissionClasses";
 
 /**
  * Renders an ACP elicitation: the agent asking the user for structured input.
@@ -31,7 +37,7 @@ export default function ElicitationCard({
 	const declineButton = (
 		<button
 			type="button"
-			className="chat-permission-btn chat-permission-btn--reject"
+			className={permissionButtonClass("reject_once")}
 			onClick={() => onReply(elicitation, "decline")}
 		>
 			Decline
@@ -41,10 +47,10 @@ export default function ElicitationCard({
 	let body: React.ReactNode;
 	if (elicitation.mode === "url" && elicitation.url) {
 		body = (
-			<div className="chat-permission-actions">
+			<div className={permissionActionsClass}>
 				<button
 					type="button"
-					className="chat-permission-btn chat-permission-btn--allow"
+					className={permissionButtonClass("allow_once")}
 					onClick={() => {
 						window.open(elicitation.url, "_blank", "noopener");
 					}}
@@ -58,12 +64,12 @@ export default function ElicitationCard({
 		// Single choice question: answer with one tap.
 		const field = fields[0];
 		body = (
-			<div className="chat-permission-actions">
+			<div className={permissionActionsClass}>
 				{(field.options ?? []).map((option) => (
 					<button
 						type="button"
 						key={option.value}
-						className="chat-permission-btn chat-permission-btn--allow"
+						className={permissionButtonClass("allow_once")}
 						onClick={() =>
 							onReply(elicitation, "accept", { [field.key]: option.value })
 						}
@@ -89,9 +95,11 @@ export default function ElicitationCard({
 										<button
 											type="button"
 											key={option.value}
-											className={`chat-permission-btn ${
+											className={`${permissionButtonClass(
+												values[field.key] === option.value ? "allow_once" : "",
+											)} ${
 												values[field.key] === option.value
-													? "chat-permission-btn--allow"
+													? "bg-button-background text-button-text"
 													: ""
 											}`}
 											onClick={() => setValue(field.key, option.value)}
@@ -109,9 +117,11 @@ export default function ElicitationCard({
 										<button
 											type="button"
 											key={option.label}
-											className={`chat-permission-btn ${
+											className={`${permissionButtonClass(
+												values[field.key] === option.value ? "allow_once" : "",
+											)} ${
 												values[field.key] === option.value
-													? "chat-permission-btn--allow"
+													? "bg-button-background text-button-text"
 													: ""
 											}`}
 											onClick={() => setValue(field.key, option.value)}
@@ -138,10 +148,10 @@ export default function ElicitationCard({
 						</label>
 					))}
 				</div>
-				<div className="chat-permission-actions">
+				<div className={permissionActionsClass}>
 					<button
 						type="button"
-						className="chat-permission-btn chat-permission-btn--allow"
+						className={permissionButtonClass("allow_once")}
 						onClick={() => onReply(elicitation, "accept", values)}
 					>
 						Submit
@@ -151,17 +161,24 @@ export default function ElicitationCard({
 			</>
 		);
 	} else {
-		body = <div className="chat-permission-actions">{declineButton}</div>;
+		body = <div className={permissionActionsClass}>{declineButton}</div>;
 	}
 
 	return (
-		<div className="chat-permission-card chat-bubble chat-bubble--assistant">
-			<div className="chat-permission-title">
-				<big>Question</big>
-				<Mascot state="permission" size={34} tone="inline" />
+		<div className={permissionCardClass}>
+			<div className={permissionTitleClass}>
+				<big className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+					Question
+				</big>
+				<Mascot
+					state="permission"
+					size={34}
+					tone="inline"
+					className="ml-auto shrink-0"
+				/>
 			</div>
 			{elicitation.message && (
-				<span className="chat-permission-title">{elicitation.message}</span>
+				<span className={permissionTitleClass}>{elicitation.message}</span>
 			)}
 			{body}
 		</div>

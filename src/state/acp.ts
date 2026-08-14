@@ -16,6 +16,9 @@ import {
 	type AiSessionDetachResultMsg,
 	type AiSessionListResultMsg,
 	type AiSessionModeSetResultMsg,
+	type AiSessionOwner,
+	type AiSessionOwnerKillResultMsg,
+	AiSessionOwnerSchema,
 	type AiSessionRuntimeState,
 	MsgType,
 } from "@shellular/protocol";
@@ -208,7 +211,7 @@ export function acpElicitationReply(
 			action,
 			...(content ? { content } : {}),
 		},
-	} as unknown as SendableMsg);
+	} as SendableMsg);
 }
 
 // The published protocol types may trail the CLI's; new optional fields ride
@@ -235,7 +238,36 @@ export interface AcpPromptCallbacks {
 	onUsage?: (usage: Record<string, unknown>) => void;
 	onPermission?: (permission: AcpPermissionRequest) => void;
 	onEnd: (stopReason?: string) => void;
-	onError: (error: string) => void;
+	onError: (error: string, details?: AcpPromptError) => void;
+}
+
+export interface AcpPromptError {
+	code: string;
+	owner: AiSessionOwner;
+}
+
+export function readSessionOwnerError(
+	properties: Record<string, unknown>,
+): AcpPromptError | null {
+	if (properties.errorCode !== "ESESSION_OWNED_BY_PROCESS") return null;
+	const details = properties.errorDetails;
+	if (!details || typeof details !== "object" || Array.isArray(details)) {
+		return null;
+	}
+	const owner = AiSessionOwnerSchema.safeParse(Reflect.get(details, "owner"));
+	return owner.success
+		? { code: "ESESSION_OWNED_BY_PROCESS", owner: owner.data }
+		: null;
+}
+
+export interface AcpQueuedPrompt {
+	id: string;
+	backend: AiBackend;
+	sessionId: string;
+	text: string;
+	content: AcpContentBlock[];
+	createdAt: number;
+	updatedAt: number;
 }
 
 export interface AcpPermissionRequest {
@@ -515,8 +547,8 @@ export function acpPrompt(
 		}
 
 		if (msg.data.type === "message") {
-			const message = msg.data.properties.message;
-			if (message) callbacks.onMessage(message as AcpMessage);
+			// The attached session subscriber owns message reconciliation. Handling
+			// the same event here as well creates two consumers for every ACP message.
 			return;
 		}
 
@@ -534,7 +566,10 @@ export function acpPrompt(
 		if (msg.data.type === "error" || msg.data.type === "prompt_error") {
 			closed = true;
 			unsubscribe();
-			callbacks.onError(String(msg.data.properties.error ?? "Prompt failed"));
+			callbacks.onError(
+				String(msg.data.properties.error ?? "Prompt failed"),
+				readSessionOwnerError(msg.data.properties) ?? undefined,
+			);
 			return;
 		}
 
@@ -572,6 +607,79 @@ export function acpPrompt(
 	};
 }
 
+export function acpQueuePrompt(
+	agentId: AiBackend,
+	sessionId: string,
+	text: string,
+	content?: AcpContentBlock[],
+): void {
+	sendConnectionMessage({
+		type: MsgType.AI_PROMPT,
+		data: {
+			backend: agentId,
+			sessionId,
+			text,
+			content: content?.length ? content : [{ type: "text", text }],
+		} as AiPromptMsg["data"],
+	} as SendableMsg);
+}
+
+export async function acpUpdateQueuedPrompt(
+	agentId: AiBackend,
+	sessionId: string,
+	queueId: string,
+	text: string,
+	content?: AcpContentBlock[],
+): Promise<AcpQueuedPrompt[]> {
+	const result = await sendRequest<{
+		error?: string;
+		data?: { queue?: AcpQueuedPrompt[] };
+	}>({
+		type: MsgType.AI_PROMPT_QUEUE_UPDATE,
+		data: {
+			backend: agentId,
+			sessionId,
+			queueId,
+			text,
+			content: content?.length ? content : [{ type: "text", text }],
+		},
+	});
+	assertNoError(result);
+	return result.data?.queue ?? [];
+}
+
+export async function acpRemoveQueuedPrompt(
+	agentId: AiBackend,
+	sessionId: string,
+	queueId: string,
+): Promise<AcpQueuedPrompt[]> {
+	const result = await sendRequest<{
+		error?: string;
+		data?: { queue?: AcpQueuedPrompt[] };
+	}>({
+		type: MsgType.AI_PROMPT_QUEUE_REMOVE,
+		data: { backend: agentId, sessionId, queueId },
+	});
+	assertNoError(result);
+	return result.data?.queue ?? [];
+}
+
+export async function acpSetPromptQueuePaused(
+	agentId: AiBackend,
+	sessionId: string,
+	paused: boolean,
+): Promise<AcpQueuedPrompt[]> {
+	const result = await sendRequest<{
+		error?: string;
+		data?: { queue?: AcpQueuedPrompt[] };
+	}>({
+		type: MsgType.AI_PROMPT_QUEUE_PAUSE,
+		data: { backend: agentId, sessionId, paused },
+	});
+	assertNoError(result);
+	return result.data?.queue ?? [];
+}
+
 export async function acpPermissionReply(
 	agentId: AiBackend,
 	sessionId: string,
@@ -591,6 +699,21 @@ export async function acpCancel(agentId: AiBackend, sessionId: string) {
 		data: { backend: agentId, sessionId },
 	});
 	assertNoError(result);
+}
+
+export async function acpKillSessionOwner(
+	agentId: AiBackend,
+	sessionId: string,
+): Promise<number> {
+	const result = await sendRequest<AiSessionOwnerKillResultMsg>({
+		type: MsgType.AI_SESSION_OWNER_KILL,
+		data: { backend: agentId, sessionId },
+	});
+	assertNoError(result);
+	if (!result.data?.ok || result.data.pid === undefined) {
+		throw new Error("The owning agent process could not be terminated");
+	}
+	return result.data.pid;
 }
 
 export async function acpWriteAttachmentBase64(options: {
