@@ -17,7 +17,7 @@ export default {
 			callback.error("Missing URL");
 			return;
 		}
-		window.open(url, "_blank");
+		window.open(url, "_blank", "noopener");
 		callback.success();
 	},
 

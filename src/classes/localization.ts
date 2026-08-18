@@ -1,5 +1,9 @@
 export type Replacements = Record<string, string | number>;
 
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export default class Localization extends Map<string, string> {
 	static DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 	static MONTHS_SHORT = [
@@ -24,7 +28,7 @@ export default class Localization extends Map<string, string> {
 		if (replacements) {
 			for (const [search, replaceWith] of Object.entries(replacements)) {
 				value = value.replace(
-					new RegExp(`\\$\\{${search}\\}`, "g"),
+					new RegExp(`\\$\\{${escapeRegExp(search)}\\}`, "g"),
 					String(replaceWith),
 				);
 			}

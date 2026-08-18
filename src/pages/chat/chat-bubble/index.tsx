@@ -4,6 +4,7 @@ import Mascot from "components/Mascot";
 import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
+import WorkLogView from "./components/WorkLogView";
 import {
 	getAnswerParts,
 	isCopyableMessagePart,
@@ -33,6 +34,10 @@ interface ChatBubbleProps {
 	 * claiming the agent is "thinking".
 	 */
 	statusLabel?: string;
+	/** Turn-level work projected out of the terminal assistant answer. */
+	workParts?: AcpMessagePart[];
+	workStartedAt?: number;
+	workDurationMs?: number;
 }
 
 const TOOL_CALL_GROUP_THRESHOLD = 4;
@@ -46,6 +51,9 @@ export default function ChatBubble({
 	showActions = true,
 	copyParts,
 	statusLabel,
+	workParts = [],
+	workStartedAt,
+	workDurationMs,
 }: ChatBubbleProps) {
 	// Just the answer: reasoning and tool calls are folded away on screen and
 	// carry their own copy buttons, so including them here would bury the reply
@@ -61,11 +69,22 @@ export default function ChatBubble({
 			<div className="chat-bubble-role">
 				{messageRole === "user" ? "You" : assistantName}
 			</div>
-			<div className="chat-bubble-content">
-				<div className="chat-bubble-text chat-bubble-text--md">
-					{renderMessageParts(parts, messageRole, messageKey)}
+			{workParts.length > 0 ? (
+				<WorkLogView
+					parts={workParts}
+					streaming={streaming}
+					stateKey={`${messageKey}-work`}
+					startedAt={workStartedAt}
+					durationMs={workDurationMs}
+				/>
+			) : null}
+			{parts.length > 0 ? (
+				<div className="chat-bubble-content">
+					<div className="chat-bubble-text chat-bubble-text--md">
+						{renderMessageParts(parts, messageRole, messageKey)}
+					</div>
 				</div>
-			</div>
+			) : null}
 			{canCopy && (
 				<div className="chat-bubble-actions">
 					<CopyButton
@@ -75,7 +94,7 @@ export default function ChatBubble({
 					/>
 				</div>
 			)}
-			{streaming && (
+			{streaming && workParts.length === 0 && (
 				<div className="chat-typing">
 					<Mascot state="thinking" size={34} tone="inline" />
 					<span className="chat-typing-label">

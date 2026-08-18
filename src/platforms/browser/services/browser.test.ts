@@ -33,6 +33,20 @@ afterEach(() => {
 });
 
 describe("browser openForAuth", () => {
+	it("opens ordinary external links without exposing the opener", () => {
+		const open = vi.spyOn(window, "open").mockReturnValue(null);
+		const result = callback();
+
+		browserService.open(result, ["https://example.com"]);
+
+		expect(open).toHaveBeenCalledWith(
+			"https://example.com",
+			"_blank",
+			"noopener",
+		);
+		expect(result.success).toHaveBeenCalledTimes(1);
+	});
+
 	it("resolves and closes only for the matching popup message", () => {
 		const authPopup = popup();
 		vi.spyOn(window, "open").mockReturnValue(authPopup);

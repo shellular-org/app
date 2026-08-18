@@ -1141,6 +1141,17 @@ async function requestWebSocketToken(
 		headers,
 		body: JSON.stringify(clientInfo),
 	});
+	if (!response.ok) {
+		const json = (await response.json().catch(() => ({}))) as {
+			error?: string;
+			message?: string;
+		};
+		const error = new Error(
+			json.error || json.message || "Failed to authorize WebSocket connection.",
+		) as TokenRequestError;
+		error.httpStatus = response.status;
+		throw error;
+	}
 	const json = (await response.json().catch(() => ({}))) as {
 		success?: boolean;
 		data?: WebSocketTokenResponse;
@@ -1148,12 +1159,7 @@ async function requestWebSocketToken(
 		message?: string;
 	};
 
-	if (
-		!response.ok ||
-		json.success === false ||
-		!json.data?.wsToken ||
-		!json.data.clientId
-	) {
+	if (json.success === false || !json.data?.wsToken || !json.data.clientId) {
 		const error = new Error(
 			json.error || json.message || "Failed to authorize WebSocket connection.",
 		) as TokenRequestError;
@@ -1195,8 +1201,10 @@ async function resolveWebSocketToken(
 	// Always resolved fresh from settings rather than trusting whatever URL a
 	// prior connection attempt happened to land on — that may have been the
 	// old server, which must never be mistaken for "the new server".
-	const newServerUrl = await getBaseServerUrl();
-	const pref = await getServerPreference(hostId);
+	const [newServerUrl, pref] = await Promise.all([
+		getBaseServerUrl(),
+		getServerPreference(hostId),
+	]);
 
 	if (pref === "new") {
 		const wsInfo = await requestWebSocketToken(

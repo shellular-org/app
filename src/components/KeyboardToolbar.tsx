@@ -78,6 +78,11 @@ const KEY_MAP: Record<string, Key> = {
 	},
 };
 
+// Prevent focus loss when clicking buttons.
+function preventFocusLoss(e: React.MouseEvent | React.TouchEvent) {
+	e.preventDefault();
+}
+
 export default function KeyboardToolbar({
 	modifiers = { ctrl: false, alt: false, meta: false, shift: false },
 	handleKey,
@@ -91,6 +96,7 @@ export default function KeyboardToolbar({
 	onDisabledKeyPress,
 	rows = KEYS,
 }: Props) {
+	const disabledKeySet = new Set(disabledKeys);
 	const toolbarRef = useRef<HTMLDivElement>(null);
 	const rowsRef = useRef<HTMLDivElement>(null);
 	const underlayRef = useRef<HTMLDivElement>(null);
@@ -105,11 +111,6 @@ export default function KeyboardToolbar({
 	const keydownTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
 		new Map(),
 	);
-
-	// Prevent focus loss when clicking buttons
-	const preventFocusLoss = (e: React.MouseEvent | React.TouchEvent) => {
-		e.preventDefault();
-	};
 
 	const handleHideKeyboard = useCallback(() => {
 		if (onHideKeyboard) {
@@ -295,7 +296,7 @@ export default function KeyboardToolbar({
 							const { label, icon } = KEY_MAP[mappedKey] || {};
 							const isActive = modifiers[mappedKey as keyof ModifierState];
 							const isDisabled =
-								disabledKeys.includes(key) || disabledKeys.includes(mappedKey);
+								disabledKeySet.has(key) || disabledKeySet.has(mappedKey);
 							return (
 								<button
 									type="button"

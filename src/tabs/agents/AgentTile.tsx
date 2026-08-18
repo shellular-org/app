@@ -17,7 +17,9 @@ interface AgentTileProps {
 }
 
 export default function AgentTile({ agent }: AgentTileProps) {
-	const [isStreaming, setIsStreaming] = useState(getAgentStreaming(agent.id));
+	const [isStreaming, setIsStreaming] = useState(() =>
+		getAgentStreaming(agent.id),
+	);
 	const [installing, setInstalling] = useState(false);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const installingRef = useRef(false);
