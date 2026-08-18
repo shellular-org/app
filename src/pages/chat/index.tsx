@@ -143,6 +143,25 @@ function isRealTitle(value: unknown): value is string {
 	);
 }
 
+function createPendingImageAttachment(
+	file: File,
+	index: number,
+	origin: "pasted" | "attached",
+): ComposerAttachment {
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const ext = imageExtension(file);
+	const name = `${origin}-image-${timestamp}-${index + 1}.${ext}`;
+	return {
+		id: `att:pending:${timestamp}:${index + 1}`,
+		path: "",
+		relativePath: name,
+		name,
+		size: file.size,
+		mimeType: file.type || `image/${ext}`,
+		status: "pending" as const,
+	};
+}
+
 registerShellularDiffThemes();
 
 export interface ChatConversationPageProps {
@@ -2416,25 +2435,6 @@ export default function ChatConversationPage({
 	function handleRemoveImageAttachment(id: string) {
 		setImageAttachments((prev) => prev.filter((item) => item.id !== id));
 		updateInputOffset();
-	}
-
-	function createPendingImageAttachment(
-		file: File,
-		index: number,
-		origin: "pasted" | "attached",
-	): ComposerAttachment {
-		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const ext = imageExtension(file);
-		const name = `${origin}-image-${timestamp}-${index + 1}.${ext}`;
-		return {
-			id: `att:pending:${timestamp}:${index + 1}`,
-			path: "",
-			relativePath: name,
-			name,
-			size: file.size,
-			mimeType: file.type || `image/${ext}`,
-			status: "pending" as const,
-		};
 	}
 
 	async function savePastedImageAttachment(

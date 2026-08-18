@@ -9,6 +9,15 @@ import { useShellular } from "state";
 import { useBookmarkedSessions } from "state/bookmarkSessions";
 import AgentTile from "./AgentTile";
 
+function openBookmarked() {
+	pushPage("bookmarked-sessions", <BookmarkSessionsPage />);
+}
+
+async function openManageAgents() {
+	const ManageAgentsPage = await import("pages/manage-agents");
+	pushPage("manage-agents", <ManageAgentsPage.default />);
+}
+
 export default function AgentsTab() {
 	const { connectionStatus, loadingAgents, agents, loadAgents } =
 		useShellular();
@@ -25,13 +34,6 @@ export default function AgentsTab() {
 			</div>
 		);
 	}
-
-	const openBookmarked = () =>
-		pushPage("bookmarked-sessions", <BookmarkSessionsPage />);
-	const openManageAgents = async () => {
-		const ManageAgentsPage = await import("pages/manage-agents");
-		pushPage("manage-agents", <ManageAgentsPage.default />);
-	};
 
 	let rightSlot: ReactElement | null = null;
 

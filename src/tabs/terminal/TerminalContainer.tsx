@@ -1,7 +1,13 @@
 import native from "bridge/native";
 import type { AppMenuItem } from "components/AppMenu";
 import keyboard from "lib/keyboard";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useEffectEvent,
+	useRef,
+	useState,
+} from "react";
 import { useShellular } from "state";
 import {
 	isAndroidSystemGestureEdge,
@@ -81,6 +87,15 @@ export default function TerminalContainer({
 		) as TerminalHTMLElement | null;
 		termContainer?.fit?.();
 	}, [getTerminalContainer]);
+
+	const syncActiveTerminalLayout = useEffectEvent(
+		(terminalId: string, wasAtBottom: boolean) => {
+			fitActive();
+			if (wasAtBottom) {
+				scrollTerminalToBottom(terminalId);
+			}
+		},
+	);
 
 	const onTouchStart = useCallback(
 		(event: React.TouchEvent<HTMLDivElement>) => {
@@ -174,20 +189,11 @@ export default function TerminalContainer({
 			const wasAtBottom = wasAtBottomRef.current.get(activeTerminalId) ?? true;
 			requestAnimationFrame(() => {
 				requestAnimationFrame(() => {
-					fitActive();
-					if (wasAtBottom) {
-						scrollTerminalToBottom(activeTerminalId);
-					}
+					syncActiveTerminalLayout(activeTerminalId, wasAtBottom);
 				});
 			});
 		}
-	}, [
-		activeTerminals,
-		activeTerminalId,
-		getTerminalContainer,
-		fitActive,
-		scrollTerminalToBottom,
-	]);
+	}, [activeTerminals, activeTerminalId, getTerminalContainer]);
 
 	useEffect(() => {
 		const container = containerRef.current;

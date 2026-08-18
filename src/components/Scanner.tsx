@@ -4,7 +4,13 @@ import scanner from "bridge/scanner";
 import ConnectingIcon from "components/ConnectingIcon";
 import Mascot from "components/Mascot";
 import actionStack from "lib/actionStack";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useEffectEvent,
+	useRef,
+	useState,
+} from "react";
 import { useShellular } from "state";
 
 interface ScannerProps {
@@ -108,6 +114,7 @@ export default function Scanner({
 
 		actionStack.remove("qr-code-scanner");
 	}, [connectToHost, setShowScanner, handleCancelScanner]);
+	const startScanOnShow = useEffectEvent(startScan);
 
 	const handleUploadQr = useCallback(
 		async (file: File | undefined) => {
@@ -149,12 +156,12 @@ export default function Scanner({
 
 	useEffect(() => {
 		if (!showScanner) return;
-		const timer = setTimeout(() => startScan(), 100);
+		const timer = setTimeout(() => startScanOnShow(), 100);
 		return () => {
 			clearTimeout(timer);
 			scanner.hide().catch(console.error);
 		};
-	}, [showScanner, startScan]);
+	}, [showScanner]);
 
 	return (
 		<div className={`qr-scanner${compact && !showScanner ? " compact" : ""}`}>

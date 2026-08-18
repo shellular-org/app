@@ -17,6 +17,29 @@ import React, { useEffect, useState } from "react";
 import themes from "themes";
 import "./style.scss";
 
+// Settings save instantly on change, so a success toast per change would be
+// noisy. But a failed write must not pass silently — surface it so the user
+// knows the change didn't stick. Returns whether the save succeeded.
+async function persistSettings(
+	settings: Parameters<typeof saveSettings>[0],
+): Promise<boolean> {
+	try {
+		await saveSettings(settings);
+		return true;
+	} catch (err) {
+		console.error("Failed to save settings:", err);
+		toast("Couldn't save setting", 2600);
+		return false;
+	}
+}
+
+function normalizeDomain(domain: string) {
+	return domain
+		.trim()
+		.replace(/^https?:\/\//, "")
+		.replace(/\/+$/, "");
+}
+
 // --- Components ---
 
 function NumberInput({
@@ -307,22 +330,6 @@ export default function SettingsPage() {
 		});
 	}, []);
 
-	// Settings save instantly on change, so a success toast per change would be
-	// noisy. But a failed write must not pass silently — surface it so the user
-	// knows the change didn't stick. Returns whether the save succeeded.
-	async function persistSettings(
-		settings: Parameters<typeof saveSettings>[0],
-	): Promise<boolean> {
-		try {
-			await saveSettings(settings);
-			return true;
-		} catch (err) {
-			console.error("Failed to save settings:", err);
-			toast("Couldn't save setting", 2600);
-			return false;
-		}
-	}
-
 	async function handleThemeChange(name: string) {
 		const themeName = name.toLowerCase();
 		setCurrentTheme(themeName);
@@ -392,13 +399,6 @@ export default function SettingsPage() {
 	async function handleTerminalLetterSpacingChange(value: number) {
 		setTerminalLetterSpacing(value);
 		await persistSettings({ terminal: { letterSpacing: value } });
-	}
-
-	function normalizeDomain(domain: string) {
-		return domain
-			.trim()
-			.replace(/^https?:\/\//, "")
-			.replace(/\/+$/, "");
 	}
 
 	async function handleHapticFeedbackChange(value: boolean) {

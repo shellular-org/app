@@ -136,7 +136,7 @@ export default {
 		callback.success(0);
 	},
 	openInBrowser(_callback: Callback, [src]: [string]) {
-		window.open(src, "_blank");
+		window.open(src, "_blank", "noopener");
 	},
 	setTheme(callback: Callback, [theme]: [Theme]) {
 		appTheme = theme;

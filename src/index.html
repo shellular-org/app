@@ -12,15 +12,17 @@
   <title>Shellular</title>
 
   <script>
-    if (localStorage.getItem('primaryColor')) {
+    var primaryColor = localStorage.getItem('primaryColor');
+    var primaryTextColor = localStorage.getItem('primaryTextColor');
+    if (primaryColor) {
       var loaderStyle = document.createElement('style');
-      document.documentElement.style.backgroundColor = localStorage.getItem('primaryColor');
-      document.documentElement.style.color = localStorage.getItem('primaryTextColor');
+      document.documentElement.style.backgroundColor = primaryColor;
+      document.documentElement.style.color = primaryTextColor;
       loaderStyle.innerHTML =
         'body:empty::before,body.loading::before{background-color: ' +
-        localStorage.getItem('primaryColor') +
+        primaryColor +
         ' !important;}body:empty::after,body.loading::after{color: ' +
-        localStorage.getItem('primaryTextColor') +
+        primaryTextColor +
         ' !important;}';
       document.head.appendChild(loaderStyle);
     }

@@ -78,6 +78,11 @@ const KEY_MAP: Record<string, Key> = {
 	},
 };
 
+// Prevent focus loss when clicking buttons.
+function preventFocusLoss(e: React.MouseEvent | React.TouchEvent) {
+	e.preventDefault();
+}
+
 export default function KeyboardToolbar({
 	modifiers = { ctrl: false, alt: false, meta: false, shift: false },
 	handleKey,
@@ -106,11 +111,6 @@ export default function KeyboardToolbar({
 	const keydownTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
 		new Map(),
 	);
-
-	// Prevent focus loss when clicking buttons
-	const preventFocusLoss = (e: React.MouseEvent | React.TouchEvent) => {
-		e.preventDefault();
-	};
 
 	const handleHideKeyboard = useCallback(() => {
 		if (onHideKeyboard) {

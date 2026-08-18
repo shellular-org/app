@@ -1141,6 +1141,17 @@ async function requestWebSocketToken(
 		headers,
 		body: JSON.stringify(clientInfo),
 	});
+	if (!response.ok) {
+		const json = (await response.json().catch(() => ({}))) as {
+			error?: string;
+			message?: string;
+		};
+		const error = new Error(
+			json.error || json.message || "Failed to authorize WebSocket connection.",
+		) as TokenRequestError;
+		error.httpStatus = response.status;
+		throw error;
+	}
 	const json = (await response.json().catch(() => ({}))) as {
 		success?: boolean;
 		data?: WebSocketTokenResponse;
@@ -1148,12 +1159,7 @@ async function requestWebSocketToken(
 		message?: string;
 	};
 
-	if (
-		!response.ok ||
-		json.success === false ||
-		!json.data?.wsToken ||
-		!json.data.clientId
-	) {
+	if (json.success === false || !json.data?.wsToken || !json.data.clientId) {
 		const error = new Error(
 			json.error || json.message || "Failed to authorize WebSocket connection.",
 		) as TokenRequestError;
