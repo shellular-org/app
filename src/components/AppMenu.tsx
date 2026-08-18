@@ -7,7 +7,7 @@ import {
 	MenuSeparator,
 } from "@headlessui/react";
 import type { ReactNode } from "react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 export interface AppMenuItem {
 	key?: string;
@@ -31,7 +31,7 @@ interface Props {
 	placement?: "bottom end" | "bottom start" | "top end" | "top start";
 }
 
-export default function AppMenu({
+function AppMenuContent({
 	items,
 	children,
 	disabled,
@@ -39,72 +39,74 @@ export default function AppMenu({
 	onToggle,
 	buttonClassName = "",
 	placement = "bottom end",
-}: Props) {
-	const onToggleRef = useRef(onToggle);
-	onToggleRef.current = onToggle;
+	open,
+}: Props & { open: boolean }) {
 	const prevOpenRef = useRef<boolean | undefined>(undefined);
 
+	useEffect(() => {
+		if (prevOpenRef.current !== open) {
+			prevOpenRef.current = open;
+			onToggle?.(open);
+		}
+	}, [onToggle, open]);
+
+	return (
+		<>
+			<MenuButton
+				type="button"
+				className={buttonClassName}
+				aria-label={ariaLabel}
+				disabled={disabled}
+			>
+				{children ?? (
+					<span
+						className={`icon-more-vertical w-8 h-full flex items-center justify-end ${disabled ? "opacity-50" : ""}`}
+						aria-hidden={true}
+					/>
+				)}
+			</MenuButton>
+			<MenuItems
+				anchor={{ to: placement, gap: 8, padding: 8 }}
+				portal
+				modal={false}
+				transition
+				className="app-menu-dropdown"
+			>
+				{items.map((item) => (
+					<div key={item.key || item.label}>
+						{item.divider && <MenuSeparator className="app-menu-divider" />}
+						<MenuItem>
+							{({ focus }) => (
+								<button
+									type="button"
+									className={`${focus ? "app-menu-item--active" : ""}${item.danger ? " app-menu-danger" : ""}${item.comingSoon ? " overlay-coming-soon" : ""}	${
+										item.disabled ? "opacity-50 pointer-events-none" : ""
+									}`}
+									onClick={item.onClick}
+								>
+									<span className={item.icon} aria-hidden="true" />
+									<div className="flex flex-col w-full truncate">
+										<span className="app-menu-label">{item.label}</span>
+										{item.subText && (
+											<small className="opacity-60 truncate w-full">
+												{item.subText}
+											</small>
+										)}
+									</div>
+								</button>
+							)}
+						</MenuItem>
+					</div>
+				))}
+			</MenuItems>
+		</>
+	);
+}
+
+export default function AppMenu(props: Props) {
 	return (
 		<Menu as="div" className="app-menu">
-			{({ open }) => {
-				if (prevOpenRef.current !== open) {
-					prevOpenRef.current = open;
-					onToggleRef.current?.(open);
-				}
-				return (
-					<>
-						<MenuButton
-							type="button"
-							className={buttonClassName}
-							aria-label={ariaLabel}
-							disabled={disabled}
-						>
-							{children ?? (
-								<span
-									className={`icon-more-vertical w-8 h-full flex items-center justify-end ${disabled ? "opacity-50" : ""}`}
-									aria-hidden={true}
-								/>
-							)}
-						</MenuButton>
-						<MenuItems
-							anchor={{ to: placement, gap: 8, padding: 8 }}
-							portal
-							modal={false}
-							transition
-							className="app-menu-dropdown"
-						>
-							{items.map((item) => (
-								<div key={item.key || item.label}>
-									{item.divider && (
-										<MenuSeparator className="app-menu-divider" />
-									)}
-									<MenuItem>
-										{({ focus }) => (
-											<button
-												type="button"
-												className={`${focus ? "app-menu-item--active" : ""}${item.danger ? " app-menu-danger" : ""}${item.comingSoon ? " overlay-coming-soon" : ""}	${
-													item.disabled ? "opacity-50 pointer-events-none" : ""
-												}`}
-												onClick={item.onClick}
-											>
-												<span className={item.icon} aria-hidden="true" />
-												<div className="flex flex-col w-full truncate">
-													<span className="app-menu-label">{item.label}</span>
-													{item.subText && (
-														<small className="opacity-60 truncate w-full">
-															{item.subText}
-														</small>
-													)}
-												</div>
-											</button>
-										)}
-									</MenuItem>
-								</div>
-							))}
-						</MenuItems>
-					</>
-				);
-			}}
+			{({ open }) => <AppMenuContent {...props} open={open} />}
 		</Menu>
 	);
 }
