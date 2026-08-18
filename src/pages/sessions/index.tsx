@@ -7,8 +7,8 @@ import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import Page from "components/Page";
 import { getAgentIcon } from "lib/agents";
-import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { openChatPage } from "lib/navigate";
 import { getResumeCommand } from "lib/resumeCommand";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -206,26 +206,17 @@ export default function ChatSessionsPage({
 			title: string;
 			workspacePath: string;
 		}) => {
-			const tabId = chatTabId(backend, opts.sessionId);
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				tabId,
-				<ChatConversationPage.default
-					chatTabId={tabId}
-					sessionId={opts.sessionId}
-					title={opts.title}
-					agentId={backend}
-					workspacePath={opts.workspacePath}
-					assistantName={agent.name}
-					agentAvailable={agentAvailable}
-					unavailableMessage={`${agent.name} is not available on this device.`}
-					providerName={agent.title}
-					agentCapabilities={agent?.capabilities}
-					createOnFirstMessage={!opts.sessionId}
-				/>,
-			);
+			await openChatPage({
+				agentId: backend,
+				agent,
+				sessionId: opts.sessionId,
+				title: opts.title,
+				workspacePath: opts.workspacePath,
+				agentAvailable,
+				createOnFirstMessage: !opts.sessionId,
+			});
 		},
-		[agent?.capabilities, agentAvailable, agent.name, agent.title, backend],
+		[agent, agentAvailable, backend],
 	);
 
 	const openNewChatForWorkspace = useCallback(

@@ -10,8 +10,8 @@ import Scanner from "components/Scanner";
 import { AnimatePresence, domMax, LazyMotion, m } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { useAuth } from "lib/auth";
-import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { openChatPage } from "lib/navigate";
 import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
 import { getResumeCommand } from "lib/resumeCommand";
@@ -301,24 +301,13 @@ async function openSession(
 	session: SessionActivity,
 	agent?: ReturnType<typeof useShellular>["agents"][string],
 ) {
-	const agentName = agent?.name ?? session.agentId;
-	const tabId = chatTabId(session.agentId, session.sessionId);
-	const ChatConversationPage = await import("pages/chat");
-	pushPage(
-		tabId,
-		<ChatConversationPage.default
-			chatTabId={tabId}
-			sessionId={session.sessionId}
-			title={sessionDisplayTitle(session)}
-			agentId={session.agentId}
-			workspacePath={session.workspacePath ?? ""}
-			assistantName={agentName}
-			agentAvailable={agent?.available ?? true}
-			unavailableMessage={`${agentName} is not available on this device.`}
-			providerName={agent?.title ?? session.agentId}
-			agentCapabilities={agent?.capabilities}
-		/>,
-	);
+	await openChatPage({
+		agentId: session.agentId,
+		agent,
+		sessionId: session.sessionId,
+		title: sessionDisplayTitle(session),
+		workspacePath: session.workspacePath ?? "",
+	});
 }
 
 function copySessionId(sessionId: string) {
