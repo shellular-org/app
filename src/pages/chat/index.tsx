@@ -119,6 +119,7 @@ import {
 } from "./composer/contextWindowUsage";
 import {
 	type DirectPromptDispatch,
+	isQueuedPromptPlaceholderId,
 	reconcilePromptQueueVisibility,
 	shouldQueuePrompt,
 } from "./lib/promptQueue";
@@ -874,7 +875,15 @@ export default function ChatConversationPage({
 
 			if (event.type === "message") {
 				const message = event.properties.message;
-				if (message) upsertAcpMessageRef.current(message as AcpMessage);
+				const acpMessage = message as AcpMessage | undefined;
+				// Queued sends produce a transient `prompt_queue_*` user message
+				// before ACP dispatches the prompt. The queue strip owns that state;
+				// rendering it here creates a duplicate user bubble during the
+				// preceding turn. The later, authoritative ACP message is not a
+				// placeholder and is rendered normally.
+				if (acpMessage && !isQueuedPromptPlaceholderId(acpMessage.id)) {
+					upsertAcpMessageRef.current(acpMessage);
+				}
 				return;
 			}
 

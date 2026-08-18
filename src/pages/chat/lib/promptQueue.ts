@@ -13,6 +13,15 @@ export interface DirectPromptDispatch {
 	sessionId: string;
 }
 
+/**
+ * The CLI emits a temporary message when it accepts a queued prompt. It is
+ * represented in the composer queue until the prompt is actually dispatched,
+ * so it must not also be rendered as a transcript message.
+ */
+export function isQueuedPromptPlaceholderId(id: unknown): boolean {
+	return typeof id === "string" && id.startsWith("prompt_queue_");
+}
+
 export interface PromptQueueVisibility<T extends QueuePromptIdentity> {
 	visibleItems: T[];
 	directDispatch: DirectPromptDispatch | null;

@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
 	findImmediatelyClaimedPromptId,
+	isQueuedPromptPlaceholderId,
 	reconcilePromptQueueVisibility,
 	shouldQueuePrompt,
 } from "./promptQueue";
+
+describe("isQueuedPromptPlaceholderId", () => {
+	it("recognizes only the CLI's transient queue message ids", () => {
+		expect(isQueuedPromptPlaceholderId("prompt_queue_1")).toBe(true);
+		expect(isQueuedPromptPlaceholderId("server_user_1")).toBe(false);
+		expect(isQueuedPromptPlaceholderId(undefined)).toBe(false);
+	});
+});
 
 describe("shouldQueuePrompt", () => {
 	it("sends directly when a stale queue runner has no remaining work", () => {
