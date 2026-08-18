@@ -104,6 +104,11 @@ import {
 	getMessageKey,
 } from "./chat-bubble/lib/messageParts";
 import { bytesToBase64, findLastIndex } from "./chat-bubble/lib/utils";
+import {
+	getAssistantTurnDurationMs,
+	getElapsedDurationMs,
+	projectAssistantTurn,
+} from "./chat-bubble/lib/workLog";
 import ContextWindowMeter from "./composer/ContextWindowMeter";
 import {
 	type ContextWindowUsage,
@@ -112,6 +117,12 @@ import {
 	getContextWindowState,
 	readContextWindowUsage,
 } from "./composer/contextWindowUsage";
+import {
+	type DirectPromptDispatch,
+	isQueuedPromptPlaceholderId,
+	reconcilePromptQueueVisibility,
+	shouldQueuePrompt,
+} from "./lib/promptQueue";
 import { appendTextPart, pendingTokenSuffix } from "./lib/streamText";
 import { upsertMessage } from "./lib/upsertMessage";
 import { normalizeEditorPath } from "./pathUtils";
@@ -261,7 +272,11 @@ export default function ChatConversationPage({
 	const [historyScrollReady, setHistoryScrollReady] = useState(false);
 	const [activePromptSuggestionIndex, setActivePromptSuggestionIndex] =
 		useState(0);
-	const chatIsStreaming = isStreaming || promptQueueRunning;
+	// A queue runner can report `running` for one final event after its list has
+	// drained. The active session state covers the item currently executing;
+	// queue state only extends that while concrete pending items remain.
+	const chatIsStreaming =
+		isStreaming || (promptQueueRunning && queuedPrompts.length > 0);
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const sentinelRef = useRef<HTMLDivElement>(null);
@@ -328,6 +343,15 @@ export default function ChatConversationPage({
 	// bookkeeping — incoming messages never overwrite it.
 	const streamingAssistantIdRef = useRef<string | null>(null);
 	const streamingUserIdRef = useRef<string | null>(null);
+	// Direct prompts also pass through the CLI's queue internally. Track the one
+	// the idle runner is about to claim so it is not presented as waiting work.
+	const directPromptDispatchRef = useRef<DirectPromptDispatch | null>(null);
+	const immediatelyClaimedPromptIdsRef = useRef(new Set<string>());
+	// Protocol message timestamps are optional, so retain the locally measured
+	// wall-clock duration for turns completed during this page lifetime.
+	const [turnDurationByUserId, setTurnDurationByUserId] = useState<
+		Record<string, number>
+	>({});
 	// Cumulative token text per streaming message id, so a token is rendered
 	// only as the suffix beyond what the last `message` event already carried.
 	const streamedTextRef = useRef(new Map<string, string>());
@@ -366,14 +390,63 @@ export default function ChatConversationPage({
 	);
 	const visibleMessageItems = useMemo(() => {
 		const seen = new Map<string, number>();
-		return visibleMessages.map((message, index) => {
+		const items: Array<{
+			message: AcpMessage;
+			messageKey: string;
+			renderKey: string;
+			groupEnd: boolean;
+			groupParts: AcpMessagePart[];
+			parts: AcpMessagePart[];
+			workParts: AcpMessagePart[];
+			workStartedAt?: number;
+			workDurationMs?: number;
+		}> = [];
+		for (let index = 0; index < visibleMessages.length; index += 1) {
+			const message = visibleMessages[index];
+			if (message.role === "assistant") {
+				let end = index + 1;
+				while (
+					end < visibleMessages.length &&
+					visibleMessages[end].role === "assistant"
+				) {
+					end += 1;
+				}
+				const turnMessages = visibleMessages.slice(index, end);
+				const liveTurn = chatIsStreaming && end === visibleMessages.length;
+				const projection = projectAssistantTurn(turnMessages, liveTurn);
+				const messageKey = getMessageKey(turnMessages[0]);
+				const count = seen.get(messageKey) ?? 0;
+				seen.set(messageKey, count + 1);
+				const previousMessage = visibleMessages[index - 1];
+				const recordedDuration = previousMessage?.id
+					? turnDurationByUserId[previousMessage.id]
+					: undefined;
+				items.push({
+					message: turnMessages[turnMessages.length - 1] ?? message,
+					messageKey,
+					renderKey:
+						count === 0
+							? `assistant-turn:${messageKey}`
+							: `assistant-turn:${messageKey}:duplicate-${count}`,
+					groupEnd: true,
+					groupParts: projection.answerParts,
+					parts: projection.answerParts,
+					workParts: projection.workParts,
+					workStartedAt:
+						previousMessage?.timestamp ?? turnMessages[0]?.timestamp,
+					workDurationMs:
+						recordedDuration ??
+						getAssistantTurnDurationMs(turnMessages, previousMessage),
+				});
+				index = end - 1;
+				continue;
+			}
+
 			const messageKey = getMessageKey(message);
 			const count = seen.get(messageKey) ?? 0;
 			seen.set(messageKey, count + 1);
-			// Agents split one answer into several ACP messages (one per model
-			// round between tool calls). Consecutive same-role messages render as
-			// one visual group: actions appear once, on the last bubble, and copy
-			// covers the whole group.
+			// Consecutive user messages remain separate bubbles but share one
+			// group-closing action row, so queued/echoed messages copy together.
 			const next = visibleMessages[index + 1];
 			const groupEnd = !next || next.role !== message.role;
 			let groupParts = message.parts;
@@ -388,16 +461,19 @@ export default function ChatConversationPage({
 						.flatMap((item) => item.parts);
 				}
 			}
-			return {
+			items.push({
 				message,
 				messageKey,
 				groupEnd,
 				groupParts,
+				parts: message.parts,
+				workParts: [],
 				renderKey:
 					count === 0 ? messageKey : `${messageKey}:duplicate-${count}`,
-			};
-		});
-	}, [visibleMessages]);
+			});
+		}
+		return items;
+	}, [chatIsStreaming, turnDurationByUserId, visibleMessages]);
 	const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
 
 	// What the agent is doing right now, read off the newest unfinished tool
@@ -745,11 +821,21 @@ export default function ChatConversationPage({
 			}
 
 			if (event.type === "prompt_queue.updated") {
-				const queue = event.properties.queue;
-				setPromptQueueRunning(event.properties.running === true);
-				setQueuedPrompts(
-					Array.isArray(queue) ? (queue as AcpQueuedPrompt[]) : [],
+				const queue = Array.isArray(event.properties.queue)
+					? (event.properties.queue as AcpQueuedPrompt[])
+					: [];
+				const running = event.properties.running === true;
+				const visibility = reconcilePromptQueueVisibility(
+					queue,
+					running,
+					directPromptDispatchRef.current,
+					immediatelyClaimedPromptIdsRef.current,
 				);
+				directPromptDispatchRef.current = visibility.directDispatch;
+				immediatelyClaimedPromptIdsRef.current =
+					visibility.immediatelyClaimedIds;
+				setPromptQueueRunning(running);
+				setQueuedPrompts(visibility.visibleItems);
 				return;
 			}
 
@@ -789,7 +875,15 @@ export default function ChatConversationPage({
 
 			if (event.type === "message") {
 				const message = event.properties.message;
-				if (message) upsertAcpMessageRef.current(message as AcpMessage);
+				const acpMessage = message as AcpMessage | undefined;
+				// Queued sends produce a transient `prompt_queue_*` user message
+				// before ACP dispatches the prompt. The queue strip owns that state;
+				// rendering it here creates a duplicate user bubble during the
+				// preceding turn. The later, authoritative ACP message is not a
+				// placeholder and is rendered normally.
+				if (acpMessage && !isQueuedPromptPlaceholderId(acpMessage.id)) {
+					upsertAcpMessageRef.current(acpMessage);
+				}
 				return;
 			}
 
@@ -951,6 +1045,8 @@ export default function ChatConversationPage({
 		setActiveSessionId(sessionId);
 		stickToBottomRef.current = true;
 		streamedTextRef.current.clear();
+		directPromptDispatchRef.current = null;
+		immediatelyClaimedPromptIdsRef.current.clear();
 		setPendingPermissions([]);
 		setPendingElicitations([]);
 		setQueuedPrompts([]);
@@ -1629,16 +1725,29 @@ export default function ChatConversationPage({
 					</div>
 				)}
 				{visibleMessageItems.map(
-					({ message: msg, messageKey, renderKey, groupEnd, groupParts }) => {
+					({
+						message: msg,
+						messageKey,
+						renderKey,
+						groupEnd,
+						groupParts,
+						parts,
+						workParts,
+						workStartedAt,
+						workDurationMs,
+					}) => {
 						return (
 							<ChatBubble
 								key={renderKey}
 								messageKey={messageKey}
-								parts={msg.parts}
+								parts={parts}
 								messageRole={msg.role}
 								assistantName={assistantName}
 								showActions={groupEnd}
 								copyParts={groupParts}
+								workParts={workParts}
+								workStartedAt={workStartedAt}
+								workDurationMs={workDurationMs}
 								statusLabel={streamingStatusLabel}
 								streaming={
 									chatIsStreaming &&
@@ -1883,8 +1992,14 @@ export default function ChatConversationPage({
 		stickToBottomRef.current = true;
 
 		const queuedSessionId = activeSessionId || sessionId;
-		const hasActiveLocalPrompt = cleanupSendRef.current !== null;
-		if (queuedSessionId && (hasActiveLocalPrompt || promptQueueRunning)) {
+		const queueThisPrompt =
+			queuedSessionId &&
+			shouldQueuePrompt({
+				sessionId: queuedSessionId,
+				sessionIsStreaming: getSessionStreaming(agentId, queuedSessionId),
+				queuedSessionIds: queuedPrompts.map((item) => item.sessionId),
+			});
+		if (queuedSessionId && queueThisPrompt) {
 			try {
 				const content = await composerPartsToAcpContent(parts);
 				acpQueuePrompt(agentId, queuedSessionId, text, content);
@@ -2009,6 +2124,9 @@ export default function ChatConversationPage({
 			if (reviewPrompt) content.push({ type: "text", text: reviewPrompt });
 			const sendPrompt = () => {
 				setSessionStreaming(agentId, targetSessionId, true);
+				directPromptDispatchRef.current = {
+					sessionId: targetSessionId,
+				};
 				const cleanup = acpPrompt(
 					agentId,
 					targetSessionId,
@@ -2279,11 +2397,21 @@ export default function ChatConversationPage({
 	function finishStreamingTurn(
 		sessionIdToUse = activeSessionIdRef.current || sessionId,
 	) {
+		const completedUserId = streamingUserIdRef.current;
+		const duration = getElapsedDurationMs(sentTurnStartRef.current);
+		if (completedUserId && duration !== undefined) {
+			setTurnDurationByUserId((current) =>
+				current[completedUserId] === duration
+					? current
+					: { ...current, [completedUserId]: duration },
+			);
+		}
 		cleanupSendRef.current?.();
 		cleanupSendRef.current = null;
 		setSessionStreaming(agentId, sessionIdToUse, false);
 		streamingUserIdRef.current = null;
 		streamingAssistantIdRef.current = null;
+		directPromptDispatchRef.current = null;
 		streamedTextRef.current.clear();
 	}
 

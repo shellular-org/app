@@ -1,102 +1,97 @@
 import {
+	formatPartValue,
 	getToolCallContentParts,
-	messagePartToMarkdown,
 	type ToolCallPart,
 } from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
+import { deriveToolActivityPresentation } from "../lib/workLog";
 import ChatDisclosure from "./ChatDisclosure";
 import MessagePartView from "./MessagePartView";
-import NameIcon from "./NameIcon";
 import Status from "./Status";
 import ToolOutputView from "./ToolOutputView";
 
 export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
-	let parts = getToolCallContentParts(part);
+	const parts = getToolCallContentParts(part);
 	const locations = readToolLocations(part);
-
-	if (parts.find(({ type }) => type === "file_change")) {
-		parts = parts.filter(({ type }) => type === "file_change");
-
+	const presentation = deriveToolActivityPresentation(part);
+	const hasDetails = Boolean(
+		part.output || part.arguments || parts.length || locations.length,
+	);
+	const summary = (
+		<>
+			<span
+				className={`${activityIcon(presentation.kind)} chat-work-row-icon`}
+				aria-hidden="true"
+			/>
+			<span className="chat-work-row-label">
+				<strong>{presentation.label}</strong>
+				{presentation.detail ? <span> · {presentation.detail}</span> : null}
+			</span>
+			<span className="chat-work-row-status">
+				<Status status={part.status} />
+			</span>
+		</>
+	);
+	if (!hasDetails) {
 		return (
-			<>
-				{parts.map((contentPart, index) => (
-					<MessagePartView
-						key={getRenderPartKey(contentPart, index)}
-						part={contentPart}
-					/>
-				))}
-			</>
+			<div className={`chat-work-row ${statusModifier(part.status) ?? ""}`}>
+				<div className="chat-part-card-title">{summary}</div>
+			</div>
 		);
 	}
-
-	if (part.output) {
-		return (
-			<ChatDisclosure
-				className={statusModifier(part.status)}
-				copyText={() => messagePartToMarkdown(part)}
-				copyLabel="Copy tool call"
-				summary={
-					<>
-						<span className="shrink-0">
-							<NameIcon name={part.name} />
-						</span>
-						<span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-normal [overflow-wrap:anywhere] [word-break:break-word]">
-							{part.title}
-						</span>
-						<span className="shrink-0">
-							<Status status={part.status} />
-						</span>
-					</>
-				}
-			>
-				<ToolLocations locations={locations} />
+	const contentParts = part.output
+		? parts.filter(({ type }) => type === "file_change")
+		: parts;
+	return (
+		<ChatDisclosure
+			className={`chat-work-row ${statusModifier(part.status) ?? ""}`}
+			card={false}
+			summary={summary}
+		>
+			<ToolLocations locations={locations} />
+			{part.output ? (
 				<ToolOutputView
-					title={part.title || "Tool Call"}
+					title={part.title || presentation.label}
 					output={part.output}
 					toolArguments={part.arguments}
 				/>
-			</ChatDisclosure>
-		);
-	}
-
-	if (parts.every(({ type }) => type === "text")) {
-		return (
-			<ChatDisclosure
-				copyText={() => messagePartToMarkdown(part)}
-				copyLabel="Copy tool call"
-				summary={
-					<>
-						<span className="icon-tool shrink-0" />
-						<span className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-normal [overflow-wrap:anywhere] [word-break:break-word]">
-							{part.title}
-						</span>
-					</>
-				}
-				className="chat-part-card"
-			>
-				<div style={{ padding: "10px", background: "var(--surface-soft)" }}>
-					{parts.map((contentPart, index) => (
-						<MessagePartView
-							key={getRenderPartKey(contentPart, index)}
-							part={contentPart}
-						/>
-					))}
-				</div>
-			</ChatDisclosure>
-		);
-	}
-
-	return (
-		<>
-			<ToolLocations locations={locations} />
-			{parts.map((contentPart, index) => (
+			) : null}
+			{!part.output && part.arguments ? (
+				<pre className="chat-work-row-arguments">
+					{formatPartValue(part.arguments)}
+				</pre>
+			) : null}
+			{contentParts.map((contentPart, index) => (
 				<MessagePartView
 					key={getRenderPartKey(contentPart, index)}
 					part={contentPart}
 				/>
 			))}
-		</>
+		</ChatDisclosure>
 	);
+}
+
+function activityIcon(
+	kind: ReturnType<typeof deriveToolActivityPresentation>["kind"],
+) {
+	switch (kind) {
+		case "execute":
+			return "icon-terminal";
+		case "read":
+			return "icon-eye";
+		case "change":
+			return "icon-edit";
+		case "search":
+			return "icon-search";
+		case "fetch":
+			return "icon-globe";
+		case "think":
+			return "icon-cpu";
+		case "switch_mode":
+			return "icon-settings";
+		default:
+			return "icon-tool";
+	}
 }
 
 /**
