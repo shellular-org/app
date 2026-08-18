@@ -396,8 +396,10 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 					incrementSessionCount().catch(console.error);
 				}
 
-				// Projects are loaded when their tab is opened, so a rarely visited
-				// tab does not do filesystem and git work on every connection.
+				// Always refresh projects after connecting. Later tab visits use the
+				// five-minute in-memory cache in `loadProjects`.
+				loadProjects(true).catch(console.error);
+
 				if (hostInfo.id !== projectsCacheRef.current?.hostId) {
 					setProjects([]);
 					loadBookmarkedSessions(hostInfo.id).catch(console.error);
@@ -436,7 +438,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 
 		// Store in ref for event handlers
 		restoreTerminalsRef.current = restoreTerminals;
-	}, []);
+	}, [loadProjects]);
 
 	// Keep the latest connected host / connect fn in refs so the lifecycle
 	// listeners below can subscribe once and never re-bind.
