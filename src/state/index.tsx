@@ -395,9 +395,13 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 	// Keep the latest connected host / connect fn in refs so the lifecycle
 	// listeners below can subscribe once and never re-bind.
 	const lastConnectedHostRef = useRef<HostInfo | null>(null);
-	lastConnectedHostRef.current = lastConnectedHost;
 	const connectRef = useRef(connect);
-	connectRef.current = connect;
+	useEffect(() => {
+		lastConnectedHostRef.current = lastConnectedHost;
+	}, [lastConnectedHost]);
+	useEffect(() => {
+		connectRef.current = connect;
+	}, [connect]);
 
 	useEffect(() => {
 		const onPause = () => {

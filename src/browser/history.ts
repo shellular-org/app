@@ -1,4 +1,4 @@
-export const HISTORY_KEY = "shellular:browser-history";
+export const HISTORY_KEY = "shellular:browser-history:v1";
 const MAX_HISTORY = 50;
 
 export interface HistoryEntry {

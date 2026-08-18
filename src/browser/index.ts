@@ -4,7 +4,7 @@ import { buildHomePage } from "./home";
 import { buildPortsPage } from "./ports";
 import { themeStyles } from "./shared";
 
-const PORTS_CACHE_KEY = "shellular:ports-cache";
+const PORTS_CACHE_KEY = "shellular:ports-cache:v1";
 
 function getCachedPorts(): PortEntry[] {
 	try {

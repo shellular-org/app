@@ -53,17 +53,15 @@ export default function HostQrSheet({ host, open, onClose }: HostQrSheetProps) {
 		if (!open || hidden) return;
 
 		const tick = setInterval(() => {
-			setSecondsLeft((prev) => {
-				if (prev <= 1) {
-					setHidden(true);
-					return 0;
-				}
-				return prev - 1;
-			});
+			setSecondsLeft((prev) => Math.max(prev - 1, 0));
 		}, 1000);
 
 		return () => clearInterval(tick);
 	}, [open, hidden]);
+
+	useEffect(() => {
+		if (secondsLeft === 0) setHidden(true);
+	}, [secondsLeft]);
 
 	const reveal = () => {
 		setHidden(false);

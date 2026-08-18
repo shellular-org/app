@@ -91,6 +91,7 @@ export default function KeyboardToolbar({
 	onDisabledKeyPress,
 	rows = KEYS,
 }: Props) {
+	const disabledKeySet = new Set(disabledKeys);
 	const toolbarRef = useRef<HTMLDivElement>(null);
 	const rowsRef = useRef<HTMLDivElement>(null);
 	const underlayRef = useRef<HTMLDivElement>(null);
@@ -295,7 +296,7 @@ export default function KeyboardToolbar({
 							const { label, icon } = KEY_MAP[mappedKey] || {};
 							const isActive = modifiers[mappedKey as keyof ModifierState];
 							const isDisabled =
-								disabledKeys.includes(key) || disabledKeys.includes(mappedKey);
+								disabledKeySet.has(key) || disabledKeySet.has(mappedKey);
 							return (
 								<button
 									type="button"

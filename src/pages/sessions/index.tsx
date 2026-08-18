@@ -48,7 +48,7 @@ export default function ChatSessionsPage({
 	const [nextCursor, setNextCursor] = useState<string | undefined>();
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const sentinelRef = useRef<HTMLDivElement>(null);
-	const [streamingSessions, setStreamingSessions] = useState(
+	const [streamingSessions, setStreamingSessions] = useState(() =>
 		getStreamingSessions(backend),
 	);
 	const {

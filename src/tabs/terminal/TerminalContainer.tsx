@@ -26,6 +26,9 @@ export default function TerminalContainer({
 	const containerRef = useRef<HTMLDivElement>(null);
 	const mountedRef = useRef(new Set<string>());
 	const activeIdRef = useRef(activeTerminalId);
+	useEffect(() => {
+		activeIdRef.current = activeTerminalId;
+	}, [activeTerminalId]);
 	const menuRef = useRef<HTMLDivElement>(null);
 	const [contextMenuPosition, setContextMenuPosition] = useState<ContextMenu>({
 		top: 0,
@@ -244,8 +247,6 @@ export default function TerminalContainer({
 			setContextMenuPosition({ top, right });
 		}
 	}, [showContextMenu, contextMenuPosition]);
-
-	activeIdRef.current = activeTerminalId;
 
 	return (
 		<>

@@ -7,7 +7,7 @@ import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
 import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, domMax, LazyMotion, m } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { useAuth } from "lib/auth";
 import { chatTabId } from "lib/chatTabId";
@@ -39,7 +39,7 @@ export default function HomeTab() {
 	const [showScanner, setShowScanner] = useState(false);
 	const [hostInfo, setHostInfo] = useState<HostInfo | null>(getHostInfo);
 	const [isOnline, setIsOnline] = useState<boolean>(getOnlineStatus);
-	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(
+	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(() =>
 		getActiveSessionActivities(),
 	);
 	const [showRatingDialog, setShowRatingDialog] = useState(false);
@@ -102,183 +102,185 @@ export default function HomeTab() {
 	}, [connectionStatus]);
 
 	return (
-		<div className="home-tab">
-			<div className="home-hero">
-				<div className="home-hero-brand">
-					<span className="icon-shellular" aria-hidden="true" />
-					<h1>Shellular</h1>
-					<span className="home-hero-beta-badge">Beta</span>
+		<LazyMotion features={domMax}>
+			<div className="home-tab">
+				<div className="home-hero">
+					<div className="home-hero-brand">
+						<span className="icon-shellular" aria-hidden="true" />
+						<h1>Shellular</h1>
+						<span className="home-hero-beta-badge">Beta</span>
+					</div>
+					{user && (
+						<button
+							type="button"
+							className="haptic-trigger grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-card-border bg-surface-strong text-accent transition-transform duration-150 active:scale-95"
+							onClick={openAccountPage}
+							aria-label="Account"
+						>
+							{user.avatarUrl ? (
+								<img
+									src={user.avatarUrl}
+									alt=""
+									className="h-full w-full object-cover"
+								/>
+							) : (
+								<span className="text-[13px] font-bold leading-none uppercase tracking-tight">
+									{getInitials(user.name || user.email)}
+								</span>
+							)}
+						</button>
+					)}
 				</div>
-				{user && (
-					<button
-						type="button"
-						className="haptic-trigger grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-card-border bg-surface-strong text-accent transition-transform duration-150 active:scale-95"
-						onClick={openAccountPage}
-						aria-label="Account"
-					>
-						{user.avatarUrl ? (
-							<img
-								src={user.avatarUrl}
-								alt=""
-								className="h-full w-full object-cover"
-							/>
-						) : (
-							<span className="text-[13px] font-bold leading-none uppercase tracking-tight">
-								{getInitials(user.name || user.email)}
-							</span>
-						)}
-					</button>
-				)}
-			</div>
 
-			<div className={clsx("px-4", { hidden: isOnline })}>
-				<OfflineBanner onChange={setIsOnline} />
-			</div>
-			{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
-			{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
-				<div className="px-[18px] pt-0.5 pb-[18px]">
-					<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
-						Active Sessions
-					</h2>
-					<ul className="m-0 flex list-none flex-col gap-2 p-0">
-						{visibleActiveSessions.map((session) => {
-							const agent = agents[session.agentId];
-							const dismissible = isDismissible(session);
-							return (
-								<li
-									key={`${session.agentId}:${session.sessionId}`}
-									className="flex items-center rounded-xl border border-card-border bg-popup-background shadow-[var(--shadow)] transition-colors duration-150 active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)]"
-								>
-									<button
-										type="button"
-										className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-0 text-left"
-										onClick={() => openSession(session, agent)}
+				<div className={clsx("px-4", { hidden: isOnline })}>
+					<OfflineBanner onChange={setIsOnline} />
+				</div>
+				{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
+				{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
+					<div className="px-[18px] pt-0.5 pb-[18px]">
+						<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
+							Active Sessions
+						</h2>
+						<ul className="m-0 flex list-none flex-col gap-2 p-0">
+							{visibleActiveSessions.map((session) => {
+								const agent = agents[session.agentId];
+								const dismissible = isDismissible(session);
+								return (
+									<li
+										key={`${session.agentId}:${session.sessionId}`}
+										className="flex items-center rounded-xl border border-card-border bg-popup-background shadow-[var(--shadow)] transition-colors duration-150 active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)]"
 									>
-										<span
-											className={`shrink-0 text-[22px] ${getAgentIcon(session.agentId)}`}
-											aria-hidden="true"
-										/>
-										<span className="flex min-w-0 flex-1 flex-col gap-0.5">
-											<span className="truncate text-[14px] font-[650] text-primary-text">
-												{sessionDisplayTitle(session)}
-											</span>
-											<span className="truncate text-[11px] text-secondary-text opacity-[0.58]">
-												{[
-													agent?.title ?? session.agentId,
-													basename(session.workspacePath),
-												]
-													.filter(Boolean)
-													.join(" · ")}
-											</span>
-										</span>
-										<span
-											className={clsx(
-												"ml-2 shrink-0 truncate text-[11px] font-bold",
-												statusColor(session.status),
-												!dismissible && "pr-3.5",
-											)}
+										<button
+											type="button"
+											className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-0 text-left"
+											onClick={() => openSession(session, agent)}
 										>
-											{statusLabel(session)}
-										</span>
-									</button>
-									{dismissible && (
-										<AppMenu
-											ariaLabel="Session options"
-											buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
-											placement="bottom end"
-											items={[
-												{
-													key: "copy-id",
-													icon: "icon-copy",
-													label: "Copy Session ID",
-													onClick: () => copySessionId(session.sessionId),
-												},
-												{
-													key: "dismiss",
-													icon: "icon-eye-off",
-													label: "Dismiss",
-													onClick: () =>
-														dismissSessionActivity(
-															session.agentId,
-															session.sessionId,
-														),
-												},
-											]}
-										/>
-									)}
-								</li>
-							);
-						})}
-					</ul>
-				</div>
-			)}
-			<AnimatePresence mode="popLayout">
-				{isOnline && !hostInfo && (!compact || showScanner) && (
-					<motion.div
-						key="home-scanner"
-						style={{ flex: 1, display: "flex", flexDirection: "column" }}
-						initial={{ opacity: 0, y: -8 }}
-						animate={{ opacity: 1, y: 0 }}
-						exit={{ opacity: 0, y: -8 }}
-						transition={{ duration: 0.25, ease: "easeInOut" }}
-					>
-						<Scanner
-							compact={compact}
-							showScanner={showScanner}
-							setShowScanner={setShowScanner}
-						/>
-					</motion.div>
+											<span
+												className={`shrink-0 text-[22px] ${getAgentIcon(session.agentId)}`}
+												aria-hidden="true"
+											/>
+											<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+												<span className="truncate text-[14px] font-[650] text-primary-text">
+													{sessionDisplayTitle(session)}
+												</span>
+												<span className="truncate text-[11px] text-secondary-text opacity-[0.58]">
+													{[
+														agent?.title ?? session.agentId,
+														basename(session.workspacePath),
+													]
+														.filter(Boolean)
+														.join(" · ")}
+												</span>
+											</span>
+											<span
+												className={clsx(
+													"ml-2 shrink-0 truncate text-[11px] font-bold",
+													statusColor(session.status),
+													!dismissible && "pr-3.5",
+												)}
+											>
+												{statusLabel(session)}
+											</span>
+										</button>
+										{dismissible && (
+											<AppMenu
+												ariaLabel="Session options"
+												buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
+												placement="bottom end"
+												items={[
+													{
+														key: "copy-id",
+														icon: "icon-copy",
+														label: "Copy Session ID",
+														onClick: () => copySessionId(session.sessionId),
+													},
+													{
+														key: "dismiss",
+														icon: "icon-eye-off",
+														label: "Dismiss",
+														onClick: () =>
+															dismissSessionActivity(
+																session.agentId,
+																session.sessionId,
+															),
+													},
+												]}
+											/>
+										)}
+									</li>
+								);
+							})}
+						</ul>
+					</div>
 				)}
-			</AnimatePresence>
+				<AnimatePresence mode="popLayout">
+					{isOnline && !hostInfo && (!compact || showScanner) && (
+						<m.div
+							key="home-scanner"
+							style={{ flex: 1, display: "flex", flexDirection: "column" }}
+							initial={{ opacity: 0, y: -8 }}
+							animate={{ opacity: 1, y: 0 }}
+							exit={{ opacity: 0, y: -8 }}
+							transition={{ duration: 0.25, ease: "easeInOut" }}
+						>
+							<Scanner
+								compact={compact}
+								showScanner={showScanner}
+								setShowScanner={setShowScanner}
+							/>
+						</m.div>
+					)}
+				</AnimatePresence>
 
-			{savedHosts.length > 0 && !showScanner && !isLive && (
-				<div className="saved-machines-section">
-					<div className="mb-2.5 ml-1 flex items-center justify-between">
-						<h2 className="saved-machines-title !m-0">Recent Hosts</h2>
-						{isOnline && !hostInfo && (
-							<button
-								type="button"
-								className="home-hero-scanner-btn"
-								onClick={() => setShowScanner(true)}
-								aria-label="Scan QR code to connect a new host"
-							>
-								<span className="icon-qr_code_scanner" aria-hidden="true" />
-								<span>Add</span>
-							</button>
-						)}
-					</div>
-					<div className="saved-machines-list">
-						<AnimatePresence mode="popLayout">
-							{savedHosts.map((host) => (
-								<motion.div
-									key={host.hostId}
-									layout
-									initial={{ opacity: 0, y: -10 }}
-									animate={{ opacity: 1, y: 0 }}
-									exit={{ opacity: 0, y: -10 }}
-									className="saved-machines-list"
-									transition={{ type: "spring", stiffness: 300, damping: 30 }}
+				{savedHosts.length > 0 && !showScanner && !isLive && (
+					<div className="saved-machines-section">
+						<div className="mb-2.5 ml-1 flex items-center justify-between">
+							<h2 className="saved-machines-title !m-0">Recent Hosts</h2>
+							{isOnline && !hostInfo && (
+								<button
+									type="button"
+									className="home-hero-scanner-btn"
+									onClick={() => setShowScanner(true)}
+									aria-label="Scan QR code to connect a new host"
 								>
-									<SavedHostItem host={host} />
-								</motion.div>
-							))}
-						</AnimatePresence>
+									<span className="icon-qr_code_scanner" aria-hidden="true" />
+									<span>Add</span>
+								</button>
+							)}
+						</div>
+						<div className="saved-machines-list">
+							<AnimatePresence mode="popLayout">
+								{savedHosts.map((host) => (
+									<m.div
+										key={host.hostId}
+										layout
+										initial={{ opacity: 0, y: -10 }}
+										animate={{ opacity: 1, y: 0 }}
+										exit={{ opacity: 0, y: -10 }}
+										className="saved-machines-list"
+										transition={{ type: "spring", stiffness: 300, damping: 30 }}
+									>
+										<SavedHostItem host={host} />
+									</m.div>
+								))}
+							</AnimatePresence>
+						</div>
 					</div>
-				</div>
-			)}
-			<RatingDialog
-				isOpen={showRatingDialog}
-				onClose={() => setShowRatingDialog(false)}
-			/>
-			<NoticeDialog
-				notice={notice}
-				onDismiss={(id) => {
-					dismissNotice(id);
-					// Drop this notice and reveal the next one in the queue, if any.
-					setNoticeQueue((queue) => queue.filter((n) => n.id !== id));
-				}}
-			/>
-		</div>
+				)}
+				<RatingDialog
+					isOpen={showRatingDialog}
+					onClose={() => setShowRatingDialog(false)}
+				/>
+				<NoticeDialog
+					notice={notice}
+					onDismiss={(id) => {
+						dismissNotice(id);
+						// Drop this notice and reveal the next one in the queue, if any.
+						setNoticeQueue((queue) => queue.filter((n) => n.id !== id));
+					}}
+				/>
+			</div>
+		</LazyMotion>
 	);
 }
 

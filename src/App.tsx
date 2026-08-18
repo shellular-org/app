@@ -248,7 +248,7 @@ interface TabBarProps {
 }
 
 function TabBar({ activeTab, onTabChange }: TabBarProps) {
-	const [isStreaming, setIsStreaming] = useState(getHasAnyStreaming());
+	const [isStreaming, setIsStreaming] = useState(() => getHasAnyStreaming());
 
 	useEffect(
 		() =>

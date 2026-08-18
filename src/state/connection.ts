@@ -1195,8 +1195,10 @@ async function resolveWebSocketToken(
 	// Always resolved fresh from settings rather than trusting whatever URL a
 	// prior connection attempt happened to land on — that may have been the
 	// old server, which must never be mistaken for "the new server".
-	const newServerUrl = await getBaseServerUrl();
-	const pref = await getServerPreference(hostId);
+	const [newServerUrl, pref] = await Promise.all([
+		getBaseServerUrl(),
+		getServerPreference(hostId),
+	]);
 
 	if (pref === "new") {
 		const wsInfo = await requestWebSocketToken(

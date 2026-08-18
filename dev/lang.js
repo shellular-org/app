@@ -181,15 +181,19 @@ async function remove() {
 }
 
 async function check(fix = false) {
-  const [englishData, languages] = await getLangFiles();
-  const jsFiles = await Promise.all(getAllSrcJsFiles().map((file) => readFile(file, "utf8")));
+  const [[englishData, languages], jsFiles] = await Promise.all([
+    getLangFiles(),
+    Promise.all(getAllSrcJsFiles().map((file) => readFile(file, "utf8"))),
+  ]);
 
   let missingKeys = 0;
   let redundantKeys = 0;
   const deletedKeys = [];
+  const deletedKeySet = new Set();
+  const skipKeySet = new Set(skipKeys);
 
   for (const key in englishData) {
-    if (!skipKeys.includes(key)) {
+    if (!skipKeySet.has(key)) {
       let keyUsed = false;
 
       for (const jsFile of jsFiles) {
@@ -200,6 +204,7 @@ async function check(fix = false) {
 
       if (!keyUsed) {
         deletedKeys.push(key);
+        deletedKeySet.add(key);
         if (!fix) {
           process.stdout.write(`❗ ${red("Key")} "${teal(key)}" ${red("is not used")}\n`);
         } else {
@@ -211,7 +216,7 @@ async function check(fix = false) {
     for (const [name, lang] of Object.entries(languages)) {
       const exists = key in lang;
 
-      if (deletedKeys.includes(key)) {
+      if (deletedKeySet.has(key)) {
         if (fix && exists) {
           delete lang[key];
         }

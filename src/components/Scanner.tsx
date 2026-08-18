@@ -289,6 +289,7 @@ export default function Scanner({
 			<input
 				ref={uploadInputRef}
 				type="file"
+				aria-label="Upload QR code image"
 				accept="image/*"
 				className="qr-upload-input"
 				onChange={(event) => handleUploadQr(event.currentTarget.files?.[0])}

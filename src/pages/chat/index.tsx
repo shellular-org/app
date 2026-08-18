@@ -28,7 +28,6 @@ import type React from "react";
 import {
 	useCallback,
 	useEffect,
-	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -201,11 +200,13 @@ export default function ChatConversationPage({
 		const activityTitle = getSessionActivity(agentId, sessionId)?.title;
 		return isRealTitle(activityTitle) ? activityTitle : title;
 	});
-	const [isStreaming, setIsStreaming] = useState(
+	const [isStreaming, setIsStreaming] = useState(() =>
 		getSessionStreaming(agentId, sessionId),
 	);
 	const activeSessionIdRef = useRef(activeSessionId);
-	activeSessionIdRef.current = activeSessionId;
+	useEffect(() => {
+		activeSessionIdRef.current = activeSessionId;
+	}, [activeSessionId]);
 	const [composerParts, setComposerParts] = useState<ComposerPart[]>([]);
 	const [imageAttachments, setImageAttachments] = useState<
 		ComposerAttachment[]
@@ -249,6 +250,9 @@ export default function ChatConversationPage({
 	const inputBarRef = useRef<HTMLDivElement>(null);
 	const promptInputRef = useRef<HTMLDivElement>(null);
 	const connectionStatusRef = useRef(connectionStatus);
+	useEffect(() => {
+		connectionStatusRef.current = connectionStatus;
+	}, [connectionStatus]);
 	const stickToBottomRef = useRef(true);
 	const prevScrollHeightRef = useRef(0);
 	const autoScrollFrameRef = useRef(0);
@@ -328,8 +332,6 @@ export default function ChatConversationPage({
 	// the CLI's config cache later. Refresh once for this draft so it sees that
 	// cache before lazily creating an ACP session on the first send.
 	const draftConfigRefreshRef = useRef<string | null>(null);
-
-	connectionStatusRef.current = connectionStatus;
 
 	useEffect(() => {
 		if (reviewComments.length) {
@@ -642,138 +644,7 @@ export default function ChatConversationPage({
 		[],
 	);
 
-	const processSessionEvent = useEffectEvent((event: AcpSessionEvent) => {
-		if (event.type === "permission.updated") {
-			const permission = readPendingActivityPermission(event.properties);
-			if (permission) handlePermissionRequest(permission);
-			return;
-		}
-
-		if (event.type === "elicitation.updated") {
-			const properties = event.properties as Record<string, unknown>;
-			if (properties.resolved === true) {
-				const id = properties.id;
-				if (typeof id === "string") {
-					setPendingElicitations((prev) =>
-						prev.filter((item) => item.id !== id),
-					);
-				}
-				return;
-			}
-			const request = readElicitationRequest(properties);
-			if (request) {
-				setPendingElicitations((prev) => [
-					...prev.filter((item) => item.id !== request.id),
-					request,
-				]);
-			}
-			return;
-		}
-
-		if (event.type === "token") {
-			// Streaming text deltas. Full `message` events are coalesced CLI-side
-			// (they carry the whole message and are quadratic on the wire), so
-			// tokens do the smooth per-chunk rendering in between.
-			//
-			// A `message` event carries the message's CUMULATIVE text, including
-			// every token already rendered. Appending each token blindly therefore
-			// double-renders it for as long as the next message event is coalesced
-			// away. Tokens are instead buffered per message and applied as the
-			// suffix beyond whatever the last message event delivered.
-			const itemId = event.properties.itemId;
-			const text = event.properties.text;
-			if (typeof itemId === "string" && typeof text === "string" && text) {
-				appendStreamToken(itemId, text);
-			}
-			return;
-		}
-
-		if (event.type === "session.status") {
-			if (event.properties.syncing === "messages") {
-				setSyncing(true);
-			} else if (event.properties.syncing === false) {
-				setSyncing(false);
-			}
-			handleSessionStatus(event.properties as Record<string, unknown>);
-			return;
-		}
-
-		if (event.type === "prompt_queue.updated") {
-			const queue = event.properties.queue;
-			setPromptQueueRunning(event.properties.running === true);
-			setQueuedPrompts(
-				Array.isArray(queue) ? (queue as AcpQueuedPrompt[]) : [],
-			);
-			return;
-		}
-
-		if (event.type === "session.snapshot") {
-			const messages = event.properties.messages;
-			if (Array.isArray(messages)) {
-				const from = event.properties.from;
-				const generation = event.properties.generation;
-				const hasMoreBefore = event.properties.hasMoreBefore;
-				remoteBaseIdxRef.current = typeof from === "number" ? from : 0;
-				remoteGenerationRef.current =
-					typeof generation === "number" ? generation : undefined;
-				setHasMoreRemote(hasMoreBefore === true);
-				// Authoritative transcript replacement: any buffered token text is
-				// already included, so accumulators must not replay on top of it.
-				streamedTextRef.current.clear();
-				setAllMessages(messages as AcpMessage[]);
-				setVisibleCount(PAGE_SIZE);
-				stickToBottomRef.current = true;
-				requestAnimationFrame(() => scrollToBottomNow(true));
-			}
-			const state = event.properties.state;
-			if (state && typeof state === "object") {
-				const nextOptions = readConfigOptions(
-					(state as { configOptions?: unknown }).configOptions,
-				);
-				if (nextOptions) setConfigOptions(nextOptions);
-				const nextCommands = readAvailableCommands(
-					(state as { availableCommands?: unknown }).availableCommands,
-				);
-				if (nextCommands) setAvailableCommands(nextCommands);
-			}
-			setLoading(false);
-			setSyncing(false);
-			return;
-		}
-
-		if (event.type === "message") {
-			const message = event.properties.message;
-			if (message) upsertAcpMessageRef.current(message as AcpMessage);
-			return;
-		}
-
-		if (event.type === "error" || event.type === "prompt_error") {
-			finishStreamingTurn();
-			const ownerError = readSessionOwnerError(event.properties);
-			if (ownerError) {
-				void handleSessionOwnerError(ownerError);
-				return;
-			}
-			setError(String(event.properties.error ?? "Prompt failed"));
-			return;
-		}
-
-		if (event.type === "end" || event.type === "cancelled") {
-			const usage = (event.properties as { usage?: unknown }).usage;
-			if (usage && typeof usage === "object" && !Array.isArray(usage)) {
-				const nextUsage = readContextWindowUsage({ usage });
-				if (nextUsage) setContextWindowUsage(nextUsage);
-			}
-			const stopReason = (event.properties as { stopReason?: unknown })
-				.stopReason;
-			if (typeof stopReason === "string" && shouldShowStopReason(stopReason)) {
-				appendStopReason(stopReason);
-			}
-			finishStreamingTurn();
-		}
-	});
-
-	const appendStreamToken = useEffectEvent((itemId: string, text: string) => {
+	const appendStreamToken = useCallback((itemId: string, text: string) => {
 		// Total text the token stream has delivered for this message so far. The
 		// message itself may already contain some of it via a `message` event.
 		const streamedText = (streamedTextRef.current.get(itemId) ?? "") + text;
@@ -789,9 +660,157 @@ export default function ChatConversationPage({
 			next[index] = { ...message, parts: appendTextPart(message, suffix) };
 			return next;
 		});
-	});
+	}, []);
 
-	const handleElicitationReply = useEffectEvent(
+	const handleSessionOwnerErrorRef = useRef<
+		(details: AcpPromptError) => Promise<void>
+	>(() => Promise.resolve());
+	const appendStopReasonRef = useRef<(stopReason: string) => void>(() => {});
+	const finishStreamingTurnRef = useRef<(sessionId?: string) => void>(() => {});
+
+	const processSessionEvent = useCallback(
+		(event: AcpSessionEvent) => {
+			if (event.type === "permission.updated") {
+				const permission = readPendingActivityPermission(event.properties);
+				if (permission) handlePermissionRequest(permission);
+				return;
+			}
+
+			if (event.type === "elicitation.updated") {
+				const properties = event.properties as Record<string, unknown>;
+				if (properties.resolved === true) {
+					const id = properties.id;
+					if (typeof id === "string") {
+						setPendingElicitations((prev) =>
+							prev.filter((item) => item.id !== id),
+						);
+					}
+					return;
+				}
+				const request = readElicitationRequest(properties);
+				if (request) {
+					setPendingElicitations((prev) => [
+						...prev.filter((item) => item.id !== request.id),
+						request,
+					]);
+				}
+				return;
+			}
+
+			if (event.type === "token") {
+				// Streaming text deltas. Full `message` events are coalesced CLI-side
+				// (they carry the whole message and are quadratic on the wire), so
+				// tokens do the smooth per-chunk rendering in between.
+				//
+				// A `message` event carries the message's CUMULATIVE text, including
+				// every token already rendered. Appending each token blindly therefore
+				// double-renders it for as long as the next message event is coalesced
+				// away. Tokens are instead buffered per message and applied as the
+				// suffix beyond whatever the last message event delivered.
+				const itemId = event.properties.itemId;
+				const text = event.properties.text;
+				if (typeof itemId === "string" && typeof text === "string" && text) {
+					appendStreamToken(itemId, text);
+				}
+				return;
+			}
+
+			if (event.type === "session.status") {
+				if (event.properties.syncing === "messages") {
+					setSyncing(true);
+				} else if (event.properties.syncing === false) {
+					setSyncing(false);
+				}
+				handleSessionStatus(event.properties as Record<string, unknown>);
+				return;
+			}
+
+			if (event.type === "prompt_queue.updated") {
+				const queue = event.properties.queue;
+				setPromptQueueRunning(event.properties.running === true);
+				setQueuedPrompts(
+					Array.isArray(queue) ? (queue as AcpQueuedPrompt[]) : [],
+				);
+				return;
+			}
+
+			if (event.type === "session.snapshot") {
+				const messages = event.properties.messages;
+				if (Array.isArray(messages)) {
+					const from = event.properties.from;
+					const generation = event.properties.generation;
+					const hasMoreBefore = event.properties.hasMoreBefore;
+					remoteBaseIdxRef.current = typeof from === "number" ? from : 0;
+					remoteGenerationRef.current =
+						typeof generation === "number" ? generation : undefined;
+					setHasMoreRemote(hasMoreBefore === true);
+					// Authoritative transcript replacement: any buffered token text is
+					// already included, so accumulators must not replay on top of it.
+					streamedTextRef.current.clear();
+					setAllMessages(messages as AcpMessage[]);
+					setVisibleCount(PAGE_SIZE);
+					stickToBottomRef.current = true;
+					requestAnimationFrame(() => scrollToBottomNow(true));
+				}
+				const state = event.properties.state;
+				if (state && typeof state === "object") {
+					const nextOptions = readConfigOptions(
+						(state as { configOptions?: unknown }).configOptions,
+					);
+					if (nextOptions) setConfigOptions(nextOptions);
+					const nextCommands = readAvailableCommands(
+						(state as { availableCommands?: unknown }).availableCommands,
+					);
+					if (nextCommands) setAvailableCommands(nextCommands);
+				}
+				setLoading(false);
+				setSyncing(false);
+				return;
+			}
+
+			if (event.type === "message") {
+				const message = event.properties.message;
+				if (message) upsertAcpMessageRef.current(message as AcpMessage);
+				return;
+			}
+
+			if (event.type === "error" || event.type === "prompt_error") {
+				finishStreamingTurnRef.current();
+				const ownerError = readSessionOwnerError(event.properties);
+				if (ownerError) {
+					void handleSessionOwnerErrorRef.current(ownerError);
+					return;
+				}
+				setError(String(event.properties.error ?? "Prompt failed"));
+				return;
+			}
+
+			if (event.type === "end" || event.type === "cancelled") {
+				const usage = (event.properties as { usage?: unknown }).usage;
+				if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+					const nextUsage = readContextWindowUsage({ usage });
+					if (nextUsage) setContextWindowUsage(nextUsage);
+				}
+				const stopReason = (event.properties as { stopReason?: unknown })
+					.stopReason;
+				if (
+					typeof stopReason === "string" &&
+					shouldShowStopReason(stopReason)
+				) {
+					appendStopReasonRef.current(stopReason);
+				}
+				finishStreamingTurnRef.current();
+			}
+		},
+		[
+			appendStreamToken,
+			handlePermissionRequest,
+			handleSessionStatus,
+			scrollToBottomNow,
+		],
+	);
+
+	const handleElicitationReply = useCallback(
 		(
 			elicitation: AcpElicitationRequest,
 			action: "accept" | "decline" | "cancel",
@@ -808,9 +827,10 @@ export default function ChatConversationPage({
 				prev.filter((item) => item.id !== elicitation.id),
 			);
 		},
+		[agentId],
 	);
 
-	const applyRevisionedSessionEvent = useEffectEvent(
+	const applyRevisionedSessionEvent = useCallback(
 		(event: AcpSessionEvent) => {
 			if (!attachReadyRef.current) {
 				pendingAttachEventsRef.current.push(event);
@@ -825,6 +845,7 @@ export default function ChatConversationPage({
 
 			processSessionEvent(event);
 		},
+		[processSessionEvent],
 	);
 
 	const updateInputOffset = useCallback(() => {
@@ -909,7 +930,6 @@ export default function ChatConversationPage({
 
 	useEffect(() => {
 		setActiveSessionId(sessionId);
-		activeSessionIdRef.current = sessionId;
 		stickToBottomRef.current = true;
 		streamedTextRef.current.clear();
 		setPendingPermissions([]);
@@ -1044,6 +1064,7 @@ export default function ChatConversationPage({
 		cachedAgentConfig,
 		connectionStatus,
 		createOnFirstMessage,
+		applyRevisionedSessionEvent,
 		sessionId,
 		resolvedWorkspacePath,
 	]);
@@ -1371,14 +1392,31 @@ export default function ChatConversationPage({
 					},
 					mergeLocalUserText,
 				);
-				streamingAssistantIdRef.current = result.localAssistantId;
-				streamingUserIdRef.current = result.localUserId;
 				return result.messages;
 			});
 		};
 	}, [chatIsStreaming]);
 
-	const handleSessionOwnerError = useEffectEvent(
+	useEffect(() => {
+		if (!chatIsStreaming) return;
+		const lastUser = findLast(
+			allMessages,
+			(message) => message.role === "user",
+		);
+		const lastAssistant = findLast(
+			allMessages,
+			(message) => message.role === "assistant",
+		);
+		if (lastUser?.id) streamingUserIdRef.current = lastUser.id;
+		if (
+			allMessages[allMessages.length - 1]?.role === "assistant" &&
+			lastAssistant?.id
+		) {
+			streamingAssistantIdRef.current = lastAssistant.id;
+		}
+	}, [allMessages, chatIsStreaming]);
+
+	const handleSessionOwnerError = useCallback(
 		async (details: AcpPromptError) => {
 			if (ownerDialogOpenRef.current) return;
 			ownerDialogOpenRef.current = true;
@@ -1461,7 +1499,17 @@ export default function ChatConversationPage({
 				ownerDialogOpenRef.current = false;
 			}
 		},
+		[agentId, draftKey, resolvedWorkspacePath],
 	);
+
+	useEffect(() => {
+		handleSessionOwnerErrorRef.current = handleSessionOwnerError;
+	}, [handleSessionOwnerError]);
+
+	useLayoutEffect(() => {
+		appendStopReasonRef.current = appendStopReason;
+		finishStreamingTurnRef.current = finishStreamingTurn;
+	});
 
 	const openGitReview = useCallback(async () => {
 		if (!resolvedWorkspacePath) return;
