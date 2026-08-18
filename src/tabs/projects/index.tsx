@@ -131,7 +131,7 @@ export default function ProjectsTab() {
 					}
 				/>
 			)}
-			<ProjectList projects={projects} adding={adding} />
+			{!loadingProjects && <ProjectList projects={projects} adding={adding} />}
 		</div>
 	);
 }
