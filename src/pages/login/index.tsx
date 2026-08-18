@@ -26,7 +26,11 @@ const PROVIDER_ICONS = {
 	apple: "icon-apple",
 } as const;
 
-export default function LoginPage() {
+export default function LoginPage({
+	onOpenSettings,
+}: {
+	onOpenSettings?: () => void;
+}) {
 	const { providers, error, signingInProvider, signIn } = useAuth();
 	const [online, setOnline] = useState(getOnlineStatus);
 	const [helpOpen, setHelpOpen] = useState(false);
@@ -35,6 +39,16 @@ export default function LoginPage() {
 
 	return (
 		<div className="fixed inset-0 flex flex-col overflow-hidden bg-primary text-primary-text pt-[calc(var(--sat,0px)+18px)] pb-[calc(var(--sab,0px)+32px)] px-5">
+			{process.env.DEV_MODE && onOpenSettings && (
+				<button
+					type="button"
+					className="haptic-trigger absolute right-5 top-[calc(var(--sat,0px)+14px)] grid h-10 w-10 place-items-center rounded-xl border border-card-border bg-popup-background text-secondary-text shadow-[var(--shadow)] transition-[background,transform] duration-150 active:scale-95 active:bg-[color-mix(in_srgb,var(--info)_8%,transparent)] active:text-primary-text"
+					onClick={onOpenSettings}
+					aria-label="Settings"
+				>
+					<span className="icon-settings text-[19px]" aria-hidden="true" />
+				</button>
+			)}
 			<div className="mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center gap-9">
 				<div
 					className="flex flex-col items-center text-center"

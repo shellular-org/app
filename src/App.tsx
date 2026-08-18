@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "lib/auth";
 import * as store from "lib/store";
 import LoginPage from "pages/login";
 import OnboardingPage from "pages/onboarding";
+import SettingsPage from "pages/settings";
 import {
 	type ComponentType,
 	type LazyExoticComponent,
@@ -42,6 +43,7 @@ interface PageStackEntry {
 
 export const ONBOARDING_KEY = "shellular:onboarding-complete";
 const PAGE_HIDE_DURATION = 240;
+const LOGIN_SETTINGS_PAGE_ID = "login-settings";
 const TABS: Tab[] = [
 	{ id: "home", label: "Home", icon: "home" },
 	{
@@ -97,13 +99,35 @@ export default function App() {
 
 function AuthGate() {
 	const { status } = useAuth();
+	const [showLoginSettings, setShowLoginSettings] = useState(false);
+
+	const openLoginSettings = useCallback(() => {
+		if (actionStack.has(LOGIN_SETTINGS_PAGE_ID)) return;
+		setShowLoginSettings(true);
+		actionStack.push({
+			id: LOGIN_SETTINGS_PAGE_ID,
+			action: () => {
+				setShowLoginSettings(false);
+			},
+		});
+	}, []);
+
+	useEffect(() => {
+		if (status === "unauthenticated" || !showLoginSettings) return;
+		actionStack.remove(LOGIN_SETTINGS_PAGE_ID);
+		setShowLoginSettings(false);
+	}, [showLoginSettings, status]);
 
 	if (status === "loading") {
 		return <EmptyState mascot="loading" message="loading..." />;
 	}
 
 	if (status === "unauthenticated") {
-		return <LoginPage />;
+		return showLoginSettings ? (
+			<SettingsPage />
+		) : (
+			<LoginPage onOpenSettings={openLoginSettings} />
+		);
 	}
 
 	return <AuthenticatedApp />;
