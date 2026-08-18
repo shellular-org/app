@@ -7,6 +7,7 @@ import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
 import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
+import StartupBanner from "components/StartupBanner";
 import { AnimatePresence, domMax, LazyMotion, m } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
 import { useAuth } from "lib/auth";
@@ -136,6 +137,7 @@ export default function HomeTab() {
 				<div className={clsx("px-4", { hidden: isOnline })}>
 					<OfflineBanner onChange={setIsOnline} />
 				</div>
+				<StartupBanner />
 				{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
 				{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
 					<div className="px-[18px] pt-0.5 pb-[18px]">
