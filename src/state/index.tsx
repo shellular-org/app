@@ -71,7 +71,7 @@ import {
 import {
 	addProject,
 	enrichProjectsWithGitInfo,
-	loadProjects,
+	loadProjects as loadProjectsFromStorage,
 	type Project,
 	type ProjectInfo,
 	removeProject,
@@ -107,6 +107,7 @@ interface ShellularContextValue {
 		| "connected"
 		| "reconnecting";
 	hostDir?: string;
+	hostPlatform?: string;
 	/** Reconnect attempts made in the current reconnect run; 0 when settled. */
 	reconnectAttempt: number;
 	/** True while the CLI is self-updating and restarting. */
@@ -183,6 +184,7 @@ interface ShellularContextValue {
 	// Projects
 	projects: ProjectInfo[];
 	loadingProjects: boolean;
+	loadProjects: (force?: boolean) => Promise<void>;
 	addProject: (path: string) => Promise<void>;
 	removeProject: (path: string) => Promise<void>;
 
@@ -215,7 +217,10 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 	const [lastConnectedHost, setLastConnectedHost] = useState<HostInfo | null>(
 		null,
 	);
-	const loadedProjectsForRef = useRef<string>("");
+	const projectsCacheRef = useRef<{ hostId: string; loadedAt: number } | null>(
+		null,
+	);
+	const projectsLoadPromiseRef = useRef<Promise<void> | null>(null);
 
 	// Load saved hosts on mount.
 	useEffect(() => {
@@ -296,6 +301,57 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		}
 	}, [connection.connectionStatus]);
 
+	const loadProjects = useCallback(async (force = false) => {
+		const { hostInfo, connectionStatus } = getConnectionSnapshot();
+		if (!hostInfo || connectionStatus !== "connected") return;
+
+		const cached = projectsCacheRef.current;
+		if (
+			!force &&
+			cached?.hostId === hostInfo.id &&
+			Date.now() - cached.loadedAt < 5 * 60 * 1000
+		) {
+			return;
+		}
+
+		if (projectsLoadPromiseRef.current) {
+			return projectsLoadPromiseRef.current;
+		}
+
+		const requestedHostId = hostInfo.id;
+		const load = (async () => {
+			setLoadingProjects(true);
+			try {
+				const loaded = await loadProjectsFromStorage(requestedHostId);
+				const enriched = await enrichProjectsWithGitInfo(loaded, hostInfo.dir);
+				const current = getConnectionSnapshot();
+				if (
+					current.connectionStatus === "connected" &&
+					current.hostInfo?.id === requestedHostId
+				) {
+					setProjects(enriched);
+					projectsCacheRef.current = {
+						hostId: requestedHostId,
+						loadedAt: Date.now(),
+					};
+				}
+			} catch (error) {
+				console.error("error loading projects", error);
+			} finally {
+				setLoadingProjects(false);
+			}
+		})();
+
+		projectsLoadPromiseRef.current = load;
+		try {
+			await load;
+		} finally {
+			if (projectsLoadPromiseRef.current === load) {
+				projectsLoadPromiseRef.current = null;
+			}
+		}
+	}, []);
+
 	useEffect(() => {
 		if (connection.connectionStatus === "disconnected") {
 			setAgents({});
@@ -340,20 +396,10 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 					incrementSessionCount().catch(console.error);
 				}
 
-				// Load projects for this device
-				if (hostInfo.id !== loadedProjectsForRef.current) {
-					loadedProjectsForRef.current = hostInfo.id;
-					setLoadingProjects(true);
-					loadProjects(hostInfo.id)
-						.then(async (loaded) => {
-							const enriched = await enrichProjectsWithGitInfo(
-								loaded,
-								hostInfo?.dir,
-							);
-							setProjects(enriched);
-						})
-						.catch(console.error)
-						.finally(() => setLoadingProjects(false));
+				// Projects are loaded when their tab is opened, so a rarely visited
+				// tab does not do filesystem and git work on every connection.
+				if (hostInfo.id !== projectsCacheRef.current?.hostId) {
+					setProjects([]);
 					loadBookmarkedSessions(hostInfo.id).catch(console.error);
 					loadChatTabs(hostInfo.id).catch(console.error);
 				}
@@ -385,7 +431,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 			setAgents({});
 			resetBookmarkedSessions();
 			resetChatTabs();
-			loadedProjectsForRef.current = "";
+			projectsCacheRef.current = null;
 		});
 
 		// Store in ref for event handlers
@@ -493,6 +539,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		...connection,
 		...terminals,
 		hostDir: connection.hostInfo?.dir,
+		hostPlatform: connection.hostInfo?.platform,
 		agents,
 		loadingAgents,
 		loadAgents,
@@ -520,6 +567,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		writeFileBinary,
 		projects,
 		loadingProjects,
+		loadProjects,
 		addProject: handleAddProject,
 		removeProject: handleRemoveProject,
 		savedHosts,

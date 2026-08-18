@@ -14,6 +14,7 @@ import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
 import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
+import { getResumeCommand } from "lib/resumeCommand";
 import { getInitials, getOnlineStatus } from "lib/utils";
 import AccountPage from "pages/account";
 import { useEffect, useState } from "react";
@@ -176,37 +177,45 @@ export default function HomeTab() {
 												className={clsx(
 													"ml-2 shrink-0 truncate text-[11px] font-bold",
 													statusColor(session.status),
-													!dismissible && "pr-3.5",
 												)}
 											>
 												{statusLabel(session)}
 											</span>
 										</button>
-										{dismissible && (
-											<AppMenu
-												ariaLabel="Session options"
-												buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
-												placement="bottom end"
-												items={[
-													{
-														key: "copy-id",
-														icon: "icon-copy",
-														label: "Copy Session ID",
-														onClick: () => copySessionId(session.sessionId),
-													},
-													{
-														key: "dismiss",
-														icon: "icon-eye-off",
-														label: "Dismiss",
-														onClick: () =>
-															dismissSessionActivity(
-																session.agentId,
-																session.sessionId,
-															),
-													},
-												]}
-											/>
-										)}
+										<AppMenu
+											ariaLabel="Session options"
+											buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
+											placement="bottom end"
+											items={[
+												{
+													key: "copy-id",
+													icon: "icon-copy",
+													label: "Copy Session ID",
+													onClick: () => copySessionId(session.sessionId),
+												},
+												{
+													key: "resume",
+													icon: "icon-terminal",
+													label: "Copy Resume Command",
+													onClick: () =>
+														copyResumeCommand(session, hostInfo.platform),
+												},
+												...(dismissible
+													? [
+															{
+																key: "dismiss",
+																icon: "icon-eye-off",
+																label: "Dismiss",
+																onClick: () =>
+																	dismissSessionActivity(
+																		session.agentId,
+																		session.sessionId,
+																	),
+															},
+														]
+													: []),
+											]}
+										/>
 									</li>
 								);
 							})}
@@ -316,6 +325,18 @@ function copySessionId(sessionId: string) {
 	copyToClipboard({
 		text: sessionId,
 		successMessage: "Session ID copied",
+	});
+}
+
+function copyResumeCommand(session: SessionActivity, platform?: string) {
+	copyToClipboard({
+		text: getResumeCommand(
+			session.agentId,
+			session.sessionId,
+			session.workspacePath,
+			platform,
+		),
+		successMessage: "Resume command copied",
 	});
 }
 

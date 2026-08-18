@@ -54,19 +54,19 @@ export default function AgentsTab() {
 				)}
 				<button
 					type="button"
-					onClick={openManageAgents}
-					className="agents-header-btn"
-					aria-label="Manage agents"
-				>
-					<span className="icon-sliders" aria-hidden="true" />
-				</button>
-				<button
-					type="button"
 					onClick={loadAgents}
 					className="agents-header-btn"
 					aria-label="Refresh agents"
 				>
 					<span className="icon-refresh-cw" aria-hidden="true" />
+				</button>
+				<button
+					type="button"
+					onClick={openManageAgents}
+					className="agents-header-btn"
+					aria-label="Manage agents"
+				>
+					<span className="icon-sliders" aria-hidden="true" />
 				</button>
 			</>
 		);

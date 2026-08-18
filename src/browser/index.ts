@@ -1,3 +1,4 @@
+import { getConnectionSnapshot } from "state/connection";
 import { fetchPorts, type PortEntry } from "state/ports";
 import { addBrowserHistory, getBrowserHistory } from "./history";
 import { buildHomePage } from "./home";
@@ -36,8 +37,10 @@ declare global {
 export function initBrowserBridge(): void {
 	window.__shellularPage = async (name: string): Promise<string> => {
 		switch (name) {
-			case "home":
-				return buildHomePage(getBrowserHistory());
+			case "home": {
+				const hostId = getConnectionSnapshot().hostInfo?.id;
+				return buildHomePage(hostId ? getBrowserHistory(hostId) : []);
+			}
 			case "ports": {
 				try {
 					const ports = await fetchPorts();
@@ -58,6 +61,8 @@ export function initBrowserBridge(): void {
 		favicon: string;
 	}): void => {
 		if (!entry.url) return;
-		addBrowserHistory(entry);
+		const hostId = getConnectionSnapshot().hostInfo?.id;
+		if (!hostId) return;
+		addBrowserHistory(hostId, entry);
 	};
 }
