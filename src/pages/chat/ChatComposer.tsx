@@ -234,6 +234,7 @@ export function ChatComposer({
 					contentEditable={agentAvailable}
 					suppressContentEditableWarning
 					role="textbox"
+					aria-label="Chat message"
 					tabIndex={agentAvailable ? 0 : -1}
 					aria-multiline="true"
 					data-placeholder="Ask anything or use / or @..."

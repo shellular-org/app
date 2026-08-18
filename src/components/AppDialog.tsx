@@ -182,6 +182,7 @@ function DialogSurface({
 							<input
 								ref={inputRef}
 								type="text"
+								aria-label={title}
 								value={value}
 								onChange={(event) => setValue(event.target.value)}
 								autoCapitalize="none"

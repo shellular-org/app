@@ -619,13 +619,24 @@ async function authRequest<T = unknown>(
 		credentials: init.credentials ?? "include",
 		headers,
 	});
+	if (!res.ok) {
+		const json = (await res.json().catch(() => ({}))) as {
+			error?: string;
+			message?: string;
+		};
+		const error = new Error(
+			json.error || json.message || "Authentication failed.",
+		) as AuthRequestError;
+		error.httpStatus = res.status;
+		throw error;
+	}
 	const json = (await res.json().catch(() => ({}))) as {
 		success?: boolean;
 		data?: T;
 		error?: string;
 		message?: string;
 	};
-	if (!res.ok || json.success === false) {
+	if (json.success === false) {
 		const error = new Error(
 			json.error || json.message || "Authentication failed.",
 		) as AuthRequestError;

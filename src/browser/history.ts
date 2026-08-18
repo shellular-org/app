@@ -1,4 +1,4 @@
-export const HISTORY_KEY = "shellular:browser-history";
+export const HISTORY_KEY = "shellular:browser-history:v1";
 const MAX_HISTORY = 50;
 
 export interface HistoryEntry {
@@ -8,9 +8,13 @@ export interface HistoryEntry {
 	timestamp: number;
 }
 
-export function getBrowserHistory(): HistoryEntry[] {
+function getHistoryKey(hostId: string): string {
+	return `${HISTORY_KEY}:${hostId}`;
+}
+
+export function getBrowserHistory(hostId: string): HistoryEntry[] {
 	try {
-		const raw = localStorage.getItem(HISTORY_KEY);
+		const raw = localStorage.getItem(getHistoryKey(hostId));
 		if (!raw) return [];
 		return JSON.parse(raw) as HistoryEntry[];
 	} catch {
@@ -18,12 +22,15 @@ export function getBrowserHistory(): HistoryEntry[] {
 	}
 }
 
-export function addBrowserHistory(entry: {
-	url: string;
-	title: string;
-	favicon: string;
-}): void {
-	const list = getBrowserHistory();
+export function addBrowserHistory(
+	hostId: string,
+	entry: {
+		url: string;
+		title: string;
+		favicon: string;
+	},
+): void {
+	const list = getBrowserHistory(hostId);
 	// Remove duplicate if same URL exists
 	const filtered = list.slice(0, 3).filter((e) => e.url !== entry.url);
 	filtered.unshift({
@@ -34,5 +41,5 @@ export function addBrowserHistory(entry: {
 	});
 	// Keep only the most recent entries
 	const trimmed = filtered.slice(0, MAX_HISTORY);
-	localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+	localStorage.setItem(getHistoryKey(hostId), JSON.stringify(trimmed));
 }
