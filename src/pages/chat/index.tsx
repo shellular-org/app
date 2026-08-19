@@ -1714,7 +1714,12 @@ export default function ChatConversationPage({
 				pendingPermissions.length === 0 && (
 					<EmptyState message="No messages yet" mascot="greeting" />
 				)}
-			<div ref={historyContentRef} className="chat-history-content">
+			<div
+				ref={historyContentRef}
+				className="chat-history-content"
+				role="log"
+				aria-label="Conversation"
+			>
 				{syncing && allMessages.length === 0 && <ChatHistorySkeleton />}
 				{hasMore && historyScrollReady && (
 					<div ref={sentinelRef} className="chat-sentinel">
