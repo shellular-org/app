@@ -1,10 +1,10 @@
+import { type ActivityKind, deriveActivityRow } from "../lib/activityRow";
 import {
 	formatPartValue,
 	getToolCallContentParts,
 	type ToolCallPart,
 } from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
-import { deriveToolActivityPresentation } from "../lib/workLog";
 import ChatDisclosure from "./ChatDisclosure";
 import MessagePartView from "./MessagePartView";
 import Status from "./Status";
@@ -13,19 +13,19 @@ import ToolOutputView from "./ToolOutputView";
 export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 	const parts = getToolCallContentParts(part);
 	const locations = readToolLocations(part);
-	const presentation = deriveToolActivityPresentation(part);
+	const row = deriveActivityRow(part);
 	const hasDetails = Boolean(
 		part.output || part.arguments || parts.length || locations.length,
 	);
 	const summary = (
 		<>
 			<span
-				className={`${activityIcon(presentation.kind)} chat-work-row-icon`}
+				className={`${activityIcon(row.kind)} chat-work-row-icon`}
 				aria-hidden="true"
 			/>
 			<span className="chat-work-row-label">
-				<strong>{presentation.label}</strong>
-				{presentation.detail ? <span> · {presentation.detail}</span> : null}
+				{row.verb ? <strong>{row.verb}</strong> : null}
+				{row.object ? <span> {row.object}</span> : null}
 			</span>
 			<span className="chat-work-row-status">
 				<Status status={part.status} />
@@ -51,7 +51,7 @@ export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 			<ToolLocations locations={locations} />
 			{part.output ? (
 				<ToolOutputView
-					title={part.title || presentation.label}
+					title={part.title || row.verb || "Output"}
 					output={part.output}
 					toolArguments={part.arguments}
 				/>
@@ -71,9 +71,7 @@ export default function ToolCallContentView({ part }: { part: ToolCallPart }) {
 	);
 }
 
-function activityIcon(
-	kind: ReturnType<typeof deriveToolActivityPresentation>["kind"],
-) {
+function activityIcon(kind: ActivityKind) {
 	switch (kind) {
 		case "execute":
 			return "icon-terminal";

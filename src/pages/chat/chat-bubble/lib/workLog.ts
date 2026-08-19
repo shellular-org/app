@@ -1,22 +1,6 @@
 import type { AcpMessage, AcpMessagePart } from "@shellular/protocol";
 import type { ToolCallPart } from "./messageParts";
 
-export type ToolActivityKind =
-	| "execute"
-	| "read"
-	| "change"
-	| "search"
-	| "fetch"
-	| "think"
-	| "switch_mode"
-	| "other";
-
-export interface ToolActivityPresentation {
-	kind: ToolActivityKind;
-	label: string;
-	detail?: string;
-}
-
 export interface AssistantTurnProjection {
 	/** The terminal assistant response that remains in the transcript. */
 	answerParts: AcpMessagePart[];
@@ -163,76 +147,6 @@ function mergeToolCallParts(
 	} as ToolCallPart;
 }
 
-/** A stable, human-facing label and one-line detail for a tool activity row. */
-export function deriveToolActivityPresentation(
-	part: ToolCallPart,
-): ToolActivityPresentation {
-	const args = parseArguments(part.arguments);
-	const rawKind = readString((part as { kind?: unknown }).kind) ?? part.name;
-	const kind = classifyToolKind(rawKind, part.title);
-	const location = readLocations(part)[0]?.path ?? readContentPath(part);
-	const argumentPath = findString(args, [
-		"path",
-		"file_path",
-		"filePath",
-		"filename",
-		"target",
-	]);
-	const path = location ?? argumentPath;
-
-	switch (kind) {
-		case "execute":
-			return {
-				kind,
-				label: "Ran command",
-				detail:
-					firstLine(findString(args, ["command", "cmd", "script", "input"])) ??
-					safeTitle(part.title),
-			};
-		case "read":
-			return {
-				kind,
-				label: "Read file",
-				detail: path ?? safeTitle(part.title),
-			};
-		case "change":
-			return {
-				kind,
-				label: "Changed files",
-				detail: path ?? safeTitle(part.title),
-			};
-		case "search":
-			return {
-				kind,
-				label: "Searched files",
-				detail:
-					findString(args, ["query", "pattern", "search", "needle"]) ??
-					safeTitle(part.title),
-			};
-		case "fetch":
-			return {
-				kind,
-				label: "Fetched resource",
-				detail:
-					findString(args, ["url", "uri", "href"]) ?? safeTitle(part.title),
-			};
-		case "think":
-			return { kind, label: "Reasoned", detail: safeTitle(part.title) };
-		case "switch_mode":
-			return {
-				kind,
-				label: "Switched mode",
-				detail: findString(args, ["mode"]) ?? safeTitle(part.title),
-			};
-		default:
-			return {
-				kind: "other",
-				label: humanizeToolName(part.name) || "Used tool",
-				detail: safeTitle(part.title),
-			};
-	}
-}
-
 export function getAssistantTurnDurationMs(
 	messages: readonly AcpMessage[],
 	previousMessage?: AcpMessage,
@@ -274,76 +188,6 @@ export function formatWorkDuration(durationMs: number): string {
 	return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function classifyToolKind(
-	name: string | undefined,
-	title: string | undefined,
-): ToolActivityKind {
-	const value = `${name ?? ""} ${title ?? ""}`.toLowerCase();
-	if (/switch.?mode|change.?mode/.test(value)) return "switch_mode";
-	if (/exec|bash|shell|terminal|command|powershell/.test(value))
-		return "execute";
-	if (/search|grep|ripgrep|glob|find.?file/.test(value)) return "search";
-	if (/edit|write|patch|delete|remove|move|rename|create.?file/.test(value)) {
-		return "change";
-	}
-	if (/read|open.?file|view.?file|load.?file/.test(value)) return "read";
-	if (/fetch|http|web|browser|url/.test(value)) return "fetch";
-	if (/think|reason/.test(value)) return "think";
-	return "other";
-}
-
-function parseArguments(value: string | undefined): unknown {
-	if (!value) return undefined;
-	try {
-		return JSON.parse(value);
-	} catch {
-		return value;
-	}
-}
-
-function findString(
-	value: unknown,
-	keys: readonly string[],
-): string | undefined {
-	if (typeof value === "string") return value.trim() || undefined;
-	if (!value || typeof value !== "object") return undefined;
-	const record = value as Record<string, unknown>;
-	for (const key of keys) {
-		const candidate = readString(record[key]);
-		if (candidate) return candidate;
-	}
-	for (const candidate of Object.values(record)) {
-		if (candidate && typeof candidate === "object") {
-			const nested = findString(candidate, keys);
-			if (nested) return nested;
-		}
-	}
-	return undefined;
-}
-
-function readString(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function safeTitle(value: string | undefined): string | undefined {
-	const title = value?.trim();
-	if (!title || title.startsWith("{") || title.startsWith("["))
-		return undefined;
-	return firstLine(title);
-}
-
-function firstLine(value: string | undefined): string | undefined {
-	return value?.split(/\r?\n/, 1)[0]?.trim() || undefined;
-}
-
-function humanizeToolName(value: string | undefined): string {
-	if (!value) return "";
-	const segments = value.split(/[.:/]/);
-	const leaf = segments[segments.length - 1] ?? value;
-	const words = leaf.replace(/[_-]+/g, " ").trim();
-	return words ? `${words[0].toUpperCase()}${words.slice(1)}` : "";
-}
-
 function readLocations(part: ToolCallPart) {
 	const locations = (part as { locations?: unknown }).locations;
 	if (!Array.isArray(locations)) return [];
@@ -364,13 +208,6 @@ function readContentParts(part: ToolCallPart): AcpMessagePart[] {
 	return Array.isArray((part as { parts?: unknown }).parts)
 		? ((part as unknown as { parts: AcpMessagePart[] }).parts ?? [])
 		: [];
-}
-
-function readContentPath(part: ToolCallPart): string | undefined {
-	for (const content of readContentParts(part)) {
-		if (content.type === "file_change") return content.path;
-	}
-	return undefined;
 }
 
 function timestampMs(value: number | undefined): number | undefined {

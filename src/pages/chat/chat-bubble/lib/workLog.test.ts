@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { ToolCallPart } from "./messageParts";
 import {
 	coalesceToolCalls,
-	deriveToolActivityPresentation,
 	formatWorkDuration,
 	getElapsedDurationMs,
 	groupWorkLogParts,
@@ -105,31 +104,6 @@ describe("groupWorkLogParts", () => {
 			["content", "reasoning"],
 			["actions", 2],
 		]);
-	});
-});
-
-describe("deriveToolActivityPresentation", () => {
-	it("extracts a command instead of exposing raw argument JSON", () => {
-		expect(
-			deriveToolActivityPresentation(
-				tool({
-					name: "exec_command",
-					title: '{"command":"pnpm test"}',
-					arguments: JSON.stringify({ command: "pnpm test" }),
-				}),
-			),
-		).toEqual({ kind: "execute", label: "Ran command", detail: "pnpm test" });
-	});
-
-	it("prefers the ACP location for file activity", () => {
-		expect(
-			deriveToolActivityPresentation(
-				tool({
-					name: "read",
-					locations: [{ path: "src/chat.tsx", line: 12 }],
-				}),
-			),
-		).toEqual({ kind: "read", label: "Read file", detail: "src/chat.tsx" });
 	});
 });
 
