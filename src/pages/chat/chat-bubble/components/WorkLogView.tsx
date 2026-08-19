@@ -1,7 +1,7 @@
 import "./WorkLogView.scss";
 import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
 import { memo, useMemo, useState } from "react";
-import { deriveActivityRow } from "../lib/activityRow";
+import { type ActivityKind, deriveActivityRow } from "../lib/activityRow";
 import { messagePartsToMarkdown, type ToolCallPart } from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
 import {
@@ -10,6 +10,7 @@ import {
 	type WorkLogGroup,
 } from "../lib/workLog";
 import {
+	countByKind,
 	foldPathRuns,
 	mergeSameFileRuns,
 	type WorkLogRow,
@@ -21,6 +22,17 @@ import MarkdownPart from "./MarkdownPart";
 import MessagePartView from "./MessagePartView";
 import ToolCallContentView from "./ToolCallContentView";
 import { useWorkLogWindowSize } from "./useWorkLogWindowSize";
+
+const KIND_NOUNS: Record<ActivityKind, string> = {
+	execute: "ran",
+	read: "read",
+	change: "changed",
+	search: "searched",
+	fetch: "fetched",
+	think: "thought",
+	switch_mode: "mode",
+	other: "other",
+};
 
 interface WorkLogViewProps {
 	parts: AcpMessagePart[];
@@ -63,10 +75,18 @@ const WorkLogView = memo(function WorkLogView({
 		);
 	}
 
+	// A duration alone says how long, never what. The counts come from the same
+	// classifier the rows use, and the failure count is never folded away:
+	// it is the number that changes what the reader does next.
+	const { counts, failed } = countByKind(visibleParts, backend);
 	const durationLabel =
 		durationMs === undefined
 			? "Worked"
-			: `Worked for ${formatWorkDuration(durationMs)}`;
+			: `Worked ${formatWorkDuration(durationMs)}`;
+	const countLabel = [
+		...counts.map(({ kind, count }) => `${count} ${KIND_NOUNS[kind]}`),
+		...(failed > 0 ? [`${failed} failed`] : []),
+	].join(" · ");
 	return (
 		<ChatDisclosure
 			className="chat-work-log chat-work-log--settled"
@@ -81,6 +101,13 @@ const WorkLogView = memo(function WorkLogView({
 						aria-hidden="true"
 					/>
 					<span className="chat-work-log-title">{durationLabel}</span>
+					{countLabel ? (
+						<span
+							className={`chat-work-log-counts${failed > 0 ? " chat-work-log-counts--failed" : ""}`}
+						>
+							{` · ${countLabel}`}
+						</span>
+					) : null}
 				</>
 			}
 		>

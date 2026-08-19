@@ -72,6 +72,21 @@
   font-weight: 500;
 }
 
+.chat-work-log-counts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary-text);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+
+  &--failed {
+    color: var(--error);
+    opacity: 0.9;
+  }
+}
+
 .chat-work-log-list {
   display: flex;
   flex-direction: column;

@@ -1,0 +1,80 @@
+.changed-files {
+  // The bubble is a column that shrink-wraps its children, so without this the
+  // block is only as wide as its widest filename.
+  align-self: stretch;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 4px 0 10px;
+
+  // The shared card is only full width inside the answer body, and this block
+  // sits beside it. A row that stops halfway reads as a chip, not as a file.
+  .chat-part-card {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 2px;
+    border-radius: 8px;
+    background: var(--surface-soft);
+    overflow: hidden;
+  }
+
+  .chat-part-card-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    // The row opens a diff page, so it is a real target, not a label.
+    min-height: 44px;
+    padding: 6px 10px;
+    border: 0;
+    background: transparent;
+    color: var(--primary-text);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    >em {
+      font-style: normal;
+      font-size: 10px;
+      opacity: 0.5;
+      flex-shrink: 0;
+    }
+  }
+}
+
+.changed-files-head {
+  margin-bottom: 5px;
+  color: var(--secondary-text);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.changed-files-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: 'JetBrainsMono Nerd Font', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.changed-files-stat-added {
+  color: var(--success);
+}
+
+.changed-files-stat-removed {
+  color: var(--error);
+}
+
+.changed-files-stat-new {
+  color: var(--secondary-text);
+  opacity: 0.75;
+}

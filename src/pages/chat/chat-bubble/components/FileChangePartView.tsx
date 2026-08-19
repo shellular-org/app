@@ -6,8 +6,11 @@ import AgentDiffView from "./AgentDiffView";
 
 export default function FileChangePartView({
 	part,
+	stat,
 }: {
 	part: Extract<AcpMessagePart, { type: "file_change" }>;
+	/** Optional `+84 −12` badge, rendered before the chevron. */
+	stat?: React.ReactNode;
 }) {
 	return (
 		<div className="chat-part-card" data-open="false">
@@ -38,6 +41,7 @@ export default function FileChangePartView({
 						>
 							<span className="icon-edit" aria-hidden="true" />
 							<span>{title}</span>
+							{stat}
 							<em>
 								<span className="icon-chevron-right" />
 							</em>
@@ -55,6 +59,7 @@ export default function FileChangePartView({
 						<span className="file-change-status">
 							{part.path.split("/").pop()}
 						</span>
+						{stat}
 					</span>
 				);
 			})()}

@@ -163,7 +163,7 @@ describe("settled work log", () => {
 			/>,
 		);
 
-		const summary = screen.getByRole("button", { name: /Worked for 8\.3s/ });
+		const summary = screen.getByRole("button", { name: /Worked 8\.3s/ });
 		expect(summary.getAttribute("aria-expanded")).toBe("false");
 		const panel = summary.parentElement?.querySelector(
 			".chat-disclosure-panel",
@@ -172,6 +172,36 @@ describe("settled work log", () => {
 		fireEvent.click(summary);
 		expect(panel?.getAttribute("aria-hidden")).toBe("false");
 		expect(screen.getByText("Check branch state")).toBeTruthy();
+	});
+
+	it("summarises a settled turn by kind, not by duration alone", () => {
+		render(
+			<WorkLogView
+				parts={[
+					tool("r1", "read", "a.md"),
+					tool("r2", "read", "b.md"),
+					command("e1", "Run it"),
+				]}
+				streaming={false}
+				stateKey="settled"
+				durationMs={72_000}
+			/>,
+		);
+		expect(screen.getByText(/Worked 1m 12s/)).toBeInTheDocument();
+		expect(screen.getByText(/2 read/)).toBeInTheDocument();
+		expect(screen.getByText(/1 ran/)).toBeInTheDocument();
+	});
+
+	it("surfaces the failure count in the collapsed header", () => {
+		render(
+			<WorkLogView
+				parts={[command("f1", "Run the tests", "failed")]}
+				streaming={false}
+				stateKey="failed"
+				durationMs={1_000}
+			/>,
+		);
+		expect(screen.getByText(/1 failed/)).toBeInTheDocument();
 	});
 
 	it("keeps file-change activities available in the expanded work log", () => {
@@ -193,7 +223,7 @@ describe("settled work log", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: /Worked for 2\.0s/ }));
+		fireEvent.click(screen.getByRole("button", { name: /Worked 2\.0s/ }));
 		expect(screen.getByText("src/chat.tsx")).toBeTruthy();
 	});
 });

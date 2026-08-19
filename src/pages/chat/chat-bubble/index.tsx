@@ -1,5 +1,6 @@
 import "./style.scss";
 import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
+import ChangedFilesBlock from "./components/ChangedFilesBlock";
 import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
@@ -103,6 +104,9 @@ export default function ChatBubble({
 						{renderMessageParts(parts, messageRole, messageKey)}
 					</div>
 				</div>
+			) : null}
+			{!streaming && workParts.length > 0 ? (
+				<ChangedFilesBlock parts={workParts} />
 			) : null}
 			{canCopy && (
 				<div className="chat-bubble-actions">
