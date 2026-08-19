@@ -1,0 +1,89 @@
+.turn-header {
+  margin: 2px 0 10px;
+  padding-left: 11px;
+  border-left: 2px solid var(--accent);
+
+  &--failed {
+    border-left-color: var(--error);
+  }
+}
+
+.turn-header-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 24px;
+  color: var(--primary-text);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.turn-header-icon {
+  color: var(--accent);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.turn-header--failed .turn-header-icon {
+  color: var(--error);
+}
+
+.turn-header-timer {
+  color: var(--secondary-text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.turn-header-commentary {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0 1px;
+  color: var(--secondary-text);
+  font-size: 12.5px;
+  line-height: 1.5;
+
+  >span:last-child {
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+.turn-header-quote {
+  margin-top: 3px;
+  color: var(--info);
+  font-size: 13px;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+// WCAG SC 2.2.2 (Level A): blinking that outlives five seconds needs a pause,
+// stop or hide mechanism, and an agent run always outlives five seconds. The
+// pulse is opacity-only, which SC 2.3.3 excludes from motion animation, and it
+// goes static when the user has asked for reduced motion. This block replaces
+// the one deleted from WorkLogView.scss; do not drop it.
+.turn-header--working .turn-header-icon {
+  animation: turn-header-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes turn-header-pulse {
+
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-header--working .turn-header-icon {
+    animation: none;
+    opacity: 0.8;
+  }
+}

@@ -99,6 +99,7 @@ import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
 import ElicitationCard from "./chat-bubble/components/ElicitationCard";
 import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
+import type { TurnState } from "./chat-bubble/components/TurnHeader";
 import {
 	formatStopReason,
 	getMessageKey,
@@ -476,30 +477,26 @@ export default function ChatConversationPage({
 	}, [chatIsStreaming, turnDurationByUserId, visibleMessages]);
 	const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
 
-	// What the agent is doing right now, read off the newest unfinished tool
-	// call in the streaming message. Falls back to "thinking" when it's just
-	// generating text.
-	const streamingStatusLabel = useMemo(() => {
-		if (!chatIsStreaming || lastVisibleMessage?.role !== "assistant") {
-			return undefined;
-		}
-		for (let index = lastVisibleMessage.parts.length - 1; index >= 0; index--) {
-			const part = lastVisibleMessage.parts[index];
+	// The turn header states what the agent is doing; the running row states what
+	// with. Pasting the tool title into a sentence is what produced
+	// `Claude Code is cd "/home/jk/… && for f in *.md; do echo …`.
+	const turnState = useMemo<TurnState>(() => {
+		if (pendingPermissions.length > 0) return "waiting-permission";
+		if (pendingElicitations.length > 0) return "waiting-answer";
+		const parts = lastVisibleMessage?.parts ?? [];
+		for (let index = parts.length - 1; index >= 0; index -= 1) {
+			const part = parts[index];
 			if (part.type !== "tool_call") continue;
-			const status = (part as { status?: unknown }).status;
-			if (status === "completed" || status === "failed" || status === "fail") {
-				continue;
-			}
-			const title = (part as { title?: unknown }).title;
-			if (typeof title === "string" && title.trim()) return title.trim();
-			const name = (part as { name?: unknown }).name;
-			if (typeof name === "string" && name.trim()) {
-				return `running ${name.trim()}`;
-			}
-			return undefined;
+			const status = part.status?.toLowerCase();
+			if (status === "pending" || status === "in_progress") return "working";
+			return status === "failed" || status === "fail" ? "failed" : "working";
 		}
-		return undefined;
-	}, [chatIsStreaming, lastVisibleMessage]);
+		return "working";
+	}, [
+		pendingPermissions.length,
+		pendingElicitations.length,
+		lastVisibleMessage,
+	]);
 
 	useEffect(() => {
 		allMessagesLengthRef.current = allMessages.length;
@@ -1749,7 +1746,7 @@ export default function ChatConversationPage({
 								workStartedAt={workStartedAt}
 								workDurationMs={workDurationMs}
 								backend={agentId}
-								statusLabel={streamingStatusLabel}
+								turnState={turnState}
 								streaming={
 									chatIsStreaming &&
 									msg.role === "assistant" &&
@@ -1766,6 +1763,7 @@ export default function ChatConversationPage({
 						parts={[]}
 						messageRole="assistant"
 						assistantName={assistantName}
+						turnState={turnState}
 						streaming
 					/>
 				)}

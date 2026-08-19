@@ -133,28 +133,6 @@
     }
   }
 
-  .chat-typing {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 2px;
-    color: var(--secondary-text);
-    font-size: 12px;
-    opacity: 0.72;
-
-    // Breathing label: signals liveness without a distracting spinner next to
-    // the mascot, which already animates.
-    .chat-typing-label {
-      animation: chat-typing-pulse 1.8s ease-in-out infinite;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-      .chat-typing-label {
-        animation: none;
-      }
-    }
-  }
-
   // Streaming caret: marks the live end of the text as it arrives.
   &--streaming .chat-bubble-text--md > :last-child::after {
     content: "";
@@ -650,18 +628,6 @@
 @keyframes chat-status-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes chat-typing-pulse {
-
-  0%,
-  100% {
-    opacity: 0.6;
-  }
-
-  50% {
-    opacity: 1;
   }
 }
 

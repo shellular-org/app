@@ -64,7 +64,6 @@ describe("WorkLogView", () => {
 				]}
 				streaming
 				stateKey="live-turn"
-				startedAt={Date.now() - 13_000}
 			/>,
 		);
 

@@ -1,6 +1,6 @@
 import "./WorkLogView.scss";
 import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { deriveActivityRow } from "../lib/activityRow";
 import { messagePartsToMarkdown, type ToolCallPart } from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
@@ -26,7 +26,6 @@ interface WorkLogViewProps {
 	parts: AcpMessagePart[];
 	streaming: boolean;
 	stateKey: string;
-	startedAt?: number;
 	durationMs?: number;
 	/** Which agent produced these parts; the row objects resolve per agent. */
 	backend?: AiBackend;
@@ -36,7 +35,6 @@ const WorkLogView = memo(function WorkLogView({
 	parts,
 	streaming,
 	stateKey,
-	startedAt,
 	durationMs,
 	backend,
 }: WorkLogViewProps) {
@@ -61,7 +59,6 @@ const WorkLogView = memo(function WorkLogView({
 					windowSize={windowSize}
 					backend={backend}
 				/>
-				<WorkingTimer startedAt={startedAt} />
 			</section>
 		);
 	}
@@ -329,39 +326,4 @@ function shouldRenderWorkPart(
 		(Array.isArray((part as { locations?: unknown }).locations) &&
 			(part as unknown as { locations: unknown[] }).locations.length > 0);
 	return hasContent;
-}
-
-/** Isolated self-ticking label: the transcript does not re-render each second. */
-function WorkingTimer({ startedAt }: { startedAt?: number }) {
-	const labelRef = useRef<HTMLSpanElement>(null);
-	useEffect(() => {
-		const normalizedStart = normalizeTimestamp(startedAt) ?? Date.now();
-		const update = () => {
-			if (!labelRef.current) return;
-			const seconds = Math.max(
-				0,
-				Math.floor((Date.now() - normalizedStart) / 1_000),
-			);
-			labelRef.current.textContent = `Working for ${seconds}s`;
-		};
-		update();
-		const timer = window.setInterval(update, 1_000);
-		return () => window.clearInterval(timer);
-	}, [startedAt]);
-
-	return (
-		<div className="chat-work-timer" aria-live="off">
-			<span className="chat-work-timer-dots" aria-hidden="true">
-				<i />
-				<i />
-				<i />
-			</span>
-			<span ref={labelRef}>Working</span>
-		</div>
-	);
-}
-
-function normalizeTimestamp(value: number | undefined): number | undefined {
-	if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
-	return value < 10_000_000_000 ? value * 1_000 : value;
 }
