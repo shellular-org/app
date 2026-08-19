@@ -1,5 +1,6 @@
 import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
 import { type ActivityKind, deriveActivityRow } from "./activityRow";
+import { elidePath } from "./elide";
 import type { ToolCallPart } from "./messageParts";
 
 export type WorkLogRow =
@@ -166,13 +167,16 @@ function sharedDirectory(
 	parts: readonly ToolCallPart[],
 	backend?: AiBackend,
 ): string | undefined {
+	// Compare the real paths, not the elided ones: eliding keeps as much of the
+	// tail as fits, so two files in the same directory whose basenames differ in
+	// length end up with different visible prefixes and would never match.
 	const directories = parts.map((part) => {
-		const object = deriveActivityRow(part, backend).object ?? "";
-		const cut = object.lastIndexOf("/");
-		return cut > 0 ? object.slice(0, cut) : "";
+		const full = deriveActivityRow(part, backend).objectFull ?? "";
+		const cut = full.lastIndexOf("/");
+		return cut > 0 ? full.slice(0, cut) : "";
 	});
 	const first = directories[0];
 	return first && directories.every((value) => value === first)
-		? first
+		? elidePath(first)
 		: undefined;
 }

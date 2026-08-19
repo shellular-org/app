@@ -294,6 +294,7 @@ export default function SettingsPage() {
 	);
 
 	const [hapticFeedback, setHapticFeedback] = useState(true);
+	const [showEveryStep, setShowEveryStep] = useState(true);
 	const [isSavingServer, setIsSavingServer] = useState(false);
 	const [testOnboarding, setTestOnboarding] = useState(false);
 
@@ -327,6 +328,7 @@ export default function SettingsPage() {
 			setTerminalScrollback(s.terminal.scrollback);
 			setTerminalLetterSpacing(s.terminal.letterSpacing);
 			setHapticFeedback(s.hapticFeedback);
+			setShowEveryStep(s.chat.showEveryStep);
 		});
 	}, []);
 
@@ -406,6 +408,11 @@ export default function SettingsPage() {
 		await persistSettings({ hapticFeedback: value });
 	}
 
+	async function handleShowEveryStepChange(value: boolean) {
+		setShowEveryStep(value);
+		await persistSettings({ chat: { showEveryStep: value } });
+	}
+
 	async function handleTestOnboardingChange(value: boolean) {
 		setTestOnboarding(value);
 		if (value) {
@@ -453,6 +460,10 @@ export default function SettingsPage() {
 		{
 			title: "Haptic Feedback",
 			description: "Vibrates on touch interactions.",
+		},
+		{
+			title: "Agent Work Log",
+			description: "Controls how many steps of a running turn stay visible.",
 		},
 	]);
 	const showEditorSettings = matchesSettingsSearch(searchQuery, [
@@ -602,6 +613,17 @@ export default function SettingsPage() {
 												label="Haptic Feedback"
 												checked={hapticFeedback}
 												onChange={handleHapticFeedbackChange}
+											/>
+										}
+									/>
+									<SettingsItem
+										title="Agent Work Log"
+										description="Show every step of a running turn. Off shows only the latest one."
+										control={
+											<Switch
+												label="Show every step"
+												checked={showEveryStep}
+												onChange={handleShowEveryStepChange}
 											/>
 										}
 									/>

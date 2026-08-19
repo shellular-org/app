@@ -1,6 +1,7 @@
 import "./WorkLogView.scss";
-import type { AcpMessagePart } from "@shellular/protocol";
+import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { deriveActivityRow } from "../lib/activityRow";
 import { messagePartsToMarkdown, type ToolCallPart } from "../lib/messageParts";
 import { getRenderPartKey } from "../lib/utils";
 import {
@@ -8,10 +9,18 @@ import {
 	groupWorkLogParts,
 	type WorkLogGroup,
 } from "../lib/workLog";
+import {
+	foldPathRuns,
+	mergeSameFileRuns,
+	type WorkLogRow,
+	windowRows,
+} from "../lib/workLogLayout";
+import ActivityRow from "./ActivityRow";
 import ChatDisclosure from "./ChatDisclosure";
 import MarkdownPart from "./MarkdownPart";
 import MessagePartView from "./MessagePartView";
 import ToolCallContentView from "./ToolCallContentView";
+import { useWorkLogWindowSize } from "./useWorkLogWindowSize";
 
 interface WorkLogViewProps {
 	parts: AcpMessagePart[];
@@ -19,6 +28,8 @@ interface WorkLogViewProps {
 	stateKey: string;
 	startedAt?: number;
 	durationMs?: number;
+	/** Which agent produced these parts; the row objects resolve per agent. */
+	backend?: AiBackend;
 }
 
 const WorkLogView = memo(function WorkLogView({
@@ -27,7 +38,9 @@ const WorkLogView = memo(function WorkLogView({
 	stateKey,
 	startedAt,
 	durationMs,
+	backend,
 }: WorkLogViewProps) {
+	const windowSize = useWorkLogWindowSize();
 	const visibleParts = useMemo(
 		() => parts.filter((part) => shouldRenderWorkPart(part, streaming)),
 		[parts, streaming],
@@ -42,7 +55,12 @@ const WorkLogView = memo(function WorkLogView({
 				className="chat-work-log chat-work-log--live"
 				aria-label="Work log"
 			>
-				<WorkLogGroups groups={groups} keyPrefix={`${stateKey}-live`} />
+				<WorkLogGroups
+					groups={groups}
+					keyPrefix={`${stateKey}-live`}
+					windowSize={windowSize}
+					backend={backend}
+				/>
 				<WorkingTimer startedAt={startedAt} />
 			</section>
 		);
@@ -70,7 +88,12 @@ const WorkLogView = memo(function WorkLogView({
 			}
 		>
 			<div className="chat-work-log-list">
-				<WorkLogGroups groups={groups} keyPrefix={`${stateKey}-settled`} />
+				<WorkLogGroups
+					groups={groups}
+					keyPrefix={`${stateKey}-settled`}
+					windowSize={windowSize}
+					backend={backend}
+				/>
 			</div>
 		</ChatDisclosure>
 	);
@@ -81,9 +104,13 @@ export default WorkLogView;
 function WorkLogGroups({
 	groups,
 	keyPrefix,
+	windowSize,
+	backend,
 }: {
 	groups: WorkLogGroup[];
 	keyPrefix: string;
+	windowSize: number;
+	backend?: AiBackend;
 }) {
 	return groups.map((group, index) => {
 		const firstPart = group.kind === "actions" ? group.parts[0] : group.part;
@@ -94,65 +121,130 @@ function WorkLogGroups({
 					key={groupKey}
 					parts={group.parts}
 					stateKey={groupKey}
+					windowSize={windowSize}
+					backend={backend}
 				/>
 			);
 		}
 		return (
-			<WorkPartList key={groupKey} parts={[group.part]} keyPrefix={groupKey} />
+			<WorkPartList
+				key={groupKey}
+				parts={[group.part]}
+				keyPrefix={groupKey}
+				backend={backend}
+			/>
 		);
 	});
 }
 
+/**
+ * The full trail, newest-last, with anything past the window behind one control
+ * at the top. Showing only the latest action while eight have run is the
+ * behaviour users report as confusing; the window replaces it, and the
+ * latest-only view survives as a `windowSize` of 1 rather than a second path.
+ */
 function WorkActionGroup({
 	parts,
 	stateKey,
+	windowSize,
+	backend,
 }: {
 	parts: AcpMessagePart[];
 	stateKey: string;
+	windowSize: number;
+	backend?: AiBackend;
 }) {
-	const [showPrevious, setShowPrevious] = useState(false);
-	const previousCount = Math.max(0, parts.length - 1);
-	const latestPart = parts[parts.length - 1];
-	const previousParts = showPrevious ? parts.slice(0, -1).reverse() : [];
-	if (!latestPart) return null;
+	const [expanded, setExpanded] = useState(false);
+	const rows = useMemo(
+		() => foldPathRuns(mergeSameFileRuns(parts, backend), backend),
+		[parts, backend],
+	);
+	const layout = useMemo(
+		() => (expanded ? { hidden: 0, rows } : windowRows(rows, windowSize)),
+		[rows, expanded, windowSize],
+	);
 
 	return (
 		<div className="chat-work-action-group">
-			<WorkPartList parts={[latestPart]} keyPrefix={`${stateKey}-latest`} />
-			{previousParts.length > 0 ? (
-				<WorkPartList
-					parts={previousParts}
-					keyPrefix={`${stateKey}-previous`}
-				/>
-			) : null}
-			{previousCount > 0 ? (
+			{layout.hidden > 0 ? (
 				<button
 					type="button"
-					className="chat-work-log-previous"
-					aria-expanded={showPrevious}
-					onClick={() => setShowPrevious((value) => !value)}
+					className="chat-work-log-earlier"
+					aria-expanded={false}
+					onClick={() => setExpanded(true)}
 				>
-					<span
-						className={`icon-chevron-${showPrevious ? "up" : "down"}`}
-						aria-hidden="true"
-					/>
+					<span className="icon-chevron-down" aria-hidden="true" />
 					<span>
-						{showPrevious
-							? "Show fewer tool calls"
-							: `+${previousCount} previous tool ${previousCount === 1 ? "call" : "calls"}`}
+						{`${layout.hidden} earlier ${layout.hidden === 1 ? "step" : "steps"}`}
 					</span>
 				</button>
 			) : null}
+			{layout.rows.map((row, index) => (
+				<WorkLogRowView
+					// biome-ignore lint/suspicious/noArrayIndexKey: the window is recomputed wholesale from the parts array, so a row's position is its identity and a folded row has no id of its own
+					key={`${stateKey}-${index}-${rowKey(row, index)}`}
+					row={row}
+					stateKey={`${stateKey}-${index}`}
+					backend={backend}
+				/>
+			))}
 		</div>
+	);
+}
+
+function rowKey(row: WorkLogRow, index: number): string {
+	return row.kind === "part"
+		? getRenderPartKey(row.part, index)
+		: `folded-${row.parts.length}`;
+}
+
+function WorkLogRowView({
+	row,
+	stateKey,
+	backend,
+}: {
+	row: WorkLogRow;
+	stateKey: string;
+	backend?: AiBackend;
+}) {
+	if (row.kind === "part") {
+		return (
+			<WorkPartList parts={[row.part]} keyPrefix={stateKey} backend={backend} />
+		);
+	}
+	const chips = row.parts
+		.map((part) => {
+			const object = deriveActivityRow(part, backend).object ?? "";
+			return object.slice(object.lastIndexOf("/") + 1);
+		})
+		.filter(Boolean);
+	return (
+		<ActivityRow
+			row={{
+				kind:
+					row.parts.length > 0
+						? deriveActivityRow(row.parts[0], backend).kind
+						: "other",
+				verb: row.verb,
+				object: row.directory,
+				objectIsMono: true,
+				running: false,
+				failed: false,
+			}}
+			chips={chips.slice(0, 3)}
+			extraChips={Math.max(0, chips.length - 3)}
+		/>
 	);
 }
 
 function WorkPartList({
 	parts,
 	keyPrefix,
+	backend,
 }: {
 	parts: AcpMessagePart[];
 	keyPrefix: string;
+	backend?: AiBackend;
 }) {
 	return parts.map((part, index) => {
 		if (part.type === "text") {
@@ -170,6 +262,7 @@ function WorkPartList({
 				<ToolCallContentView
 					key={`${keyPrefix}-${getRenderPartKey(part, index)}`}
 					part={part}
+					backend={backend}
 				/>
 			);
 		}
@@ -177,6 +270,7 @@ function WorkPartList({
 			return (
 				<ToolCallContentView
 					key={`${keyPrefix}-${getRenderPartKey(part, index)}`}
+					backend={backend}
 					part={
 						{
 							type: "tool_call",
@@ -197,6 +291,7 @@ function WorkPartList({
 			return (
 				<ToolCallContentView
 					key={`${keyPrefix}-${getRenderPartKey(part, index)}`}
+					backend={backend}
 					part={
 						{
 							type: "tool_call",

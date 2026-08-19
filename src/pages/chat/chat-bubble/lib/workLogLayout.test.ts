@@ -87,6 +87,21 @@ describe("foldPathRuns", () => {
 		expect(rows.every((row) => row.kind === "part")).toBe(true);
 	});
 
+	it("finds the shared directory even when eliding trims the paths differently", () => {
+		// The elided form keeps as much of the tail as fits, so a longer basename
+		// buys a shorter prefix. Comparing the display strings finds no shared
+		// directory at all; comparing the real paths does.
+		const directory = "backends/real-commerce/.ai/concepts/2026-07-04/adrs";
+		const rows = foldPathRuns([
+			read(`${directory}/01-scope.md`),
+			read(`${directory}/02-model.md`),
+			read(`${directory}/04-tax-basis.md`),
+		]);
+		expect((rows[0] as { directory?: string }).directory).toContain(
+			"2026-07-04/adrs",
+		);
+	});
+
 	it("drops the shared directory when the paths do not share one", () => {
 		const rows = foldPathRuns([
 			read("a/one.md"),

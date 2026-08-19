@@ -1,5 +1,5 @@
 import "./style.scss";
-import type { AcpMessagePart } from "@shellular/protocol";
+import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
 import Mascot from "components/Mascot";
 import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
@@ -36,6 +36,11 @@ interface ChatBubbleProps {
 	statusLabel?: string;
 	/** Turn-level work projected out of the terminal assistant answer. */
 	workParts?: AcpMessagePart[];
+	/**
+	 * Which agent produced this turn. Row objects resolve per agent, because
+	 * the argument key that names a call is the agent's own convention.
+	 */
+	backend?: AiBackend;
 	workStartedAt?: number;
 	workDurationMs?: number;
 }
@@ -54,6 +59,7 @@ export default function ChatBubble({
 	workParts = [],
 	workStartedAt,
 	workDurationMs,
+	backend,
 }: ChatBubbleProps) {
 	// Just the answer: reasoning and tool calls are folded away on screen and
 	// carry their own copy buttons, so including them here would bury the reply
@@ -76,6 +82,7 @@ export default function ChatBubble({
 					stateKey={`${messageKey}-work`}
 					startedAt={workStartedAt}
 					durationMs={workDurationMs}
+					backend={backend}
 				/>
 			) : null}
 			{parts.length > 0 ? (

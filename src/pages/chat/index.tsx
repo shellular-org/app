@@ -1748,6 +1748,7 @@ export default function ChatConversationPage({
 								workParts={workParts}
 								workStartedAt={workStartedAt}
 								workDurationMs={workDurationMs}
+								backend={agentId}
 								statusLabel={streamingStatusLabel}
 								streaming={
 									chatIsStreaming &&
