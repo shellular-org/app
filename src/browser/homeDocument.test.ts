@@ -17,7 +17,7 @@ describe("browser home document", () => {
 	});
 
 	it("produces a complete searchable home document without history", () => {
-		const document = getBrowserHomeDocument();
+		const document = getBrowserHomeDocument("host-1");
 
 		expect(document).toContain("<!DOCTYPE html>");
 		expect(document).toContain("Search or enter address");
@@ -34,7 +34,7 @@ describe("browser home document", () => {
 			},
 		];
 
-		const document = getBrowserHomeDocument();
+		const document = getBrowserHomeDocument("host-1");
 		expect(document).toContain("Example &lt;Project&gt;");
 		expect(document).toContain("https://example.test/path?value=1&amp;next=2");
 	});

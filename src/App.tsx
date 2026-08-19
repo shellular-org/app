@@ -9,6 +9,7 @@ import { ONBOARDING_KEY, resolveOnboardingVisibility } from "lib/onboarding";
 import * as store from "lib/store";
 import LoginPage from "pages/login";
 import OnboardingPage from "pages/onboarding";
+import SettingsPage from "pages/settings";
 import {
 	type ComponentType,
 	type LazyExoticComponent,
@@ -45,6 +46,7 @@ interface PageStackEntry {
 }
 
 const PAGE_HIDE_DURATION = 240;
+const LOGIN_SETTINGS_PAGE_ID = "login-settings";
 const TABS: Tab[] = [
 	{ id: "home", label: "Home", icon: "home" },
 	{
@@ -91,24 +93,44 @@ let tabViewHidden = false;
 let handleTabChange: (tab: TabId) => void;
 
 export default function App() {
-	const [authKey, setAuthKey] = useState(0);
-
 	return (
-		<AuthProvider key={authKey}>
-			<AuthGate onReloadLogin={() => setAuthKey((key) => key + 1)} />
+		<AuthProvider>
+			<AuthGate />
 		</AuthProvider>
 	);
 }
 
-function AuthGate({ onReloadLogin }: { onReloadLogin: () => void }) {
+function AuthGate() {
 	const { status } = useAuth();
+	const [showLoginSettings, setShowLoginSettings] = useState(false);
+
+	const openLoginSettings = useCallback(() => {
+		if (actionStack.has(LOGIN_SETTINGS_PAGE_ID)) return;
+		setShowLoginSettings(true);
+		actionStack.push({
+			id: LOGIN_SETTINGS_PAGE_ID,
+			action: () => {
+				setShowLoginSettings(false);
+			},
+		});
+	}, []);
+
+	useEffect(() => {
+		if (status === "unauthenticated" || !showLoginSettings) return;
+		actionStack.remove(LOGIN_SETTINGS_PAGE_ID);
+		setShowLoginSettings(false);
+	}, [showLoginSettings, status]);
 
 	if (status === "loading") {
 		return <EmptyState mascot="loading" message="loading..." />;
 	}
 
 	if (status === "unauthenticated") {
-		return <LoginPage onReload={onReloadLogin} />;
+		return showLoginSettings ? (
+			<SettingsPage />
+		) : (
+			<LoginPage onOpenSettings={openLoginSettings} />
+		);
 	}
 
 	return <AuthenticatedApp />;
@@ -275,7 +297,7 @@ interface TabBarProps {
 }
 
 function TabBar({ activeTab, onTabChange }: TabBarProps) {
-	const [isStreaming, setIsStreaming] = useState(getHasAnyStreaming());
+	const [isStreaming, setIsStreaming] = useState(() => getHasAnyStreaming());
 
 	useEffect(
 		() =>

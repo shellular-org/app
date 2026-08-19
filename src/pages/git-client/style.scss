@@ -230,6 +230,228 @@
   }
 }
 
+.git-review-page {
+  .git-changes-container {
+    height: auto;
+  }
+
+  .git-changes-scrollable {
+    padding-bottom: 20px;
+  }
+}
+
+.git-review-submit-bar {
+  flex-shrink: 0;
+  min-height: 66px;
+  padding: 10px max(12px, var(--sar)) calc(10px + var(--sab, 0px)) max(12px, var(--sal));
+  border-top: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--secondary) 94%, var(--accent));
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  position: relative;
+  z-index: 6;
+
+  > button {
+    min-height: 42px;
+    padding: 0 14px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: var(--button-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 750;
+    white-space: nowrap;
+
+    &:active {
+      transform: scale(0.98);
+    }
+
+    &:disabled {
+      background: var(--surface-soft);
+      color: var(--secondary-text);
+      opacity: 0.55;
+      transform: none;
+    }
+  }
+}
+
+.git-review-submit-copy {
+  min-width: 0;
+  color: var(--secondary-text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+
+  > span:first-child {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  strong {
+    color: var(--primary-text);
+  }
+}
+
+.git-review-diff-page {
+  .diff-view {
+    min-height: 100%;
+  }
+
+  [data-line-annotation] {
+    background: color-mix(in srgb, var(--secondary) 92%, transparent);
+  }
+}
+
+.git-review-annotation {
+  width: min(760px, calc(100vw - 72px));
+  margin: 11px 12px 13px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--primary-text) 9%, var(--border-color));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--primary) 88%, #090a0d);
+  color: var(--primary-text);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  font-family: var(--font-family, inherit);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  white-space: normal;
+  user-select: text;
+  -webkit-user-select: text;
+
+  textarea {
+    width: 100%;
+    min-height: 92px;
+    margin: 0;
+    padding: 17px 18px 8px;
+    resize: none;
+    border: 0;
+    border-radius: 0;
+    outline: none;
+    background: transparent;
+    color: var(--primary-text);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+
+    &:focus {
+      box-shadow: none;
+    }
+
+    &::placeholder {
+      color: var(--secondary-text);
+      opacity: 0.45;
+    }
+  }
+
+  p {
+    margin: 0;
+    padding: 15px 18px 17px 55px;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+}
+
+.git-review-annotation-heading {
+  min-height: 52px;
+  padding: 10px 15px;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-text) 7%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+
+  > button {
+    width: 26px;
+    height: 26px;
+    margin-left: auto;
+    border-radius: 7px;
+    color: var(--secondary-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    &:active {
+      background: var(--surface-soft);
+    }
+  }
+
+  > strong {
+    font-size: 13px;
+    font-weight: 720;
+  }
+}
+
+.git-review-local-mark {
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--primary-text) 13%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--primary-text) 5%, transparent);
+  color: var(--primary-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  > span {
+    font-size: 13px;
+  }
+}
+
+.git-review-location {
+  margin-left: auto;
+  color: var(--secondary-text);
+  font-size: 11px;
+  opacity: 0.62;
+  white-space: nowrap;
+}
+
+.git-review-annotation-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  margin: 0;
+  padding: 0 13px 13px;
+
+  button {
+    min-height: 34px;
+    padding: 0 11px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+}
+
+.git-review-cancel {
+  color: var(--secondary-text);
+  background: transparent;
+}
+
+.git-review-add {
+  color: var(--button-text);
+  background: var(--accent);
+
+  &:disabled {
+    opacity: 0.4;
+  }
+}
+
 // ─── Header action buttons ──────────────────────────────────────
 .git-header-actions {
   display: flex;

@@ -23,14 +23,39 @@ import {
 import KeyboardShortcutsSettings from "./KeyboardShortcutsSettings";
 import "./style.scss";
 
+// Settings save instantly on change, so a success toast per change would be
+// noisy. But a failed write must not pass silently — surface it so the user
+// knows the change didn't stick. Returns whether the save succeeded.
+async function persistSettings(
+	settings: Parameters<typeof saveSettings>[0],
+): Promise<boolean> {
+	try {
+		await saveSettings(settings);
+		return true;
+	} catch (err) {
+		console.error("Failed to save settings:", err);
+		toast("Couldn't save setting", 2600);
+		return false;
+	}
+}
+
+function normalizeDomain(domain: string) {
+	return domain
+		.trim()
+		.replace(/^https?:\/\//, "")
+		.replace(/\/+$/, "");
+}
+
 // --- Components ---
 
 function NumberInput({
+	label,
 	value,
 	onChange,
 	min,
 	max,
 }: {
+	label: string;
 	value: number;
 	onChange: (v: number) => void;
 	min: number;
@@ -40,6 +65,7 @@ function NumberInput({
 		<div className="flex items-center bg-(--surface-soft) border border-(--card-border) rounded-md overflow-hidden">
 			<button
 				type="button"
+				aria-label={`Decrease ${label}`}
 				className="px-2 py-1.5 text-(--secondary-text) hover:text-(--primary-text) hover:bg-(--surface-strong) transition-colors"
 				onClick={() => onChange(Math.max(min, value - 1))}
 			>
@@ -47,12 +73,14 @@ function NumberInput({
 			</button>
 			<input
 				type="number"
+				aria-label={label}
 				value={value}
 				onChange={(e) => onChange(Number(e.target.value))}
 				className="w-10 text-center bg-transparent text-sm text-(--primary-text) focus:outline-none hide-number-spinners"
 			/>
 			<button
 				type="button"
+				aria-label={`Increase ${label}`}
 				className="px-2 py-1.5 text-(--secondary-text) hover:text-(--primary-text) hover:bg-(--surface-strong) transition-colors"
 				onClick={() => onChange(Math.min(max, value + 1))}
 			>
@@ -63,15 +91,20 @@ function NumberInput({
 }
 
 function Switch({
+	label,
 	checked,
 	onChange,
 }: {
+	label: string;
 	checked: boolean;
 	onChange: (v: boolean) => void;
 }) {
 	return (
 		<button
 			type="button"
+			role="switch"
+			aria-label={label}
+			aria-checked={checked}
 			className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none ${checked ? "bg-(--accent)" : "bg-(--surface-strong)"}`}
 			onClick={() => onChange(!checked)}
 		>
@@ -329,22 +362,6 @@ export default function SettingsPage({
 		});
 	}, []);
 
-	// Settings save instantly on change, so a success toast per change would be
-	// noisy. But a failed write must not pass silently — surface it so the user
-	// knows the change didn't stick. Returns whether the save succeeded.
-	async function persistSettings(
-		settings: Parameters<typeof saveSettings>[0],
-	): Promise<boolean> {
-		try {
-			await saveSettings(settings);
-			return true;
-		} catch (err) {
-			console.error("Failed to save settings:", err);
-			toast("Couldn't save setting", 2600);
-			return false;
-		}
-	}
-
 	async function handleThemeChange(name: string) {
 		setCurrentTheme(name);
 		if (await persistSettings({ theme: name })) {
@@ -423,13 +440,6 @@ export default function SettingsPage({
 	async function handleTerminalLetterSpacingChange(value: number) {
 		setTerminalLetterSpacing(value);
 		await persistSettings({ terminal: { letterSpacing: value } });
-	}
-
-	function normalizeDomain(domain: string) {
-		return domain
-			.trim()
-			.replace(/^https?:\/\//, "")
-			.replace(/\/+$/, "");
 	}
 
 	async function handleHapticFeedbackChange(value: boolean) {
@@ -669,6 +679,7 @@ export default function SettingsPage({
 										description="Vibrates on touch interactions."
 										control={
 											<Switch
+												label="Haptic Feedback"
 												checked={hapticFeedback}
 												onChange={handleHapticFeedbackChange}
 											/>
@@ -692,6 +703,7 @@ export default function SettingsPage({
 										description="Controls the font size in pixels."
 										control={
 											<NumberInput
+												label="Editor font size"
 												value={editorFontSize}
 												onChange={handleEditorFontSizeChange}
 												min={8}
@@ -715,6 +727,7 @@ export default function SettingsPage({
 										description="Controls how lines should wrap in the editor."
 										control={
 											<Switch
+												label="Editor word wrap"
 												checked={editorWordWrap}
 												onChange={handleEditorWordWrapChange}
 											/>
@@ -725,6 +738,7 @@ export default function SettingsPage({
 										description="Controls the display of line numbers."
 										control={
 											<Switch
+												label="Editor line numbers"
 												checked={editorLineNumbers}
 												onChange={handleEditorLineNumbersChange}
 											/>
@@ -735,6 +749,7 @@ export default function SettingsPage({
 										description="Controls how many columns a tab occupies."
 										control={
 											<NumberInput
+												label="Editor tab size"
 												value={editorTabSize}
 												onChange={handleEditorTabSizeChange}
 												min={1}
@@ -747,6 +762,7 @@ export default function SettingsPage({
 										description="Shows a compact overview of the file on desktop."
 										control={
 											<Switch
+												label="Editor minimap"
 												checked={editorMinimap}
 												onChange={handleEditorMinimapChange}
 											/>
@@ -757,6 +773,7 @@ export default function SettingsPage({
 										description="Keeps the current scope visible while scrolling."
 										control={
 											<Switch
+												label="Editor sticky scroll"
 												checked={editorStickyScroll}
 												onChange={handleEditorStickyScrollChange}
 											/>
@@ -780,6 +797,7 @@ export default function SettingsPage({
 										description="Controls the font size in pixels for the terminal."
 										control={
 											<NumberInput
+												label="Terminal font size"
 												value={terminalFontSize}
 												onChange={handleTerminalFontSizeChange}
 												min={8}
@@ -803,6 +821,7 @@ export default function SettingsPage({
 										description="Adjusts terminal character spacing in pixels."
 										control={
 											<NumberInput
+												label="Terminal letter spacing"
 												value={terminalLetterSpacing}
 												onChange={handleTerminalLetterSpacingChange}
 												min={-2}
@@ -847,6 +866,7 @@ export default function SettingsPage({
 										description="Controls whether the terminal cursor blinks."
 										control={
 											<Switch
+												label="Terminal cursor blink"
 												checked={terminalCursorBlink}
 												onChange={handleTerminalCursorBlinkChange}
 											/>
@@ -857,6 +877,7 @@ export default function SettingsPage({
 										description="Controls how many terminal rows are retained."
 										control={
 											<NumberInput
+												label="Terminal scrollback"
 												value={terminalScrollback}
 												onChange={handleTerminalScrollbackChange}
 												min={100}
@@ -939,6 +960,7 @@ export default function SettingsPage({
 											description="Replays the onboarding flow the next time you open the app. Enable, then close and reopen the app."
 											control={
 												<Switch
+													label="Test onboarding"
 													checked={testOnboarding}
 													onChange={handleTestOnboardingChange}
 												/>

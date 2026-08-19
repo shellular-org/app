@@ -29,6 +29,10 @@ function connectionContext(): BrowserConnectionContext {
 	};
 }
 
+function homeDocument(): string {
+	return getBrowserHomeDocument(getConnectionSnapshot().hostInfo?.id);
+}
+
 export default {
 	open(url?: string): Promise<void> {
 		const t =
@@ -37,7 +41,7 @@ export default {
 			url,
 			t,
 			connectionContext(),
-			getBrowserHomeDocument(),
+			homeDocument(),
 		]) as Promise<void>;
 	},
 
@@ -48,7 +52,7 @@ export default {
 			html,
 			t,
 			connectionContext(),
-			getBrowserHomeDocument(),
+			homeDocument(),
 		]) as Promise<void>;
 	},
 
@@ -59,10 +63,7 @@ export default {
 	syncTheme(): Promise<void> {
 		const theme =
 			(themes.current?.json as Record<string, string> | undefined) ?? {};
-		return browser("setTheme", [
-			theme,
-			getBrowserHomeDocument(),
-		]) as Promise<void>;
+		return browser("setTheme", [theme, homeDocument()]) as Promise<void>;
 	},
 
 	async openForAuth(

@@ -47,8 +47,9 @@ export async function getUndismissedNotices(): Promise<Notice[]> {
 			fetchNotices(),
 			getDismissedIds(),
 		]);
+		const dismissedIds = new Set(dismissed);
 		return notices.filter(
-			(notice) => notice?.id && !dismissed.includes(notice.id),
+			(notice) => notice?.id && !dismissedIds.has(notice.id),
 		);
 	} catch {
 		return [];

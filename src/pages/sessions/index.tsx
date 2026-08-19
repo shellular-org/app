@@ -10,6 +10,7 @@ import PageSearchToolbar from "components/PageSearchToolbar";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { getResumeCommand } from "lib/resumeCommand";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShellular } from "state";
@@ -46,7 +47,8 @@ export default function ChatSessionsPage({
 	const pageTitle = workspace
 		? `${agent.title} · ${getBasename(workspace)}`
 		: agent.title;
-	const { connectionStatus, projects, addProject } = useShellular();
+	const { connectionStatus, hostPlatform, projects, addProject } =
+		useShellular();
 	const [sessions, setSessions] = useState<AiSession[]>([]);
 	const localChatTabs = useAllChatTabs();
 	const [agentAvailable, setAgentAvailable] = useState(true);
@@ -60,7 +62,7 @@ export default function ChatSessionsPage({
 	const [nextCursor, setNextCursor] = useState<string | undefined>();
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const sentinelRef = useRef<HTMLDivElement>(null);
-	const [streamingSessions, setStreamingSessions] = useState(
+	const [streamingSessions, setStreamingSessions] = useState(() =>
 		getStreamingSessions(backend),
 	);
 	const {
@@ -198,13 +200,18 @@ export default function ChatSessionsPage({
 	const copyResumeCommand = useCallback(
 		(session: AiSession) => {
 			if (!session.id) return;
-			const cmd = getResumeCommand(backend, session.id, session.workspacePath);
+			const cmd = getResumeCommand(
+				backend,
+				session.id,
+				session.workspacePath,
+				hostPlatform,
+			);
 			copyToClipboard({
 				text: cmd,
 				successMessage: "Resume command copied",
 			});
 		},
-		[backend],
+		[backend, hostPlatform],
 	);
 
 	const load = useCallback(async () => {
@@ -431,6 +438,15 @@ export default function ChatSessionsPage({
 					</button>
 					{!searchVisible && (
 						<>
+							<button
+								type="button"
+								className="agent-sessions-header-btn haptic-trigger"
+								onClick={load}
+								disabled={loading}
+								aria-label="Refresh sessions"
+							>
+								<span className="icon-refresh-cw" aria-hidden="true" />
+							</button>
 							{infoNote && (
 								<button
 									type="button"
@@ -954,30 +970,4 @@ function getMeta(session: AiSession) {
 
 function getBasename(path: string) {
 	return path.split("/").filter(Boolean).slice(-1)[0] || path;
-}
-
-function getResumeCommand(
-	backend: AiBackend,
-	sessionId: string,
-	workspacePath?: string,
-): string {
-	const cd = workspacePath ? `cd ${workspacePath} && ` : "";
-	switch (backend) {
-		case "claude-code":
-			return `${cd}claude --resume ${sessionId}`;
-		case "codex":
-			return `${cd}codex resume ${sessionId}`;
-		case "opencode":
-			return `${cd}opencode --session ${sessionId}`;
-		case "copilot":
-			return `${cd}copilot --resume=${sessionId}`;
-		case "cursor":
-			return `${cd}cursor-agent --resume ${sessionId}`;
-		case "pi":
-			return `${cd}pi --resume ${sessionId}`;
-		case "hermes":
-			return `${cd}hermes --resume ${sessionId}`;
-		default:
-			return `Session: ${sessionId}`;
-	}
 }

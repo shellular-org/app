@@ -2,12 +2,10 @@ import native from "bridge/native";
 import clsx from "clsx";
 import BottomSheet from "components/BottomSheet";
 import OfflineBanner from "components/OfflineBanner";
-import actionStack from "lib/actionStack";
 import { useAuth } from "lib/auth";
 import { getOnlineStatus } from "lib/utils";
 import { REACH_OUT_LINKS, type ReachOutLink } from "pages/reach-out";
-import SettingsPage from "pages/settings";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const HELP_LINKS: ReachOutLink[] = [
 	{ ...REACH_OUT_LINKS.discord, label: "Join Discord" },
@@ -28,46 +26,24 @@ const PROVIDER_ICONS = {
 	apple: "icon-apple",
 } as const;
 
-const DEV_LOGIN_SETTINGS_ACTION_ID = "dev-login-settings";
-
-export default function LoginPage({ onReload }: { onReload: () => void }) {
+export default function LoginPage({
+	onOpenSettings,
+}: {
+	onOpenSettings?: () => void;
+}) {
 	const { providers, error, signingInProvider, signIn } = useAuth();
 	const [online, setOnline] = useState(getOnlineStatus);
 	const [helpOpen, setHelpOpen] = useState(false);
 	const [whyOpen, setWhyOpen] = useState(false);
-	const [settingsOpen, setSettingsOpen] = useState(false);
 	const enabledProviders = providers.filter((provider) => provider.enabled);
-
-	useEffect(
-		() => () => {
-			actionStack.remove(DEV_LOGIN_SETTINGS_ACTION_ID);
-		},
-		[],
-	);
-
-	function openSettings() {
-		actionStack.remove(DEV_LOGIN_SETTINGS_ACTION_ID);
-		actionStack.push({
-			id: DEV_LOGIN_SETTINGS_ACTION_ID,
-			action: () => {
-				setSettingsOpen(false);
-				return undefined;
-			},
-		});
-		setSettingsOpen(true);
-	}
-
-	if (settingsOpen) {
-		return <SettingsPage initialTab="network" onServerSaved={onReload} />;
-	}
 
 	return (
 		<div className="fixed inset-0 flex flex-col overflow-hidden bg-primary text-primary-text pt-[calc(var(--sat,0px)+18px)] pb-[calc(var(--sab,0px)+32px)] px-5">
-			{process.env.DEV_MODE && (
+			{process.env.DEV_MODE && onOpenSettings && (
 				<button
 					type="button"
 					className="haptic-trigger absolute right-[calc(var(--sar,0px)+18px)] top-[calc(var(--sat,0px)+18px)] z-10 flex h-10 w-10 items-center justify-center rounded-xl border border-card-border bg-popup-background text-primary-text shadow-[var(--shadow)] transition-[background,transform] duration-150 hover:bg-[color-mix(in_srgb,var(--info)_8%,var(--popup-background))] active:scale-[0.96]"
-					onClick={openSettings}
+					onClick={onOpenSettings}
 					aria-label="Settings"
 					title="Settings"
 				>

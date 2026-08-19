@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addBrowserHistory, getBrowserHistory, HISTORY_KEY } from "./history";
 
 describe("browser history", () => {
+	const hostId = "host-1";
 	beforeEach(() => {
 		localStorage.clear();
 		vi.useFakeTimers();
@@ -16,15 +17,15 @@ describe("browser history", () => {
 			favicon: "",
 			timestamp: index,
 		}));
-		localStorage.setItem(HISTORY_KEY, JSON.stringify(existing));
+		localStorage.setItem(`${HISTORY_KEY}:${hostId}`, JSON.stringify(existing));
 
-		addBrowserHistory({
+		addBrowserHistory(hostId, {
 			url: "https://new.example.com",
 			title: "New page",
 			favicon: "",
 		});
 
-		const history = getBrowserHistory();
+		const history = getBrowserHistory(hostId);
 		expect(history).toHaveLength(50);
 		expect(history[0]).toMatchObject({
 			url: "https://new.example.com",
@@ -34,15 +35,23 @@ describe("browser history", () => {
 	});
 
 	it("moves a revisited address to the front without duplicating it", () => {
-		addBrowserHistory({ url: "https://one.test", title: "One", favicon: "" });
-		addBrowserHistory({ url: "https://two.test", title: "Two", favicon: "" });
-		addBrowserHistory({
+		addBrowserHistory(hostId, {
+			url: "https://one.test",
+			title: "One",
+			favicon: "",
+		});
+		addBrowserHistory(hostId, {
+			url: "https://two.test",
+			title: "Two",
+			favicon: "",
+		});
+		addBrowserHistory(hostId, {
 			url: "https://one.test",
 			title: "One updated",
 			favicon: "icon",
 		});
 
-		expect(getBrowserHistory()).toEqual([
+		expect(getBrowserHistory(hostId)).toEqual([
 			expect.objectContaining({
 				url: "https://one.test",
 				title: "One updated",
@@ -50,5 +59,14 @@ describe("browser history", () => {
 			}),
 			expect.objectContaining({ url: "https://two.test" }),
 		]);
+	});
+
+	it("isolates history by host", () => {
+		addBrowserHistory("host-a", {
+			url: "https://a.test",
+			title: "A",
+			favicon: "",
+		});
+		expect(getBrowserHistory("host-b")).toEqual([]);
 	});
 });

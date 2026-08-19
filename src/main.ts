@@ -153,9 +153,9 @@ async function load() {
 	createRoot(document.body).render(createElement(App));
 
 	try {
-		const json = await fetch("https://shellular.dev/app-version.json").then(
-			(res) => res.json(),
-		);
+		const response = await fetch("https://shellular.dev/app-version.json");
+		if (!response.ok) return;
+		const json = await response.json();
 		const platform = json[process.env.PLATFORM];
 		if (!platform) {
 			return;

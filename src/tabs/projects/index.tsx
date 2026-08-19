@@ -1,16 +1,24 @@
 import "./style.scss";
 import EmptyState from "components/EmptyState";
+import Loader from "components/Loader";
 import TabPageHeader from "components/TabPageHeader";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useShellular } from "state";
 import ProjectList from "./ProjectList";
 import useProjectPicker from "./useProjectPicker";
 
 export default function ProjectsTab() {
-	const { connectionStatus, projects, loadingProjects } = useShellular();
+	const { connectionStatus, projects, loadingProjects, loadProjects } =
+		useShellular();
 	const emptyButtonRef = useRef<HTMLButtonElement>(null);
 	const headerAddButtonRef = useRef<HTMLButtonElement>(null);
 	const { adding, openProjectPicker } = useProjectPicker();
+
+	useEffect(() => {
+		if (connectionStatus === "connected") {
+			loadProjects();
+		}
+	}, [connectionStatus, loadProjects]);
 
 	if (connectionStatus !== "connected") {
 		return (
@@ -29,16 +37,30 @@ export default function ProjectsTab() {
 			<TabPageHeader
 				title="Projects"
 				rightSlot={
-					Boolean(projects.length) && (
-						<button
-							ref={headerAddButtonRef}
-							type="button"
-							className="projects-add-btn"
-							onClick={openProjectPicker}
-							aria-label="Add project"
-						>
-							<span className="icon-plus" aria-hidden="true" />
-						</button>
+					loadingProjects ? (
+						<Loader size={16} />
+					) : (
+						<>
+							<button
+								type="button"
+								className="projects-add-btn"
+								onClick={() => loadProjects(true)}
+								aria-label="Refresh projects"
+							>
+								<span className="icon-refresh-cw" aria-hidden="true" />
+							</button>
+							{Boolean(projects.length) && (
+								<button
+									ref={headerAddButtonRef}
+									type="button"
+									className="projects-add-btn"
+									onClick={openProjectPicker}
+									aria-label="Add project"
+								>
+									<span className="icon-plus" aria-hidden="true" />
+								</button>
+							)}
+						</>
 					)
 				}
 			/>
@@ -74,7 +96,7 @@ export default function ProjectsTab() {
 					}
 				/>
 			)}
-			<ProjectList projects={projects} adding={adding} />
+			{!loadingProjects && <ProjectList projects={projects} adding={adding} />}
 		</div>
 	);
 }

@@ -120,7 +120,9 @@ export default function FileBrowserPage({
 	}, []);
 
 	const currentPathRef = useRef(currentPath);
-	currentPathRef.current = currentPath;
+	useEffect(() => {
+		currentPathRef.current = currentPath;
+	}, [currentPath]);
 	const searchRootPath =
 		mode === "project" ? (initialPath ?? ".") : currentPath;
 	const searchVisible = searchOpen || searchClosing;

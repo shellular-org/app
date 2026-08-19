@@ -1,5 +1,6 @@
 import keyboard from "lib/keyboard";
 import checkBrowser from "./checkBrowser";
+import { INTENT_ACTIONS_KEY } from "./intentActions";
 import opfs from "./lib/opfs";
 import services from "./services";
 import file from "./services/file";
@@ -19,10 +20,10 @@ if (action) {
 	}
 
 	const intentActions = JSON.parse(
-		window.localStorage.getItem("intent-actions") || "[]",
+		window.localStorage.getItem(INTENT_ACTIONS_KEY) || "[]",
 	);
 	intentActions.push(Object.fromEntries(queries.entries()));
-	localStorage.setItem("intent-actions", JSON.stringify(intentActions));
+	localStorage.setItem(INTENT_ACTIONS_KEY, JSON.stringify(intentActions));
 	document.body.dataset.message = "Loading your request...";
 	try {
 		window.close();

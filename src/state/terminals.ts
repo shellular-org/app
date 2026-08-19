@@ -522,8 +522,9 @@ function addStickyCommandRecord(
 	const retained = runtime.commands
 		.filter((item) => item.marker.line !== -1)
 		.slice(-50);
+	const retainedCommands = new Set(retained);
 	for (const command of runtime.commands) {
-		if (!retained.includes(command)) {
+		if (!retainedCommands.has(command)) {
 			command.marker.dispose();
 		}
 	}
@@ -1354,9 +1355,15 @@ export async function attachToTerminal(
 		return false;
 	}
 
-	const { Terminal } = await import("@xterm/xterm");
-	const { FitAddon } = await import("@xterm/addon-fit");
-	const { WebLinksAddon } = await import("@xterm/addon-web-links");
+	const [terminalModule, fitAddonModule, webLinksAddonModule] =
+		await Promise.all([
+			import("@xterm/xterm"),
+			import("@xterm/addon-fit"),
+			import("@xterm/addon-web-links"),
+		]);
+	const { Terminal } = terminalModule;
+	const { FitAddon } = fitAddonModule;
+	const { WebLinksAddon } = webLinksAddonModule;
 
 	const disposers: Array<() => void> = [];
 

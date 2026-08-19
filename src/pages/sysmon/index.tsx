@@ -12,7 +12,7 @@ import {
 } from "chart.js";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
-import { useEffect, useEffectEvent, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Line } from "react-chartjs-2";
 import { useShellular } from "state";
 import { getHostInfo } from "state/connection";
@@ -288,8 +288,8 @@ export default function SysmonPage() {
 	const [cpuHistory, setCpuHistory] = useState<number[]>([]);
 	const [memoryHistory, setMemoryHistory] = useState<number[]>([]);
 
-	const poll = useEffectEvent(async (showLoader = false) => {
-		if (showLoader && !data) setLoading(true);
+	const poll = useCallback(async (showLoader = false) => {
+		if (showLoader) setLoading(true);
 		try {
 			const result = await fetchSysmon();
 			setData(result);
@@ -301,7 +301,7 @@ export default function SysmonPage() {
 		} finally {
 			if (showLoader) setLoading(false);
 		}
-	});
+	}, []);
 
 	useEffect(() => {
 		void poll(true);
@@ -309,7 +309,7 @@ export default function SysmonPage() {
 			void poll(false);
 		}, POLL_MS);
 		return () => clearInterval(timer);
-	}, []);
+	}, [poll]);
 
 	const rightSlot = (
 		<button

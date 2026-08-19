@@ -19,7 +19,7 @@ export default function EmptyState({
 	children,
 	mascot,
 }: Props) {
-	const [isOnline, setIsOnline] = useState(getOnlineStatus());
+	const [isOnline, setIsOnline] = useState(() => getOnlineStatus());
 
 	return (
 		<div className="empty-state">

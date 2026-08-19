@@ -1,6 +1,7 @@
 import type Theme from "classes/theme";
 import permissions from "lib/permissions";
 import toast from "lib/toast";
+import { INTENT_ACTIONS_KEY } from "../intentActions";
 
 let cameraPermissionGranted = false;
 let appTheme: Theme | null = null;
@@ -14,7 +15,7 @@ type Intent = {
 
 window.addEventListener("focus", () => {
 	const intents: Intent[] = JSON.parse(
-		localStorage.getItem("intent-actions") || "[]",
+		localStorage.getItem(INTENT_ACTIONS_KEY) || "[]",
 	);
 	if (Array.isArray(intents) && intents.length && intentHandler) {
 		for (const intent of intents) {
@@ -34,7 +35,7 @@ window.addEventListener("focus", () => {
 			intentHandler.success({ uri });
 		}
 	}
-	localStorage.setItem("intent-actions", "[]");
+	localStorage.setItem(INTENT_ACTIONS_KEY, "[]");
 });
 
 export default {
@@ -176,7 +177,7 @@ export default {
 		callback.success(0);
 	},
 	openInBrowser(_callback: Callback, [src]: [string]) {
-		window.open(src, "_blank");
+		window.open(src, "_blank", "noopener");
 	},
 	setTheme(callback: Callback, [theme]: [Theme]) {
 		appTheme = theme;

@@ -15,9 +15,9 @@ import EmptyState from "components/EmptyState";
 import Loader from "components/Loader";
 import Page from "components/Page";
 import { getAgentIcon } from "lib/agents";
+import { registerShellularDiffThemes } from "lib/diffsTheme";
 import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
-import windowResize from "lib/windowResize";
 import EditorPage from "pages/editor";
 import {
 	formatGitReviewPrompt,
@@ -27,7 +27,6 @@ import type React from "react";
 import {
 	useCallback,
 	useEffect,
-	useEffectEvent,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -115,6 +114,11 @@ import {
 	getMessageKey,
 } from "./chat-bubble/lib/messageParts";
 import { bytesToBase64, findLastIndex } from "./chat-bubble/lib/utils";
+import {
+	getAssistantTurnDurationMs,
+	getElapsedDurationMs,
+	projectAssistantTurn,
+} from "./chat-bubble/lib/workLog";
 import ContextWindowMeter from "./composer/ContextWindowMeter";
 import {
 	type ContextWindowUsage,
@@ -123,6 +127,12 @@ import {
 	getContextWindowState,
 	readContextWindowUsage,
 } from "./composer/contextWindowUsage";
+import {
+	type DirectPromptDispatch,
+	isQueuedPromptPlaceholderId,
+	reconcilePromptQueueVisibility,
+	shouldQueuePrompt,
+} from "./lib/promptQueue";
 import { appendTextPart, pendingTokenSuffix } from "./lib/streamText";
 import { upsertMessage } from "./lib/upsertMessage";
 import { normalizeEditorPath } from "./pathUtils";
@@ -153,6 +163,27 @@ function isRealTitle(value: unknown): value is string {
 		typeof value === "string" && value.length > 0 && value !== PLACEHOLDER_TITLE
 	);
 }
+
+function createPendingImageAttachment(
+	file: File,
+	index: number,
+	origin: "pasted" | "attached",
+): ComposerAttachment {
+	const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+	const ext = imageExtension(file);
+	const name = `${origin}-image-${timestamp}-${index + 1}.${ext}`;
+	return {
+		id: `att:pending:${timestamp}:${index + 1}`,
+		path: "",
+		relativePath: name,
+		name,
+		size: file.size,
+		mimeType: file.type || `image/${ext}`,
+		status: "pending" as const,
+	};
+}
+
+registerShellularDiffThemes();
 
 export interface ChatConversationPageProps {
 	sessionId: string;
@@ -223,11 +254,13 @@ export default function ChatConversationPage({
 		const activityTitle = getSessionActivity(agentId, sessionId)?.title;
 		return isRealTitle(activityTitle) ? activityTitle : title;
 	});
-	const [isStreaming, setIsStreaming] = useState(
+	const [isStreaming, setIsStreaming] = useState(() =>
 		getSessionStreaming(agentId, sessionId),
 	);
 	const activeSessionIdRef = useRef(activeSessionId);
-	activeSessionIdRef.current = activeSessionId;
+	useEffect(() => {
+		activeSessionIdRef.current = activeSessionId;
+	}, [activeSessionId]);
 	const [composerParts, setComposerParts] = useState<ComposerPart[]>([]);
 	const [imageAttachments, setImageAttachments] = useState<
 		ComposerAttachment[]
@@ -263,7 +296,11 @@ export default function ChatConversationPage({
 	const [historyScrollReady, setHistoryScrollReady] = useState(false);
 	const [activePromptSuggestionIndex, setActivePromptSuggestionIndex] =
 		useState(0);
-	const chatIsStreaming = isStreaming || promptQueueRunning;
+	// A queue runner can report `running` for one final event after its list has
+	// drained. The active session state covers the item currently executing;
+	// queue state only extends that while concrete pending items remain.
+	const chatIsStreaming =
+		isStreaming || (promptQueueRunning && queuedPrompts.length > 0);
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const sentinelRef = useRef<HTMLDivElement>(null);
@@ -271,12 +308,14 @@ export default function ChatConversationPage({
 	const inputBarRef = useRef<HTMLDivElement>(null);
 	const promptInputRef = useRef<HTMLDivElement>(null);
 	const connectionStatusRef = useRef(connectionStatus);
+	useEffect(() => {
+		connectionStatusRef.current = connectionStatus;
+	}, [connectionStatus]);
 	const stickToBottomRef = useRef(true);
 	const prevScrollHeightRef = useRef(0);
 	const autoScrollFrameRef = useRef(0);
 	const autoScrollSuppressedRef = useRef(false);
 	const autoScrollSuppressionCountRef = useRef(0);
-	const resizeWasAtBottomRef = useRef(false);
 	// True while the user has text selected inside the transcript. Prepending
 	// older messages or pinning to the bottom mid-selection tears the selection
 	// off its anchor, which on Android reads as the selection "jumping" to the
@@ -328,6 +367,15 @@ export default function ChatConversationPage({
 	// bookkeeping — incoming messages never overwrite it.
 	const streamingAssistantIdRef = useRef<string | null>(null);
 	const streamingUserIdRef = useRef<string | null>(null);
+	// Direct prompts also pass through the CLI's queue internally. Track the one
+	// the idle runner is about to claim so it is not presented as waiting work.
+	const directPromptDispatchRef = useRef<DirectPromptDispatch | null>(null);
+	const immediatelyClaimedPromptIdsRef = useRef(new Set<string>());
+	// Protocol message timestamps are optional, so retain the locally measured
+	// wall-clock duration for turns completed during this page lifetime.
+	const [turnDurationByUserId, setTurnDurationByUserId] = useState<
+		Record<string, number>
+	>({});
 	// Cumulative token text per streaming message id, so a token is rendered
 	// only as the suffix beyond what the last `message` event already carried.
 	const streamedTextRef = useRef(new Map<string, string>());
@@ -352,8 +400,6 @@ export default function ChatConversationPage({
 	// cache before lazily creating an ACP session on the first send.
 	const draftConfigRefreshRef = useRef<string | null>(null);
 
-	connectionStatusRef.current = connectionStatus;
-
 	useEffect(() => {
 		if (reviewComments.length) {
 			reviewCommentDrafts.set(draftKey, reviewComments);
@@ -368,14 +414,63 @@ export default function ChatConversationPage({
 	);
 	const visibleMessageItems = useMemo(() => {
 		const seen = new Map<string, number>();
-		return visibleMessages.map((message, index) => {
+		const items: Array<{
+			message: AcpMessage;
+			messageKey: string;
+			renderKey: string;
+			groupEnd: boolean;
+			groupParts: AcpMessagePart[];
+			parts: AcpMessagePart[];
+			workParts: AcpMessagePart[];
+			workStartedAt?: number;
+			workDurationMs?: number;
+		}> = [];
+		for (let index = 0; index < visibleMessages.length; index += 1) {
+			const message = visibleMessages[index];
+			if (message.role === "assistant") {
+				let end = index + 1;
+				while (
+					end < visibleMessages.length &&
+					visibleMessages[end].role === "assistant"
+				) {
+					end += 1;
+				}
+				const turnMessages = visibleMessages.slice(index, end);
+				const liveTurn = chatIsStreaming && end === visibleMessages.length;
+				const projection = projectAssistantTurn(turnMessages, liveTurn);
+				const messageKey = getMessageKey(turnMessages[0]);
+				const count = seen.get(messageKey) ?? 0;
+				seen.set(messageKey, count + 1);
+				const previousMessage = visibleMessages[index - 1];
+				const recordedDuration = previousMessage?.id
+					? turnDurationByUserId[previousMessage.id]
+					: undefined;
+				items.push({
+					message: turnMessages[turnMessages.length - 1] ?? message,
+					messageKey,
+					renderKey:
+						count === 0
+							? `assistant-turn:${messageKey}`
+							: `assistant-turn:${messageKey}:duplicate-${count}`,
+					groupEnd: true,
+					groupParts: projection.answerParts,
+					parts: projection.answerParts,
+					workParts: projection.workParts,
+					workStartedAt:
+						previousMessage?.timestamp ?? turnMessages[0]?.timestamp,
+					workDurationMs:
+						recordedDuration ??
+						getAssistantTurnDurationMs(turnMessages, previousMessage),
+				});
+				index = end - 1;
+				continue;
+			}
+
 			const messageKey = getMessageKey(message);
 			const count = seen.get(messageKey) ?? 0;
 			seen.set(messageKey, count + 1);
-			// Agents split one answer into several ACP messages (one per model
-			// round between tool calls). Consecutive same-role messages render as
-			// one visual group: actions appear once, on the last bubble, and copy
-			// covers the whole group.
+			// Consecutive user messages remain separate bubbles but share one
+			// group-closing action row, so queued/echoed messages copy together.
 			const next = visibleMessages[index + 1];
 			const groupEnd = !next || next.role !== message.role;
 			let groupParts = message.parts;
@@ -390,16 +485,19 @@ export default function ChatConversationPage({
 						.flatMap((item) => item.parts);
 				}
 			}
-			return {
+			items.push({
 				message,
 				messageKey,
 				groupEnd,
 				groupParts,
+				parts: message.parts,
+				workParts: [],
 				renderKey:
 					count === 0 ? messageKey : `${messageKey}:duplicate-${count}`,
-			};
-		});
-	}, [visibleMessages]);
+			});
+		}
+		return items;
+	}, [chatIsStreaming, turnDurationByUserId, visibleMessages]);
 	const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
 
 	// What the agent is doing right now, read off the newest unfinished tool
@@ -665,138 +763,7 @@ export default function ChatConversationPage({
 		[],
 	);
 
-	const processSessionEvent = useEffectEvent((event: AcpSessionEvent) => {
-		if (event.type === "permission.updated") {
-			const permission = readPendingActivityPermission(event.properties);
-			if (permission) handlePermissionRequest(permission);
-			return;
-		}
-
-		if (event.type === "elicitation.updated") {
-			const properties = event.properties as Record<string, unknown>;
-			if (properties.resolved === true) {
-				const id = properties.id;
-				if (typeof id === "string") {
-					setPendingElicitations((prev) =>
-						prev.filter((item) => item.id !== id),
-					);
-				}
-				return;
-			}
-			const request = readElicitationRequest(properties);
-			if (request) {
-				setPendingElicitations((prev) => [
-					...prev.filter((item) => item.id !== request.id),
-					request,
-				]);
-			}
-			return;
-		}
-
-		if (event.type === "token") {
-			// Streaming text deltas. Full `message` events are coalesced CLI-side
-			// (they carry the whole message and are quadratic on the wire), so
-			// tokens do the smooth per-chunk rendering in between.
-			//
-			// A `message` event carries the message's CUMULATIVE text, including
-			// every token already rendered. Appending each token blindly therefore
-			// double-renders it for as long as the next message event is coalesced
-			// away. Tokens are instead buffered per message and applied as the
-			// suffix beyond whatever the last message event delivered.
-			const itemId = event.properties.itemId;
-			const text = event.properties.text;
-			if (typeof itemId === "string" && typeof text === "string" && text) {
-				appendStreamToken(itemId, text);
-			}
-			return;
-		}
-
-		if (event.type === "session.status") {
-			if (event.properties.syncing === "messages") {
-				setSyncing(true);
-			} else if (event.properties.syncing === false) {
-				setSyncing(false);
-			}
-			handleSessionStatus(event.properties as Record<string, unknown>);
-			return;
-		}
-
-		if (event.type === "prompt_queue.updated") {
-			const queue = event.properties.queue;
-			setPromptQueueRunning(event.properties.running === true);
-			setQueuedPrompts(
-				Array.isArray(queue) ? (queue as AcpQueuedPrompt[]) : [],
-			);
-			return;
-		}
-
-		if (event.type === "session.snapshot") {
-			const messages = event.properties.messages;
-			if (Array.isArray(messages)) {
-				const from = event.properties.from;
-				const generation = event.properties.generation;
-				const hasMoreBefore = event.properties.hasMoreBefore;
-				remoteBaseIdxRef.current = typeof from === "number" ? from : 0;
-				remoteGenerationRef.current =
-					typeof generation === "number" ? generation : undefined;
-				setHasMoreRemote(hasMoreBefore === true);
-				// Authoritative transcript replacement: any buffered token text is
-				// already included, so accumulators must not replay on top of it.
-				streamedTextRef.current.clear();
-				setAllMessages(messages as AcpMessage[]);
-				setVisibleCount(PAGE_SIZE);
-				stickToBottomRef.current = true;
-				requestAnimationFrame(() => scrollToBottomNow(true));
-			}
-			const state = event.properties.state;
-			if (state && typeof state === "object") {
-				const nextOptions = readConfigOptions(
-					(state as { configOptions?: unknown }).configOptions,
-				);
-				if (nextOptions) setConfigOptions(nextOptions);
-				const nextCommands = readAvailableCommands(
-					(state as { availableCommands?: unknown }).availableCommands,
-				);
-				if (nextCommands) setAvailableCommands(nextCommands);
-			}
-			setLoading(false);
-			setSyncing(false);
-			return;
-		}
-
-		if (event.type === "message") {
-			const message = event.properties.message;
-			if (message) upsertAcpMessageRef.current(message as AcpMessage);
-			return;
-		}
-
-		if (event.type === "error" || event.type === "prompt_error") {
-			finishStreamingTurn();
-			const ownerError = readSessionOwnerError(event.properties);
-			if (ownerError) {
-				void handleSessionOwnerError(ownerError);
-				return;
-			}
-			setError(String(event.properties.error ?? "Prompt failed"));
-			return;
-		}
-
-		if (event.type === "end" || event.type === "cancelled") {
-			const usage = (event.properties as { usage?: unknown }).usage;
-			if (usage && typeof usage === "object" && !Array.isArray(usage)) {
-				const nextUsage = readContextWindowUsage({ usage });
-				if (nextUsage) setContextWindowUsage(nextUsage);
-			}
-			const stopReason = (event.properties as { stopReason?: unknown })
-				.stopReason;
-			if (typeof stopReason === "string" && shouldShowStopReason(stopReason)) {
-				appendStopReason(stopReason);
-			}
-			finishStreamingTurn();
-		}
-	});
-
-	const appendStreamToken = useEffectEvent((itemId: string, text: string) => {
+	const appendStreamToken = useCallback((itemId: string, text: string) => {
 		// Total text the token stream has delivered for this message so far. The
 		// message itself may already contain some of it via a `message` event.
 		const streamedText = (streamedTextRef.current.get(itemId) ?? "") + text;
@@ -812,9 +779,175 @@ export default function ChatConversationPage({
 			next[index] = { ...message, parts: appendTextPart(message, suffix) };
 			return next;
 		});
-	});
+	}, []);
 
-	const handleElicitationReply = useEffectEvent(
+	const handleSessionOwnerErrorRef = useRef<
+		(details: AcpPromptError) => Promise<void>
+	>(() => Promise.resolve());
+	const appendStopReasonRef = useRef<(stopReason: string) => void>(() => {});
+	const finishStreamingTurnRef = useRef<(sessionId?: string) => void>(() => {});
+
+	const processSessionEvent = useCallback(
+		(event: AcpSessionEvent) => {
+			if (event.type === "permission.updated") {
+				const permission = readPendingActivityPermission(event.properties);
+				if (permission) handlePermissionRequest(permission);
+				return;
+			}
+
+			if (event.type === "elicitation.updated") {
+				const properties = event.properties as Record<string, unknown>;
+				if (properties.resolved === true) {
+					const id = properties.id;
+					if (typeof id === "string") {
+						setPendingElicitations((prev) =>
+							prev.filter((item) => item.id !== id),
+						);
+					}
+					return;
+				}
+				const request = readElicitationRequest(properties);
+				if (request) {
+					setPendingElicitations((prev) => [
+						...prev.filter((item) => item.id !== request.id),
+						request,
+					]);
+				}
+				return;
+			}
+
+			if (event.type === "token") {
+				// Streaming text deltas. Full `message` events are coalesced CLI-side
+				// (they carry the whole message and are quadratic on the wire), so
+				// tokens do the smooth per-chunk rendering in between.
+				//
+				// A `message` event carries the message's CUMULATIVE text, including
+				// every token already rendered. Appending each token blindly therefore
+				// double-renders it for as long as the next message event is coalesced
+				// away. Tokens are instead buffered per message and applied as the
+				// suffix beyond whatever the last message event delivered.
+				const itemId = event.properties.itemId;
+				const text = event.properties.text;
+				if (typeof itemId === "string" && typeof text === "string" && text) {
+					appendStreamToken(itemId, text);
+				}
+				return;
+			}
+
+			if (event.type === "session.status") {
+				if (event.properties.syncing === "messages") {
+					setSyncing(true);
+				} else if (event.properties.syncing === false) {
+					setSyncing(false);
+				}
+				handleSessionStatus(event.properties as Record<string, unknown>);
+				return;
+			}
+
+			if (event.type === "prompt_queue.updated") {
+				const queue = Array.isArray(event.properties.queue)
+					? (event.properties.queue as AcpQueuedPrompt[])
+					: [];
+				const running = event.properties.running === true;
+				const visibility = reconcilePromptQueueVisibility(
+					queue,
+					running,
+					directPromptDispatchRef.current,
+					immediatelyClaimedPromptIdsRef.current,
+				);
+				directPromptDispatchRef.current = visibility.directDispatch;
+				immediatelyClaimedPromptIdsRef.current =
+					visibility.immediatelyClaimedIds;
+				setPromptQueueRunning(running);
+				setQueuedPrompts(visibility.visibleItems);
+				return;
+			}
+
+			if (event.type === "session.snapshot") {
+				const messages = event.properties.messages;
+				if (Array.isArray(messages)) {
+					const from = event.properties.from;
+					const generation = event.properties.generation;
+					const hasMoreBefore = event.properties.hasMoreBefore;
+					remoteBaseIdxRef.current = typeof from === "number" ? from : 0;
+					remoteGenerationRef.current =
+						typeof generation === "number" ? generation : undefined;
+					setHasMoreRemote(hasMoreBefore === true);
+					// Authoritative transcript replacement: any buffered token text is
+					// already included, so accumulators must not replay on top of it.
+					streamedTextRef.current.clear();
+					setAllMessages(messages as AcpMessage[]);
+					setVisibleCount(PAGE_SIZE);
+					stickToBottomRef.current = true;
+					requestAnimationFrame(() => scrollToBottomNow(true));
+				}
+				const state = event.properties.state;
+				if (state && typeof state === "object") {
+					const nextOptions = readConfigOptions(
+						(state as { configOptions?: unknown }).configOptions,
+					);
+					if (nextOptions) setConfigOptions(nextOptions);
+					const nextCommands = readAvailableCommands(
+						(state as { availableCommands?: unknown }).availableCommands,
+					);
+					if (nextCommands) setAvailableCommands(nextCommands);
+				}
+				setLoading(false);
+				setSyncing(false);
+				return;
+			}
+
+			if (event.type === "message") {
+				const message = event.properties.message;
+				const acpMessage = message as AcpMessage | undefined;
+				// Queued sends produce a transient `prompt_queue_*` user message
+				// before ACP dispatches the prompt. The queue strip owns that state;
+				// rendering it here creates a duplicate user bubble during the
+				// preceding turn. The later, authoritative ACP message is not a
+				// placeholder and is rendered normally.
+				if (acpMessage && !isQueuedPromptPlaceholderId(acpMessage.id)) {
+					upsertAcpMessageRef.current(acpMessage);
+				}
+				return;
+			}
+
+			if (event.type === "error" || event.type === "prompt_error") {
+				finishStreamingTurnRef.current();
+				const ownerError = readSessionOwnerError(event.properties);
+				if (ownerError) {
+					void handleSessionOwnerErrorRef.current(ownerError);
+					return;
+				}
+				setError(String(event.properties.error ?? "Prompt failed"));
+				return;
+			}
+
+			if (event.type === "end" || event.type === "cancelled") {
+				const usage = (event.properties as { usage?: unknown }).usage;
+				if (usage && typeof usage === "object" && !Array.isArray(usage)) {
+					const nextUsage = readContextWindowUsage({ usage });
+					if (nextUsage) setContextWindowUsage(nextUsage);
+				}
+				const stopReason = (event.properties as { stopReason?: unknown })
+					.stopReason;
+				if (
+					typeof stopReason === "string" &&
+					shouldShowStopReason(stopReason)
+				) {
+					appendStopReasonRef.current(stopReason);
+				}
+				finishStreamingTurnRef.current();
+			}
+		},
+		[
+			appendStreamToken,
+			handlePermissionRequest,
+			handleSessionStatus,
+			scrollToBottomNow,
+		],
+	);
+
+	const handleElicitationReply = useCallback(
 		(
 			elicitation: AcpElicitationRequest,
 			action: "accept" | "decline" | "cancel",
@@ -831,9 +964,10 @@ export default function ChatConversationPage({
 				prev.filter((item) => item.id !== elicitation.id),
 			);
 		},
+		[agentId],
 	);
 
-	const applyRevisionedSessionEvent = useEffectEvent(
+	const applyRevisionedSessionEvent = useCallback(
 		(event: AcpSessionEvent) => {
 			if (!attachReadyRef.current) {
 				pendingAttachEventsRef.current.push(event);
@@ -848,6 +982,7 @@ export default function ChatConversationPage({
 
 			processSessionEvent(event);
 		},
+		[processSessionEvent],
 	);
 
 	const updateInputOffset = useCallback(() => {
@@ -860,32 +995,6 @@ export default function ChatConversationPage({
 		);
 		if (stickToBottomRef.current) scrollToBottomNow();
 	}, [scrollToBottomNow]);
-
-	useEffect(() => {
-		if (!process.env.IS_DESKTOP_UI) return;
-		const onResizeStart = () => {
-			resizeWasAtBottomRef.current = stickToBottomRef.current;
-			startAutoScrollSuppression();
-		};
-		const onResizeEnd = () => {
-			endAutoScrollSuppression();
-			if (resizeWasAtBottomRef.current) stickToBottomRef.current = true;
-			updateInputOffset();
-			if (resizeWasAtBottomRef.current) scrollToBottom();
-			resizeWasAtBottomRef.current = false;
-		};
-		windowResize.on("resizeStart", onResizeStart);
-		windowResize.on("resize", onResizeEnd);
-		return () => {
-			windowResize.off("resizeStart", onResizeStart);
-			windowResize.off("resize", onResizeEnd);
-		};
-	}, [
-		endAutoScrollSuppression,
-		scrollToBottom,
-		startAutoScrollSuppression,
-		updateInputOffset,
-	]);
 
 	useEffect(() => {
 		const sentinel = sentinelRef.current;
@@ -958,9 +1067,10 @@ export default function ChatConversationPage({
 
 	useEffect(() => {
 		setActiveSessionId(sessionId);
-		activeSessionIdRef.current = sessionId;
 		stickToBottomRef.current = true;
 		streamedTextRef.current.clear();
+		directPromptDispatchRef.current = null;
+		immediatelyClaimedPromptIdsRef.current.clear();
 		setPendingPermissions([]);
 		setPendingElicitations([]);
 		setQueuedPrompts([]);
@@ -1093,6 +1203,7 @@ export default function ChatConversationPage({
 		cachedAgentConfig,
 		connectionStatus,
 		createOnFirstMessage,
+		applyRevisionedSessionEvent,
 		sessionId,
 		resolvedWorkspacePath,
 	]);
@@ -1149,7 +1260,6 @@ export default function ChatConversationPage({
 			const height = entries[0].contentRect.height;
 			if (height === lastHeight) return;
 			lastHeight = height;
-			if (autoScrollSuppressedRef.current) return;
 			if (frame) cancelAnimationFrame(frame);
 			frame = requestAnimationFrame(pinToBottom);
 		});
@@ -1174,7 +1284,6 @@ export default function ChatConversationPage({
 			const height = entries[0].contentRect.height;
 			if (height === lastInputHeight) return;
 			lastInputHeight = height;
-			if (autoScrollSuppressedRef.current) return;
 			if (observerFrame) cancelAnimationFrame(observerFrame);
 			observerFrame = requestAnimationFrame(updateInputOffset);
 		});
@@ -1414,14 +1523,31 @@ export default function ChatConversationPage({
 					},
 					mergeLocalUserText,
 				);
-				streamingAssistantIdRef.current = result.localAssistantId;
-				streamingUserIdRef.current = result.localUserId;
 				return result.messages;
 			});
 		};
 	}, [chatIsStreaming]);
 
-	const handleSessionOwnerError = useEffectEvent(
+	useEffect(() => {
+		if (!chatIsStreaming) return;
+		const lastUser = findLast(
+			allMessages,
+			(message) => message.role === "user",
+		);
+		const lastAssistant = findLast(
+			allMessages,
+			(message) => message.role === "assistant",
+		);
+		if (lastUser?.id) streamingUserIdRef.current = lastUser.id;
+		if (
+			allMessages[allMessages.length - 1]?.role === "assistant" &&
+			lastAssistant?.id
+		) {
+			streamingAssistantIdRef.current = lastAssistant.id;
+		}
+	}, [allMessages, chatIsStreaming]);
+
+	const handleSessionOwnerError = useCallback(
 		async (details: AcpPromptError) => {
 			if (ownerDialogOpenRef.current) return;
 			ownerDialogOpenRef.current = true;
@@ -1504,7 +1630,17 @@ export default function ChatConversationPage({
 				ownerDialogOpenRef.current = false;
 			}
 		},
+		[agentId, draftKey, resolvedWorkspacePath],
 	);
+
+	useEffect(() => {
+		handleSessionOwnerErrorRef.current = handleSessionOwnerError;
+	}, [handleSessionOwnerError]);
+
+	useLayoutEffect(() => {
+		appendStopReasonRef.current = appendStopReason;
+		finishStreamingTurnRef.current = finishStreamingTurn;
+	});
 
 	const openGitReview = useCallback(async () => {
 		if (!resolvedWorkspacePath) return;
@@ -1647,17 +1783,30 @@ export default function ChatConversationPage({
 					</div>
 				)}
 				{visibleMessageItems.map(
-					({ message: msg, messageKey, renderKey, groupEnd, groupParts }) => {
+					({
+						message: msg,
+						messageKey,
+						renderKey,
+						groupEnd,
+						groupParts,
+						parts,
+						workParts,
+						workStartedAt,
+						workDurationMs,
+					}) => {
 						return (
 							<ChatBubble
 								key={renderKey}
 								messageKey={messageKey}
 								workspacePath={resolvedWorkspacePath}
-								parts={msg.parts}
+								parts={parts}
 								messageRole={msg.role}
 								assistantName={assistantName}
 								showActions={groupEnd}
 								copyParts={groupParts}
+								workParts={workParts}
+								workStartedAt={workStartedAt}
+								workDurationMs={workDurationMs}
 								statusLabel={streamingStatusLabel}
 								streaming={
 									chatIsStreaming &&
@@ -1676,7 +1825,6 @@ export default function ChatConversationPage({
 						parts={[]}
 						messageRole="assistant"
 						assistantName={assistantName}
-						statusLabel={streamingStatusLabel}
 						streaming
 					/>
 				)}
@@ -1895,8 +2043,14 @@ export default function ChatConversationPage({
 		stickToBottomRef.current = true;
 
 		const queuedSessionId = activeSessionId || sessionId;
-		const hasActiveLocalPrompt = cleanupSendRef.current !== null;
-		if (queuedSessionId && (hasActiveLocalPrompt || promptQueueRunning)) {
+		const queueThisPrompt =
+			queuedSessionId &&
+			shouldQueuePrompt({
+				sessionId: queuedSessionId,
+				sessionIsStreaming: getSessionStreaming(agentId, queuedSessionId),
+				queuedSessionIds: queuedPrompts.map((item) => item.sessionId),
+			});
+		if (queuedSessionId && queueThisPrompt) {
 			try {
 				const content = await composerPartsToAcpContent(parts);
 				acpQueuePrompt(agentId, queuedSessionId, text, content);
@@ -2021,6 +2175,9 @@ export default function ChatConversationPage({
 			if (reviewPrompt) content.push({ type: "text", text: reviewPrompt });
 			const sendPrompt = () => {
 				setSessionStreaming(agentId, targetSessionId, true);
+				directPromptDispatchRef.current = {
+					sessionId: targetSessionId,
+				};
 				const cleanup = acpPrompt(
 					agentId,
 					targetSessionId,
@@ -2291,11 +2448,21 @@ export default function ChatConversationPage({
 	function finishStreamingTurn(
 		sessionIdToUse = activeSessionIdRef.current || sessionId,
 	) {
+		const completedUserId = streamingUserIdRef.current;
+		const duration = getElapsedDurationMs(sentTurnStartRef.current);
+		if (completedUserId && duration !== undefined) {
+			setTurnDurationByUserId((current) =>
+				current[completedUserId] === duration
+					? current
+					: { ...current, [completedUserId]: duration },
+			);
+		}
 		cleanupSendRef.current?.();
 		cleanupSendRef.current = null;
 		setSessionStreaming(agentId, sessionIdToUse, false);
 		streamingUserIdRef.current = null;
 		streamingAssistantIdRef.current = null;
+		directPromptDispatchRef.current = null;
 		streamedTextRef.current.clear();
 	}
 
@@ -2447,25 +2614,6 @@ export default function ChatConversationPage({
 	function handleRemoveImageAttachment(id: string) {
 		setImageAttachments((prev) => prev.filter((item) => item.id !== id));
 		updateInputOffset();
-	}
-
-	function createPendingImageAttachment(
-		file: File,
-		index: number,
-		origin: "pasted" | "attached",
-	): ComposerAttachment {
-		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const ext = imageExtension(file);
-		const name = `${origin}-image-${timestamp}-${index + 1}.${ext}`;
-		return {
-			id: `att:pending:${timestamp}:${index + 1}`,
-			path: "",
-			relativePath: name,
-			name,
-			size: file.size,
-			mimeType: file.type || `image/${ext}`,
-			status: "pending" as const,
-		};
 	}
 
 	async function savePastedImageAttachment(

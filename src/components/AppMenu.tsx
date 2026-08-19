@@ -14,7 +14,7 @@ import type {
 	ResolvedMenuItem,
 } from "context-menu/types";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { forwardRef, useRef } from "react";
+import { forwardRef, useEffect, useRef } from "react";
 
 export interface AppMenuItem {
 	key?: string;
@@ -81,7 +81,15 @@ export default function AppMenu({
 	);
 }
 
-function LegacyAppMenu({
+function LegacyAppMenu(props: Props) {
+	return (
+		<Menu as="div" className="app-menu">
+			{({ open }) => <LegacyAppMenuContent {...props} open={open} />}
+		</Menu>
+	);
+}
+
+function LegacyAppMenuContent({
 	items,
 	children,
 	disabled,
@@ -89,91 +97,85 @@ function LegacyAppMenu({
 	onToggle,
 	buttonClassName = "",
 	placement = "bottom end",
-}: Props) {
-	const onToggleRef = useRef(onToggle);
-	onToggleRef.current = onToggle;
+	open,
+}: Props & { open: boolean }) {
 	const prevOpenRef = useRef<boolean | undefined>(undefined);
 
+	useEffect(() => {
+		if (prevOpenRef.current !== open) {
+			prevOpenRef.current = open;
+			onToggle?.(open);
+		}
+	}, [onToggle, open]);
+
 	return (
-		<Menu as="div" className="app-menu">
-			{({ open }) => {
-				if (prevOpenRef.current !== open) {
-					prevOpenRef.current = open;
-					onToggleRef.current?.(open);
-				}
-				return (
-					<>
-						<MenuButton
-							type="button"
-							className={buttonClassName}
-							aria-label={ariaLabel}
-							disabled={disabled}
-						>
-							{children ?? (
-								<span
-									className={`icon-more-vertical w-8 h-full flex items-center justify-end ${disabled ? "opacity-50" : ""}`}
-									aria-hidden={true}
-								/>
-							)}
-						</MenuButton>
-						<MenuItems
-							anchor={{ to: placement, gap: 8, padding: 8 }}
-							portal
-							modal={false}
-							transition
-							className="app-menu-dropdown"
-						>
-							{items.map((item) => (
-								<div key={item.key || item.label}>
-									{item.divider && (
-										<MenuSeparator className="app-menu-divider" />
-									)}
-									<MenuItem>
-										{({ focus }) => {
-											const className = `${focus ? "app-menu-item--active" : ""}${item.danger ? " app-menu-danger" : ""}${item.comingSoon ? " overlay-coming-soon" : ""}	${item.disabled ? "opacity-50 pointer-events-none" : ""}`;
-											const content = (
-												<>
-													<span
-														className={item.checked ? "icon-check" : item.icon}
-														aria-hidden="true"
-													/>
-													<div className="flex flex-col w-full truncate">
-														<span className="app-menu-label">{item.label}</span>
-														{item.subText && (
-															<small className="opacity-60 truncate w-full">
-																{item.subText}
-															</small>
-														)}
-													</div>
-												</>
-											);
-											return item.radio ? (
-												<RadioMenuItemButton
-													type="button"
-													aria-checked={Boolean(item.checked)}
-													className={className}
-													onClick={item.onClick}
-												>
-													{content}
-												</RadioMenuItemButton>
-											) : (
-												<button
-													type="button"
-													className={className}
-													onClick={item.onClick}
-												>
-													{content}
-												</button>
-											);
-										}}
-									</MenuItem>
-								</div>
-							))}
-						</MenuItems>
-					</>
-				);
-			}}
-		</Menu>
+		<>
+			<MenuButton
+				type="button"
+				className={buttonClassName}
+				aria-label={ariaLabel}
+				disabled={disabled}
+			>
+				{children ?? (
+					<span
+						className={`icon-more-vertical w-8 h-full flex items-center justify-end ${disabled ? "opacity-50" : ""}`}
+						aria-hidden={true}
+					/>
+				)}
+			</MenuButton>
+			<MenuItems
+				anchor={{ to: placement, gap: 8, padding: 8 }}
+				portal
+				modal={false}
+				transition
+				className="app-menu-dropdown"
+			>
+				{items.map((item) => (
+					<div key={item.key || item.label}>
+						{item.divider && <MenuSeparator className="app-menu-divider" />}
+						<MenuItem>
+							{({ focus }) => {
+								const className = `${focus ? "app-menu-item--active" : ""}${item.danger ? " app-menu-danger" : ""}${item.comingSoon ? " overlay-coming-soon" : ""}	${item.disabled ? "opacity-50 pointer-events-none" : ""}`;
+								const content = (
+									<>
+										<span
+											className={item.checked ? "icon-check" : item.icon}
+											aria-hidden="true"
+										/>
+										<div className="flex flex-col w-full truncate">
+											<span className="app-menu-label">{item.label}</span>
+											{item.subText && (
+												<small className="opacity-60 truncate w-full">
+													{item.subText}
+												</small>
+											)}
+										</div>
+									</>
+								);
+								return item.radio ? (
+									<RadioMenuItemButton
+										type="button"
+										aria-checked={Boolean(item.checked)}
+										className={className}
+										onClick={item.onClick}
+									>
+										{content}
+									</RadioMenuItemButton>
+								) : (
+									<button
+										type="button"
+										className={className}
+										onClick={item.onClick}
+									>
+										{content}
+									</button>
+								);
+							}}
+						</MenuItem>
+					</div>
+				))}
+			</MenuItems>
+		</>
 	);
 }
 

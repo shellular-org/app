@@ -1,11 +1,4 @@
-import {
-	act,
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-} from "@testing-library/react";
-import actionStack from "lib/actionStack";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import LoginPage from ".";
@@ -37,61 +30,25 @@ vi.mock("components/BottomSheet", () => ({
 	default: () => null,
 }));
 
-vi.mock("pages/settings", () => ({
-	default: ({
-		initialTab,
-		onServerSaved,
-	}: {
-		initialTab: string;
-		onServerSaved: () => void;
-	}) => (
-		<div>
-			<span>Settings category: {initialTab}</span>
-			<button type="button" onClick={onServerSaved}>
-				Save server
-			</button>
-		</div>
-	),
-}));
-
 afterEach(() => {
 	cleanup();
-	actionStack.clear();
 	vi.unstubAllEnvs();
 });
 
 describe("development login settings", () => {
-	it("opens the Network settings and returns to login through Back", async () => {
+	it("delegates the settings shortcut to the authentication gate", () => {
 		vi.stubEnv("DEV_MODE", "true");
-		render(<LoginPage onReload={vi.fn()} />);
+		const onOpenSettings = vi.fn();
+		render(<LoginPage onOpenSettings={onOpenSettings} />);
 
 		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-		expect(screen.getByText("Settings category: network")).toBeVisible();
-		expect(actionStack.has("dev-login-settings")).toBe(true);
-
-		await act(async () => {
-			await actionStack.pop();
-		});
-
-		expect(screen.getByText("Welcome to Shellular")).toBeVisible();
-		expect(actionStack.has("dev-login-settings")).toBe(false);
-	});
-
-	it("reloads login authentication after the server is saved", () => {
-		vi.stubEnv("DEV_MODE", "true");
-		const onReload = vi.fn();
-		render(<LoginPage onReload={onReload} />);
-
-		fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Save server" }));
-
-		expect(onReload).toHaveBeenCalledOnce();
+		expect(onOpenSettings).toHaveBeenCalledOnce();
 	});
 
 	it("does not expose the settings shortcut outside development", () => {
 		vi.stubEnv("DEV_MODE", "");
-		render(<LoginPage onReload={vi.fn()} />);
+		render(<LoginPage onOpenSettings={vi.fn()} />);
 
 		expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
 	});

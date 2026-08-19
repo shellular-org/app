@@ -415,8 +415,8 @@ function CustomAgentForm({
 	const [name, setName] = useState(custom?.name ?? agent?.name ?? "");
 	const [icon, setIcon] = useState(custom?.icon ?? agent?.icon ?? "");
 	const [command, setCommand] = useState(custom?.command ?? "");
-	const [args, setArgs] = useState((custom?.args ?? []).join("\n"));
-	const [env, setEnv] = useState(formatEnv(custom?.env));
+	const [args, setArgs] = useState(() => (custom?.args ?? []).join("\n"));
+	const [env, setEnv] = useState(() => formatEnv(custom?.env));
 	const [cwd, setCwd] = useState(custom?.cwd ?? "");
 	const [saving, setSaving] = useState(false);
 

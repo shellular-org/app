@@ -10,7 +10,7 @@ import { getFileIcon } from "lib/fileIcon";
 import { joinRemotePath } from "lib/remotePath";
 import toast from "lib/toast";
 import { formatFileSize } from "lib/utils";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type { FileEntry, GitFileStatus, ProjectFileSearchEntry } from "state";
 import { deleteEntry, readFileBytes } from "state/filesystem";
 
@@ -56,8 +56,6 @@ export default function FileList({
 	onRefresh,
 }: Props) {
 	const [activeItem, setActiveItem] = useState<string | null>(null);
-	const activeItemRef = useRef(activeItem);
-	activeItemRef.current = activeItem;
 
 	const resolvePath = (entry: FileEntry) => {
 		const path = (entry as ProjectFileSearchEntry).path;
@@ -148,7 +146,9 @@ export default function FileList({
 							event.currentTarget,
 							"context",
 						).finally(() => {
-							if (activeItemRef.current === entry.name) setActiveItem(null);
+							setActiveItem((current) =>
+								current === entry.name ? null : current,
+							);
 						});
 					}}
 				>
@@ -178,11 +178,9 @@ export default function FileList({
 					{mode !== "picker" && entry.type === "file" && (
 						<AppMenu
 							onToggle={(open) => {
-								if (open) {
-									setActiveItem(entry.name);
-								} else if (activeItemRef.current === entry.name) {
-									setActiveItem(null);
-								}
+								setActiveItem((current) =>
+									open ? entry.name : current === entry.name ? null : current,
+								);
 							}}
 							items={fileMenuItems(entry)}
 							ariaLabel="File option"
