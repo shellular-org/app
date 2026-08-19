@@ -12,6 +12,12 @@ export type DesktopSecondarySidebarRoute =
 			activeChatId?: string;
 	  }
 	| {
+			view: "project-files";
+			projectPath: string;
+			projectName: string;
+			searchRequest?: number;
+	  }
+	| {
 			view: "git-history";
 			projectPath: string;
 			projectName: string;
@@ -33,6 +39,7 @@ let snapshot: DesktopSecondarySidebarSnapshot = {
 	open: false,
 	stack: [],
 };
+let projectFilesSearchRequest = 0;
 
 function emit(next: DesktopSecondarySidebarSnapshot) {
 	if (next.open === snapshot.open && next.stack === snapshot.stack) return;
@@ -125,15 +132,30 @@ export function showGitHistorySidebar(
 	]);
 }
 
-export function secondarySidebarRouteKey(
-	route: DesktopSecondarySidebarRoute,
+export function showProjectFilesSidebar(
+	projectPath: string,
+	projectName: string,
+	options?: { search?: boolean },
 ) {
+	openDesktopSecondarySidebar([
+		{
+			view: "project-files",
+			projectPath,
+			projectName,
+			searchRequest: options?.search ? ++projectFilesSearchRequest : undefined,
+		},
+	]);
+}
+
+export function secondarySidebarRouteKey(route: DesktopSecondarySidebarRoute) {
 	switch (route.view) {
 		case "agents":
 		case "bookmarked-chats":
 			return route.view;
 		case "sessions":
 			return `sessions:${route.agentId}:${route.workspacePath ?? "*"}`;
+		case "project-files":
+			return `project-files:${route.projectPath}`;
 		case "git-history":
 			return `git-history:${route.projectPath}`;
 		case "git-commit":

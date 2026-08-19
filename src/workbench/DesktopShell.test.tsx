@@ -40,9 +40,9 @@ const nativeMocks = vi.hoisted(() => ({
 const shortcutMocks = vi.hoisted(() => ({
 	createProjectChild: vi.fn(),
 	refreshProjectExplorer: vi.fn(async () => undefined),
-	requestProjectSearch: vi.fn(),
 	openProjectPicker: vi.fn(),
 }));
+const projectTreeProps = vi.hoisted(() => vi.fn());
 const themeMocks = vi.hoisted(() => ({
 	handler: null as (() => void) | null,
 	unsubscribe: vi.fn(),
@@ -70,9 +70,9 @@ vi.mock("bridge/native", () => ({
 			nativeMocks.commandHandler = handler;
 			return () => {
 				nativeMocks.disposeCommandHandler();
-					if (nativeMocks.commandHandler === handler) {
-						nativeMocks.commandHandler = null;
-					}
+				if (nativeMocks.commandHandler === handler) {
+					nativeMocks.commandHandler = null;
+				}
 			};
 		}),
 		pickLocalFiles: vi.fn(async () => []),
@@ -93,10 +93,10 @@ vi.mock("themes", async (importOriginal) => {
 						return () => {
 							themeMocks.unsubscribe();
 							if (themeMocks.handler === handler) themeMocks.handler = null;
-							};
 						};
-					}
-					return Reflect.get(target, property, target);
+					};
+				}
+				return Reflect.get(target, property, target);
 			},
 		}),
 	};
@@ -105,15 +105,19 @@ vi.mock("tabs/projects/useProjectPicker", () => ({
 	default: () => ({ openProjectPicker: shortcutMocks.openProjectPicker }),
 }));
 vi.mock("./ProjectExplorerTree", () => ({
+	default: (props: {
+		project: { name: string; path: string };
+		searchToken: number;
+	}) => {
+		projectTreeProps(props);
+		return <div>Project tree</div>;
+	},
 	createProjectChild: shortcutMocks.createProjectChild,
 }));
 vi.mock("./projectTreeWorkspace", () => ({
 	refreshProjectExplorer: shortcutMocks.refreshProjectExplorer,
 }));
-vi.mock("./projectCommands", async (importOriginal) => ({
-	...(await importOriginal<typeof import("./projectCommands")>()),
-	requestProjectSearch: shortcutMocks.requestProjectSearch,
-}));
+vi.mock("pages/files", () => ({ default: () => <div>Project files</div> }));
 vi.mock("./DesktopProfileMenu", () => ({
 	default: ({ onOpen }: { onOpen: (page: "settings" | "agents") => void }) => (
 		<button
@@ -187,8 +191,8 @@ vi.mock("./SurfaceRenderer", async () => {
 	};
 });
 
-import dialog from "bridge/dialog";
 import browser from "bridge/browser";
+import dialog from "bridge/dialog";
 import native from "bridge/native";
 import DesktopShell from "./DesktopShell";
 import {
@@ -218,6 +222,7 @@ beforeEach(() => {
 	shellularState.createTerminal.mockResolvedValue(null);
 	shellularState.getXterm.mockReturnValue(null);
 	shortcutMocks.createProjectChild.mockResolvedValue(null);
+	projectTreeProps.mockClear();
 	resetWorkbench();
 	Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 		configurable: true,
@@ -292,6 +297,11 @@ describe("desktop shell", () => {
 			"Source Control",
 			"User menu",
 		]);
+		expect(
+			within(navigation)
+				.getByRole("button", { name: "Projects" })
+				.querySelector(".icon-ai-chat"),
+		).not.toBeNull();
 		expect(
 			within(navigation).queryByRole("button", { name: "Terminal" }),
 		).toBeNull();
@@ -633,19 +643,20 @@ describe("desktop shell", () => {
 			ctrlKey: true,
 			shiftKey: true,
 		});
-		expect(screen.getByText("Projects sidebar")).toBeVisible();
 		await waitFor(() =>
 			expect(
-				screen.getByRole("textbox", { name: "Project filter" }),
-			).toHaveFocus(),
+				screen.getByRole("heading", { name: "Alpha · Files" }),
+			).toBeVisible(),
 		);
-		fireEvent.keyDown(window, {
-			key: "e",
-			code: "KeyE",
-			ctrlKey: true,
-			shiftKey: true,
-		});
-		expect(activeSurfaceAction).toHaveFocus();
+		expect(projectTreeProps).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				project: expect.objectContaining({
+					name: "Alpha",
+					path: "/work/alpha",
+				}),
+				searchToken: 0,
+			}),
+		);
 
 		fireEvent.keyDown(window, {
 			key: "f",
@@ -654,8 +665,11 @@ describe("desktop shell", () => {
 			shiftKey: true,
 		});
 		await waitFor(() =>
-			expect(shortcutMocks.requestProjectSearch).toHaveBeenCalledWith(
-				"/work/alpha",
+			expect(projectTreeProps).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					project: expect.objectContaining({ path: "/work/alpha" }),
+					searchToken: expect.any(Number),
+				}),
 			),
 		);
 
@@ -698,6 +712,28 @@ describe("desktop shell", () => {
 		expect(
 			await screen.findByRole("dialog", { name: "Open File" }),
 		).toBeVisible();
+	});
+
+	it("leaves native paste shortcuts to focused DOM editables", () => {
+		vi.stubEnv("IS_DESKTOP_UI", "true");
+		vi.stubEnv("IS_BROWSER", "true");
+		render(<DesktopShell />);
+		const composer = document.createElement("div");
+		composer.setAttribute("contenteditable", "true");
+		document.body.appendChild(composer);
+		composer.focus();
+
+		const paste = new KeyboardEvent("keydown", {
+			key: "v",
+			code: "KeyV",
+			ctrlKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		composer.dispatchEvent(paste);
+
+		expect(paste.defaultPrevented).toBe(false);
+		composer.remove();
 	});
 
 	it("routes VS Code Save, New Terminal, and Close Tab shortcuts", async () => {

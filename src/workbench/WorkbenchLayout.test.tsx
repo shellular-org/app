@@ -6,6 +6,7 @@ import {
 	screen,
 } from "@testing-library/react";
 import Page from "components/Page";
+import ContextMenuHost from "context-menu/ContextMenuHost";
 import {
 	type ReactNode,
 	useEffect,
@@ -27,6 +28,11 @@ import type { WorkbenchSurface } from "./types";
 import WorkbenchLayout from "./WorkbenchLayout";
 
 const mounts = new Map<string, number>();
+const newActions = {
+	terminal: vi.fn(),
+	file: vi.fn(),
+	chat: vi.fn(),
+};
 
 function StatefulSurface({ surface }: { surface: WorkbenchSurface }) {
 	const [count, setCount] = useState(0);
@@ -50,10 +56,7 @@ function ToolbarSurface({ surface }: { surface: WorkbenchSurface }) {
 			title={surface.title}
 			toolbarSlot={<input aria-label={`${surface.title} search`} />}
 			rightSlot={
-				<button
-					type="button"
-					aria-label={`${surface.title} action`}
-				>
+				<button type="button" aria-label={`${surface.title} action`}>
 					<span className="icon-search" aria-hidden="true" />
 				</button>
 			}
@@ -78,12 +81,16 @@ function Harness({
 	);
 	return (
 		<div style={{ width: 1200, height: 800 }}>
+			<ContextMenuHost />
 			<WorkbenchLayout
 				snapshot={snapshot}
 				compact={compact}
 				surfaceTitle={(surface) => surface.title}
 				renderSurface={renderSurface}
 				renderWelcome={() => <div>Welcome</div>}
+				onNewTerminal={newActions.terminal}
+				onOpenFile={newActions.file}
+				onNewChat={newActions.chat}
 				onCloseSurface={async () => true}
 				onCloseSurfaces={async () => true}
 			/>
@@ -104,6 +111,7 @@ function open(id: string) {
 beforeEach(() => {
 	resetWorkbench();
 	mounts.clear();
+	vi.clearAllMocks();
 	localStorage.clear();
 	vi.stubGlobal(
 		"ResizeObserver",
@@ -120,7 +128,7 @@ afterEach(() => {
 });
 
 describe("workbench layout", () => {
-	it("gives empty panes the full surface and restores chrome with the first tab", () => {
+	it("keeps the tab bar available for empty panes", () => {
 		render(
 			<Harness
 				renderSurface={(surface) => (
@@ -136,8 +144,9 @@ describe("workbench layout", () => {
 		const welcome = screen.getByText("Welcome");
 		expect(welcome).toBeVisible();
 		expect(welcome.parentElement).toHaveClass("flex-1");
-		expect(screen.queryByRole("tablist")).toBeNull();
-		expect(document.querySelector(".workbench-tab-strip")).toBeNull();
+		expect(screen.getByRole("tablist")).toBeVisible();
+		expect(document.querySelector(".workbench-tab-strip")).not.toBeNull();
+		expect(screen.getByRole("button", { name: "New" })).toBeVisible();
 
 		act(() => open("a"));
 		expect(screen.getByRole("tablist")).toBeVisible();
@@ -150,8 +159,42 @@ describe("workbench layout", () => {
 
 		act(() => commitCloseWorkbenchSurfaces(["a"]));
 		expect(screen.getByText("Welcome")).toBeVisible();
-		expect(screen.queryByRole("tablist")).toBeNull();
-		expect(document.querySelector(".workbench-tab-strip")).toBeNull();
+		expect(screen.getByRole("tablist")).toBeVisible();
+		expect(document.querySelector(".workbench-tab-strip")).not.toBeNull();
+	});
+
+	it("runs all three actions from the tab-bar plus menu", () => {
+		render(<Harness />);
+
+		fireEvent.click(screen.getByRole("button", { name: "New" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "New Terminal" }));
+		expect(newActions.terminal).toHaveBeenCalledOnce();
+
+		fireEvent.click(screen.getByRole("button", { name: "New" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Open File…" }));
+		expect(newActions.file).toHaveBeenCalledOnce();
+
+		fireEvent.click(screen.getByRole("button", { name: "New" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "New Chat…" }));
+		expect(newActions.chat).toHaveBeenCalledOnce();
+	});
+
+	it("targets the pane whose plus menu was opened", () => {
+		open("a");
+		open("b");
+		splitWorkbenchSurface("b", "group:root", "right");
+		let actionPane = "";
+		newActions.terminal.mockImplementation(() => {
+			actionPane = getWorkbenchSnapshot().focusedGroupId;
+		});
+		render(<Harness />);
+
+		const firstPaneNew = screen.getAllByRole("button", { name: "New" })[0];
+		fireEvent.pointerDown(firstPaneNew);
+		fireEvent.click(firstPaneNew);
+		fireEvent.click(screen.getByRole("menuitem", { name: "New Terminal" }));
+
+		expect(actionPane).toBe("group:root");
 	});
 
 	it("keeps every stateful surface mounted once through split, move, collapse, and compact mode", () => {
@@ -239,7 +282,9 @@ describe("workbench layout", () => {
 		fireEvent.click(screen.getByRole("tab", { name: "B" }));
 		const bSearch = screen.getByRole("textbox", { name: "B search" });
 		expect(bSearch.closest(".page-toolbar")).not.toBeNull();
-		expect(document.querySelector(".workbench-secondary-panel-target")).toBeNull();
+		expect(
+			document.querySelector(".workbench-secondary-panel-target"),
+		).toBeNull();
 	});
 
 	it("renders pinned tabs as a protected prefix", () => {

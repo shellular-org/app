@@ -140,7 +140,7 @@ export function ChatComposer({
 	return (
 		<div
 			ref={inputBarRef}
-			className="fixed bottom-[calc(var(--keyboard-height,0px)+8px)] left-[max(10px,var(--sal))] right-[max(10px,var(--sar))] mx-auto flex w-auto max-w-[840px] flex-col gap-2 rounded-xl border border-card-border bg-secondary p-3 shadow-[0_10px_36px_var(--shadow-color),0_1px_0_var(--line-soft)_inset] transition-[border-radius,padding] duration-300 ease-in ios:rounded-[12px_12px_48px_48px] md:ios:rounded-xl ios-kbd:rounded-xl android:bottom-[max(8px,var(--sab))] android-kbd:bottom-[calc(var(--keyboard-height,8px)+8px)] browser:w-[calc(100%-32px)] browser:max-w-[1150px] desktop-ui:w-[calc(100%-32px)] desktop-ui:max-w-[1150px]"
+			className="chat-composer fixed bottom-[calc(var(--keyboard-height,0px)+8px)] left-[max(10px,var(--sal))] right-[max(10px,var(--sar))] mx-auto flex w-auto max-w-[840px] flex-col gap-2 rounded-xl border border-card-border bg-secondary p-3 shadow-[0_10px_36px_var(--shadow-color),0_1px_0_var(--line-soft)_inset] transition-[border-radius,padding] duration-300 ease-in ios:rounded-[12px_12px_48px_48px] md:ios:rounded-xl ios-kbd:rounded-xl android:bottom-[max(8px,var(--sab))] android-kbd:bottom-[calc(var(--keyboard-height,8px)+8px)] browser:w-[calc(100%-32px)] browser:max-w-[1150px] desktop-ui:w-[calc(100%-32px)] desktop-ui:max-w-[1150px]"
 		>
 			{queueControls}
 			{reviewCommentCount > 0 && (

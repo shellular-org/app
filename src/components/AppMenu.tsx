@@ -19,6 +19,7 @@ import { forwardRef, useRef } from "react";
 export interface AppMenuItem {
 	key?: string;
 	icon: string;
+	macSymbol?: string;
 	label: string;
 	danger?: boolean;
 	subText?: string;
@@ -272,7 +273,7 @@ export function showAppMenuItems(
 			command,
 			label: item.label,
 			icon: item.icon,
-			macSymbol: macSymbolForIcon(item.icon),
+			macSymbol: item.macSymbol ?? macSymbolForIcon(item.icon),
 			danger: item.danger,
 			disabled: item.disabled || item.comingSoon,
 			checked:
@@ -306,9 +307,11 @@ function macSymbolForIcon(icon: string) {
 		"icon-edit": "pencil",
 		"icon-edit-2": "pencil",
 		"icon-external-link": "arrow.up.forward.square",
+		"icon-file": "doc",
 		"icon-file-plus": "doc.badge.plus",
 		"icon-folder-plus": "folder.badge.plus",
 		"icon-git-branch": "arrow.triangle.branch",
+		"icon-ai-chat": "bubble.left.and.bubble.right",
 		"icon-plus": "plus",
 		"icon-refresh-cw": "arrow.clockwise",
 		"icon-share": "square.and.arrow.up",

@@ -120,7 +120,11 @@ export function encryptMessage(
 	// reads only the envelope's routing fields, so this stays end-to-end.
 	const raw = new TextEncoder().encode(plaintext);
 	const compress = allowCompression && raw.byteLength >= COMPRESS_MIN_BYTES;
-	const payload = compress ? gzipSync(raw) : raw;
+	// Keep the universally-readable path as a string. Besides avoiding an
+	// unnecessary allocation, this accepts TextEncoder implementations from a
+	// different JS realm (such as the embedded browser test environment), which
+	// libsodium's strict Uint8Array check otherwise rejects.
+	const payload = compress ? gzipSync(raw) : plaintext;
 	const ciphertext = sodium.crypto_secretbox_easy(payload, nonce, key);
 
 	return {

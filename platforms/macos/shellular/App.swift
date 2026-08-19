@@ -177,7 +177,11 @@ private final class ApplicationMenuController: NSObject {
         menu.addItem(.separator())
         menu.addItem(commandItem("Cut", shortcut: DesktopShortcutCatalog.cut))
         menu.addItem(commandItem("Copy", shortcut: DesktopShortcutCatalog.copy))
-        menu.addItem(commandItem("Paste", shortcut: DesktopShortcutCatalog.paste))
+        menu.addItem(responderCommandItem(
+            "Paste",
+            selector: #selector(NSText.paste(_:)),
+            shortcut: DesktopShortcutCatalog.paste
+        ))
         menu.addItem(commandItem("Select All", shortcut: DesktopShortcutCatalog.selectAll))
         return menu
     }
@@ -316,6 +320,21 @@ private final class ApplicationMenuController: NSObject {
         let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
         item.keyEquivalentModifierMask = key.isEmpty ? [] : modifiers
         item.target = nil
+        return item
+    }
+
+    private func responderCommandItem(
+        _ title: String,
+        selector: Selector,
+        shortcut: DesktopNativeShortcut
+    ) -> NSMenuItem {
+        let item = responderItem(
+            title,
+            selector: selector,
+            key: shortcut.key,
+            modifiers: shortcut.modifiers
+        )
+        commandItems[shortcut.command, default: []].append(item)
         return item
     }
 

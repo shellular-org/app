@@ -1,9 +1,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import ContextMenuHost from "context-menu/ContextMenuHost";
-import { dismissContextMenu } from "context-menu/service";
+import {
+	dismissContextMenu,
+	getContextMenuSnapshot,
+} from "context-menu/service";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import AppMenu from "./AppMenu";
+import AppMenu, { showAppMenuItems } from "./AppMenu";
 
 vi.stubGlobal(
 	"ResizeObserver",
@@ -74,5 +77,44 @@ describe("AppMenu", () => {
 		fireEvent.click(screen.getByRole("button", { name: "File actions" }));
 		fireEvent.click(screen.getByRole("menuitem", { name: "Copy Path" }));
 		expect(action).toHaveBeenCalledOnce();
+	});
+
+	it("provides fallback and custom SF Symbols to native menus", () => {
+		void showAppMenuItems(
+			[
+				{
+					icon: "icon-terminal",
+					label: "New Terminal",
+					onClick: vi.fn(),
+				},
+				{
+					icon: "icon-file",
+					label: "Open File…",
+					onClick: vi.fn(),
+				},
+				{
+					icon: "icon-ai-chat",
+					label: "New Chat…",
+					onClick: vi.fn(),
+				},
+				{
+					icon: "icon-copy",
+					macSymbol: "star",
+					label: "Custom Symbol",
+					onClick: vi.fn(),
+				},
+			],
+			{ kind: "point", x: 0, y: 0 },
+		);
+
+		expect(getContextMenuSnapshot()?.items).toMatchObject([
+			{ label: "New Terminal", macSymbol: "terminal" },
+			{ label: "Open File…", macSymbol: "doc" },
+			{
+				label: "New Chat…",
+				macSymbol: "bubble.left.and.bubble.right",
+			},
+			{ label: "Custom Symbol", macSymbol: "star" },
+		]);
 	});
 });

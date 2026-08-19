@@ -22,14 +22,18 @@ import EditorPage from "pages/editor";
 import { openInWorkbench } from "workbench/navigation";
 import { tryOpenEditorSurface } from "workbench/openers";
 import { useIsWorkbenchPageChromeActive } from "workbench/pageChrome";
-import { closeWorkbenchDialog } from "workbench/store";
 import { showGitHistorySidebar } from "workbench/secondarySidebar";
+import { closeWorkbenchDialog } from "workbench/store";
 
 export interface FileBrowserPageProps {
 	title?: string;
 	initialPath?: string;
 	onSelectFolder?: (path: string) => void;
 	mode?: FILE_MODE;
+	embedded?: boolean;
+	searchRequest?: number;
+	onNavigate?: () => void;
+	onOpenGitHistory?: () => void;
 }
 
 export default function FileBrowserPage({
@@ -37,6 +41,10 @@ export default function FileBrowserPage({
 	initialPath,
 	onSelectFolder,
 	mode = "default",
+	embedded = false,
+	searchRequest,
+	onNavigate,
+	onOpenGitHistory,
 }: FileBrowserPageProps) {
 	const {
 		connectionStatus,
@@ -174,6 +182,10 @@ export default function FileBrowserPage({
 		setSearchOpen(true);
 	}, []);
 
+	useEffect(() => {
+		if (searchRequest) openSearch();
+	}, [openSearch, searchRequest]);
+
 	const toggleSearch = useCallback(() => {
 		if (searchOpen) closeSearch();
 		else openSearch();
@@ -220,6 +232,7 @@ export default function FileBrowserPage({
 				})
 			) {
 				closeWorkbenchDialog();
+				onNavigate?.();
 				return;
 			}
 			pushPage(
@@ -230,8 +243,9 @@ export default function FileBrowserPage({
 					pageId={pageId}
 				/>,
 			);
+			onNavigate?.();
 		},
-		[closeSearch, currentPath, fetchDir],
+		[closeSearch, currentPath, fetchDir, onNavigate],
 	);
 
 	const handleNavigate = useCallback(
@@ -421,6 +435,10 @@ export default function FileBrowserPage({
 
 	const openGitHistory = useCallback(async () => {
 		const projectPath = initialPath ?? ".";
+		if (onOpenGitHistory) {
+			onOpenGitHistory();
+			return;
+		}
 		if (process.env.IS_DESKTOP_UI) {
 			showGitHistorySidebar(projectPath, title);
 			return;
@@ -441,7 +459,7 @@ export default function FileBrowserPage({
 			`git-client-${projectPath}`,
 			<GitClientPage.default projectPath={projectPath} projectName={title} />,
 		);
-	}, [initialPath, title]);
+	}, [initialPath, onOpenGitHistory, title]);
 
 	const navigateBack = useCallback(() => {
 		const entry = navHistoryRef.current.pop();
@@ -503,7 +521,7 @@ export default function FileBrowserPage({
 		},
 	];
 	const footer =
-		onSelectFolder || !isWorkbenchTab ? (
+		!embedded && (onSelectFolder || !isWorkbenchTab) ? (
 			<div className="files-footer" data-disabled={loading}>
 				{onSelectFolder && (
 					<button
@@ -531,6 +549,41 @@ export default function FileBrowserPage({
 				)}
 			</div>
 		) : null;
+	const renderFileActions = () => (
+		<>
+			{mode === "project" && !searchVisible && (
+				<button
+					type="button"
+					className="files-refresh"
+					onClick={openGitHistory}
+					aria-label="Git history"
+				>
+					<span className="icon-git-branch" aria-hidden="true" />
+				</button>
+			)}
+			<button
+				type="button"
+				className="files-refresh files-search-toggle"
+				data-active={searchVisible}
+				onClick={toggleSearch}
+				aria-label={searchOpen ? "Close search" : "Search project"}
+			>
+				<span
+					className={searchOpen ? "icon-x" : "icon-search"}
+					aria-hidden="true"
+				/>
+			</button>
+			{!searchVisible && (
+				<AppMenu
+					ariaLabel="File actions"
+					buttonClassName="files-refresh"
+					items={fileMenuItems}
+				>
+					<span className="icon-more-vertical" aria-hidden="true" />
+				</AppMenu>
+			)}
+		</>
+	);
 
 	return (
 		<>
@@ -568,43 +621,38 @@ export default function FileBrowserPage({
 						/>
 					) : undefined
 				}
-				rightSlot={
-					<>
-						{mode === "project" && !searchVisible && (
-							<button
-								type="button"
-								className="files-refresh"
-								onClick={openGitHistory}
-								aria-label="Git history"
-							>
-								<span className="icon-git-branch" aria-hidden="true" />
-							</button>
-						)}
-						<button
-							type="button"
-							className="files-refresh files-search-toggle"
-							data-active={searchVisible}
-							onClick={toggleSearch}
-							aria-label={searchOpen ? "Close search" : "Search project"}
-						>
-							<span
-								className={searchOpen ? "icon-x" : "icon-search"}
-								aria-hidden="true"
-							/>
-						</button>
-						{!searchVisible && (
-							<AppMenu
-								ariaLabel="File actions"
-								buttonClassName="files-refresh"
-								items={fileMenuItems}
-							>
-								<span className="icon-more-vertical" aria-hidden="true" />
-							</AppMenu>
-						)}
-					</>
-				}
+				rightSlot={embedded ? undefined : renderFileActions()}
 				footerSlot={footer}
 			>
+				{embedded && (
+					<div className="secondary-sidebar-page-controls">
+						<button
+							type="button"
+							className="files-refresh"
+							onClick={navigateBack}
+							disabled={navDepth === 0}
+							aria-label="Back"
+						>
+							<span className="icon-chevron-left" aria-hidden="true" />
+						</button>
+						<button
+							type="button"
+							className="files-refresh"
+							onClick={navigateForward}
+							disabled={forwardDepth === 0}
+							aria-label="Forward"
+						>
+							<span className="icon-chevron-right" aria-hidden="true" />
+						</button>
+						<span
+							className="min-w-0 flex-1 truncate px-1 text-[11px] text-secondary-text"
+							title={displayPath}
+						>
+							{breadcrumbs.join(" / ") || displayPath}
+						</span>
+						{renderFileActions()}
+					</div>
+				)}
 				{error && <EmptyState message={error} mascot="error" />}
 				{searchOpen && !searchQuery.trim() ? (
 					<div className="files-search-history">

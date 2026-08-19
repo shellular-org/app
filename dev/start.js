@@ -2,6 +2,7 @@ import { exec, execSync } from "node:child_process";
 import { type } from "node:os";
 import config from "./config.js";
 import getIp from "./getIp.js";
+import { createWebpackCompilationDetector } from "./webpack-status.js";
 
 const args = process.argv.slice(2);
 const platform = args.find((arg) => /(android|ios|macos|browser)/i.test(arg)) || "android";
@@ -48,6 +49,7 @@ async function main() {
   execSync(`webpack --mode production --env console=true --env platform=${platform}`);
   console.log(`${YELLOW}-> Building assets using${NC} ${BLUE}webpack${NC}`);
   const webpack = exec(command);
+  const detectSuccessfulCompilation = createWebpackCompilationDetector();
 
   let webpackMuted = false;
 
@@ -74,7 +76,7 @@ async function main() {
       platform === "ios" ||
       platform === "macos" ||
       buildsOnce;
-    if (needsBundle && !chunk.includes("compiled successfully")) {
+    if (needsBundle && !detectSuccessfulCompilation(chunk)) {
       return;
     }
     startApp();
@@ -87,9 +89,16 @@ async function main() {
     appRan = true;
     webpackMuted = true;
     console.log(`${GREEN}-> Starting ${platform} app${NC}`);
-    start(devServer, () => {
-      webpackMuted = false;
-    });
+    void Promise.resolve()
+      .then(() =>
+        start(devServer, () => {
+          webpackMuted = false;
+        }),
+      )
+      .catch((error) => {
+        console.error(`${YELLOW}-> Error starting ${platform} app${NC}`);
+        printToStdOut(error);
+      });
   }
 
   webpack.on("error", (error) => {

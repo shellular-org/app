@@ -43,11 +43,13 @@ export default function ProjectExplorerTree({
 	refreshToken,
 	searchToken,
 	gitStatus,
+	onNavigate,
 }: {
 	project: ProjectInfo;
 	refreshToken: number;
 	searchToken: number;
 	gitStatus?: GitWorkingTreeStatus | null;
+	onNavigate?: () => void;
 }) {
 	const isLocal = getConnectionSnapshot().transport === "local";
 	const subscribe = useCallback(
@@ -69,7 +71,7 @@ export default function ProjectExplorerTree({
 	const searchGeneration = useRef(0);
 	const [searchCompatibility, setSearchCompatibility] = useState(false);
 	const lastRefreshToken = useRef(refreshToken);
-	const lastSearchToken = useRef(searchToken);
+	const lastSearchToken = useRef(0);
 	const attachTreeModel = useCallback(
 		(model: ShellularFileTreeModel | null) => {
 			treeModel.current = model;
@@ -226,26 +228,34 @@ export default function ProjectExplorerTree({
 					const entry = entryByPath.get(relativePath);
 					if (!entry || entry.type !== "file") return;
 					const filePath = joinRemotePath(project.path, relativePath);
-					tryOpenEditorSurface({
-						id: `editor:${filePath}`,
-						filePath,
-						title: relativePath.split("/").pop(),
-						gitStatus: gitDecorations.get(relativePath) ?? entry.gitStatus,
-					});
+					if (
+						!tryOpenEditorSurface({
+							id: `editor:${filePath}`,
+							filePath,
+							title: relativePath.split("/").pop(),
+							gitStatus: gitDecorations.get(relativePath) ?? entry.gitStatus,
+						})
+					)
+						return;
+					onNavigate?.();
 				}}
 				actionsForItem={(relativePath, type) => {
 					const name = relativePath.split("/").pop() || relativePath;
 					const absolutePath = joinRemotePath(project.path, relativePath);
 					const open = () => {
 						if (type !== "file") return;
-						tryOpenEditorSurface({
-							id: `editor:${absolutePath}`,
-							filePath: absolutePath,
-							title: name,
-							gitStatus:
-								gitDecorations.get(relativePath) ??
-								entryByPath.get(relativePath)?.gitStatus,
-						});
+						if (
+							!tryOpenEditorSurface({
+								id: `editor:${absolutePath}`,
+								filePath: absolutePath,
+								title: name,
+								gitStatus:
+									gitDecorations.get(relativePath) ??
+									entryByPath.get(relativePath)?.gitStatus,
+							})
+						)
+							return;
+						onNavigate?.();
 					};
 					const entries = buildEntryMenu(
 						{ name, type, size: 0, modified: 0 },

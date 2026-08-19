@@ -7,6 +7,7 @@ import {
 	pushDesktopSecondarySidebar,
 	resetDesktopSecondarySidebar,
 	showGitHistorySidebar,
+	showProjectFilesSidebar,
 	showSessionsSidebar,
 } from "./secondarySidebar";
 
@@ -54,5 +55,31 @@ describe("desktop secondary sidebar store", () => {
 				projectName: "Repo",
 			},
 		]);
+	});
+
+	it("opens project files and issues distinct search requests", () => {
+		showProjectFilesSidebar("/repo", "Repo");
+		expect(getDesktopSecondarySidebarSnapshot()).toMatchObject({
+			open: true,
+			stack: [
+				{
+					view: "project-files",
+					projectPath: "/repo",
+					projectName: "Repo",
+				},
+			],
+		});
+
+		showProjectFilesSidebar("/repo", "Repo", { search: true });
+		const first = getDesktopSecondarySidebarSnapshot().stack[0];
+		expect(first).toMatchObject({ view: "project-files" });
+		if (first?.view !== "project-files")
+			throw new Error("Expected files route");
+
+		showProjectFilesSidebar("/repo", "Repo", { search: true });
+		const second = getDesktopSecondarySidebarSnapshot().stack[0];
+		if (second?.view !== "project-files")
+			throw new Error("Expected files route");
+		expect(second.searchRequest).toBeGreaterThan(first.searchRequest ?? 0);
 	});
 });

@@ -112,10 +112,11 @@ afterEach(() => {
 });
 
 describe("WorkbenchWelcome", () => {
-	it("presents one primary action, aligned secondary actions, and an empty recent state", () => {
+	it("presents neutral start actions and an empty recent state", () => {
 		const callbacks = renderWelcome();
 		const newChat = screen.getByRole("button", { name: "New Chat" });
-		expect(newChat).toHaveClass("bg-button-background");
+		expect(newChat).not.toHaveClass("bg-button-background");
+		expect(newChat).toHaveClass("bg-surface-soft/50", "text-primary-text");
 		expect(screen.getByTestId("workbench-welcome-sections")).toHaveClass(
 			"grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))]",
 		);

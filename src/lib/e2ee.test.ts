@@ -32,6 +32,21 @@ describe("encrypted message identity", () => {
 			clientId: "c_local-test",
 		});
 	});
+
+	it("round-trips compressed messages with the authenticated client ID", () => {
+		const key = sodium.crypto_secretbox_keygen();
+		const message = {
+			id: "request-compressed",
+			type: "fs:write",
+			clientId: "c_local-test",
+			content: "shellular".repeat(1024),
+		};
+		const envelope = encryptMessage(message, key, true);
+
+		expect(envelope.enc).toBe("gzip");
+		expect(envelope.clientId).toBe(message.clientId);
+		expect(decryptMessage(envelope, key)).toMatchObject(message);
+	});
 });
 
 describe("encrypted TCP tunnel frames", () => {

@@ -42,6 +42,7 @@ import {
 	type DesktopKeyboardCommand,
 	type DesktopMenuCommand,
 	DesktopShortcutMatcher,
+	type DesktopShortcutPlatform,
 	desktopCommandAllowsEditable,
 	desktopCommandAllowsTerminal,
 	desktopCommandEnablement,
@@ -60,7 +61,6 @@ import { setWorkbenchOpenHandler } from "./navigation";
 import { requestNewChat, subscribeNewChat } from "./newChat";
 import { createProjectChild } from "./ProjectExplorerTree";
 import ProjectSidebar from "./ProjectSidebar";
-import { requestProjectSearch } from "./projectCommands";
 import { refreshProjectExplorer } from "./projectTreeWorkspace";
 import {
 	ShellularFileIconSprite,
@@ -73,6 +73,7 @@ import {
 	getDesktopSecondarySidebarSnapshot,
 	resetDesktopSecondarySidebar,
 	showAgentsSidebar,
+	showProjectFilesSidebar,
 	subscribeDesktopSecondarySidebar,
 } from "./secondarySidebar";
 import {
@@ -152,7 +153,7 @@ const ACTIVITIES: Array<{
 		label: "Remote Access",
 		icon: "icon-radio",
 	},
-	{ id: "projects", label: "Projects", icon: "icon-code" },
+	{ id: "projects", label: "Projects", icon: "icon-ai-chat" },
 	{ id: "git", label: "Source Control", icon: "icon-git-branch" },
 ];
 
@@ -612,18 +613,13 @@ export default function DesktopShell({
 		return true;
 	}, [focusActiveSurface, getXterm, hostId, newTerminal]);
 
-	const showExplorer = useCallback(() => {
-		const explorerVisible = activity === "projects" && !collapsed;
-		const focusedInSidebar =
-			document.activeElement instanceof HTMLElement &&
-			Boolean(document.activeElement.closest(".workbench-sidebar"));
-		if (explorerVisible && focusedInSidebar) {
-			focusActiveSurface();
-			return;
-		}
-		showActivity("projects");
-		focusSidebar("[data-project-path] input, [data-project-path] button");
-	}, [activity, collapsed, focusActiveSurface, focusSidebar, showActivity]);
+	const showExplorer = useCallback(async () => {
+		const project = await resolveCommandProject(
+			"Choose the project whose files you want to browse.",
+		);
+		if (!project) return;
+		showProjectFilesSidebar(project.path, project.name);
+	}, [resolveCommandProject]);
 
 	const showSourceControl = useCallback(() => {
 		showActivity("git");
@@ -635,9 +631,8 @@ export default function DesktopShell({
 			"Choose the project to search.",
 		);
 		if (!project) return;
-		showActivity("projects");
-		window.requestAnimationFrame(() => requestProjectSearch(project.path));
-	}, [resolveCommandProject, showActivity]);
+		showProjectFilesSidebar(project.path, project.name, { search: true });
+	}, [resolveCommandProject]);
 
 	const closeSurface = useCallback(
 		async (surface: WorkbenchSurface) => {
@@ -930,7 +925,7 @@ export default function DesktopShell({
 					setCollapsed((value) => !value);
 					return true;
 				case "show-explorer":
-					showExplorer();
+					await showExplorer();
 					return true;
 				case "project-search":
 					await searchProject();
@@ -1136,6 +1131,13 @@ export default function DesktopShell({
 				!terminalTarget &&
 				isEditableShortcutTarget(target) &&
 				!target?.closest(".monaco-editor");
+			if (
+				editableTarget &&
+				isNativeEditablePasteShortcut(event, shortcutPlatformRef.current)
+			) {
+				matcher.reset();
+				return;
+			}
 			const snapshot = getWorkbenchSnapshot();
 			const active = snapshot.surfaces.find(
 				(surface) => surface.id === snapshot.activeId,
@@ -1266,7 +1268,7 @@ export default function DesktopShell({
 									inert={activity !== "projects"}
 									aria-hidden={activity !== "projects"}
 								>
-									<ProjectSidebar gitStates={gitWorkspace.states} />
+									<ProjectSidebar />
 								</div>
 							)}
 							{activity === "git" && (
@@ -1317,6 +1319,9 @@ export default function DesktopShell({
 								onOpenSettings={() => openUtility("settings")}
 							/>
 						)}
+						onNewTerminal={() => void newTerminal()}
+						onOpenFile={() => void runDesktopCommand("open-file")}
+						onNewChat={() => requestNewChat()}
 						onCloseSurface={closeSurface}
 						onCloseSurfaces={closeSurfaces}
 					/>
@@ -1324,6 +1329,8 @@ export default function DesktopShell({
 				<DesktopSecondarySidebar
 					width={secondarySidebarWidth}
 					overlay={secondarySidebarOverlay}
+					gitStates={gitWorkspace.states}
+					onRefreshGit={gitWorkspace.refresh}
 					onResize={setSecondarySidebarWidth}
 					onResizeEnd={persistSecondarySidebarWidth}
 				/>
@@ -1443,5 +1450,21 @@ function isEditableShortcutTarget(target: HTMLElement | null) {
 		target.closest(
 			"input, textarea, select, [contenteditable='true'], [contenteditable='plaintext-only']",
 		),
+	);
+}
+
+function isNativeEditablePasteShortcut(
+	event: KeyboardEvent,
+	platform: DesktopShortcutPlatform,
+) {
+	const primaryModifier = platform === "mac" ? event.metaKey : event.ctrlKey;
+	const otherPrimaryModifier =
+		platform === "mac" ? event.ctrlKey : event.metaKey;
+	return (
+		primaryModifier &&
+		!otherPrimaryModifier &&
+		!event.altKey &&
+		!event.shiftKey &&
+		event.key.toLowerCase() === "v"
 	);
 }

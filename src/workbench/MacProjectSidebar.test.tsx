@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
 	createProjectChild: vi.fn(),
 	createTerminal: vi.fn(async () => null),
 	removeProject: vi.fn(),
+	showProjectFilesSidebar: vi.fn(),
 	projects: [
 		{
 			name: "Alpha",
@@ -116,11 +117,22 @@ vi.mock("./ProjectExplorerTree", () => ({
 	createProjectChild: mocks.createProjectChild,
 }));
 vi.mock("./ProjectSessionsPanel", () => ({
-	default: ({ refreshToken }: { refreshToken: number }) => (
-		<div data-testid="project-sessions">Sessions {refreshToken}</div>
+	default: ({
+		project,
+		refreshToken,
+	}: {
+		project: { name: string };
+		refreshToken: number;
+	}) => (
+		<div data-testid="project-sessions" data-project={project.name}>
+			Sessions {refreshToken}
+		</div>
 	),
 }));
 vi.mock("./newChat", () => ({ requestNewChat: vi.fn() }));
+vi.mock("./secondarySidebar", () => ({
+	showProjectFilesSidebar: mocks.showProjectFilesSidebar,
+}));
 
 import {
 	DesktopProjectPane,
@@ -154,14 +166,14 @@ describe("desktop project pane", () => {
 			gitInfo: { hasGit: false },
 		});
 		render(<DesktopProjectSidebar />);
-		expect(screen.getAllByTestId("project-tree")).toHaveLength(1);
-		expect(screen.getByTestId("project-tree")).toHaveAttribute(
+		expect(screen.getAllByTestId("project-sessions")).toHaveLength(1);
+		expect(screen.getByTestId("project-sessions")).toHaveAttribute(
 			"data-project",
 			"Alpha",
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Beta" }));
-		expect(screen.getAllByTestId("project-tree")).toHaveLength(2);
+		expect(screen.getAllByTestId("project-sessions")).toHaveLength(2);
 	});
 
 	it("reads the previous macOS layout as a migration fallback", () => {
@@ -176,13 +188,12 @@ describe("desktop project pane", () => {
 		});
 	});
 
-	it("uses a compact accessible menu and refreshes only the Tree view", () => {
+	it("shows sessions with a single project-files action", () => {
 		render(
 			<DesktopProjectPane
 				project={project}
-				state={{ expanded: true, mode: "tree", weight: 1 }}
+				state={{ expanded: true, weight: 1 }}
 				onExpanded={vi.fn()}
-				onMode={vi.fn()}
 			/>,
 		);
 
@@ -193,47 +204,7 @@ describe("desktop project pane", () => {
 		expect(menu.querySelector(".icon-more-horizontal")).toHaveClass(
 			"text-[14px]",
 		);
-		expect(screen.queryByRole("button", { name: "Refresh" })).toBeNull();
-		expect(screen.getByTestId("project-tree")).toHaveTextContent("Tree 0");
-		const viewToggle = screen.getByRole("radiogroup", {
-			name: "Alpha view",
-		});
-		expect(viewToggle).toContainElement(
-			screen.getByRole("radio", { name: "Project tree" }),
-		);
-		expect(
-			screen.getByRole("radio", { name: "Project tree" }).nextElementSibling,
-		).toHaveClass("icon-account_tree");
-		expect(
-			screen.getByRole("radio", { name: "Sessions" }).nextElementSibling,
-		).toHaveClass("icon-ai-chat");
-		expect(
-			screen
-				.getByText("Alpha")
-				.closest("button")
-				?.querySelector(".icon-folder"),
-		).toBeNull();
-
-		fireEvent.click(screen.getByRole("button", { name: "Search Files…" }));
-		expect(screen.getByTestId("project-tree")).toHaveTextContent("Search 1");
-
-		fireEvent.click(screen.getByRole("button", { name: "Refresh Explorer" }));
-		expect(screen.getByTestId("project-tree")).toHaveTextContent("Tree 1");
-		expect(
-			screen.queryByRole("button", { name: "Refresh Sessions" }),
-		).toBeNull();
-	});
-
-	it("switches menu actions and refresh state for Sessions mode", () => {
-		render(
-			<DesktopProjectPane
-				project={project}
-				state={{ expanded: true, mode: "sessions", weight: 1 }}
-				onExpanded={vi.fn()}
-				onMode={vi.fn()}
-			/>,
-		);
-
+		expect(screen.queryByRole("radiogroup")).toBeNull();
 		expect(screen.getByRole("button", { name: "New Chat…" })).toBeVisible();
 		expect(
 			screen.queryByRole("button", { name: "Refresh Explorer" }),
@@ -246,41 +217,44 @@ describe("desktop project pane", () => {
 		expect(screen.getByTestId("project-sessions")).toHaveTextContent(
 			"Sessions 1",
 		);
+
+		const files = screen.getByRole("button", { name: "Open Alpha files" });
+		expect(files.querySelector(".icon-folder")).not.toBeNull();
+		fireEvent.click(files);
+		expect(mocks.showProjectFilesSidebar).toHaveBeenCalledWith(
+			"/work/alpha",
+			"Alpha",
+		);
 	});
 
-	it("retains a mounted tree while switching views", () => {
-		const onMode = vi.fn();
+	it("retains mounted sessions while collapsing and expanding a project", () => {
 		const view = render(
 			<DesktopProjectPane
 				project={project}
-				state={{ expanded: true, mode: "tree", weight: 1 }}
+				state={{ expanded: true, weight: 1 }}
 				onExpanded={vi.fn()}
-				onMode={onMode}
 			/>,
 		);
-		const tree = screen.getByTestId("project-tree");
+		const sessions = screen.getByTestId("project-sessions");
 
 		view.rerender(
 			<DesktopProjectPane
 				project={project}
-				state={{ expanded: true, mode: "sessions", weight: 1 }}
+				state={{ expanded: false, weight: 1 }}
 				onExpanded={vi.fn()}
-				onMode={onMode}
 			/>,
 		);
-		expect(screen.getByTestId("project-sessions")).toBeVisible();
-		expect(tree.parentElement).toHaveClass("hidden");
+		expect(screen.getByTestId("project-sessions")).toBe(sessions);
+		expect(sessions.parentElement).toHaveClass("hidden");
 
 		view.rerender(
 			<DesktopProjectPane
 				project={project}
-				state={{ expanded: true, mode: "tree", weight: 1 }}
+				state={{ expanded: true, weight: 1 }}
 				onExpanded={vi.fn()}
-				onMode={onMode}
 			/>,
 		);
-		expect(screen.getByTestId("project-tree")).toBe(tree);
-		expect(tree.parentElement).toHaveClass("h-full", "min-h-0");
-		expect(tree.parentElement).not.toHaveClass("hidden");
+		expect(screen.getByTestId("project-sessions")).toBe(sessions);
+		expect(sessions.parentElement).not.toHaveClass("hidden");
 	});
 });

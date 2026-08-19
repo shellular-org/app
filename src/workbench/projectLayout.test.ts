@@ -2,22 +2,22 @@ import { describe, expect, it } from "vitest";
 import { normalizeProjectLayout, resizePanePair } from "./projectLayout";
 
 describe("macOS project pane layout", () => {
-	it("restores valid pane preferences and gives new projects safe defaults", () => {
+	it("restores pane preferences while ignoring legacy view modes", () => {
 		const layout = normalizeProjectLayout(["/alpha", "/beta"], {
 			"/alpha": { expanded: false, mode: "sessions", weight: 2.5 },
 			"/beta": { expanded: "yes", mode: "unknown", weight: -4 },
 		});
 
 		expect(layout).toEqual({
-			"/alpha": { expanded: false, mode: "sessions", weight: 2.5 },
-			"/beta": { expanded: false, mode: "tree", weight: 1 },
+			"/alpha": { expanded: false, weight: 2.5 },
+			"/beta": { expanded: false, weight: 1 },
 		});
 	});
 
 	it("opens only the first project when no layout has been saved", () => {
 		expect(normalizeProjectLayout(["/alpha", "/beta"])).toEqual({
-			"/alpha": { expanded: true, mode: "tree", weight: 1 },
-			"/beta": { expanded: false, mode: "tree", weight: 1 },
+			"/alpha": { expanded: true, weight: 1 },
+			"/beta": { expanded: false, weight: 1 },
 		});
 	});
 

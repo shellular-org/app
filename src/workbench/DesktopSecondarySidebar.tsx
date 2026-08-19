@@ -1,33 +1,41 @@
 import EmptyState from "components/EmptyState";
 import BookmarkSessionsPage from "pages/bookmark-sessions";
-import ChatSessionsPage from "pages/sessions";
 import GitHistoryPage from "pages/git-history";
 import { CommitDetailContent } from "pages/git-history/CommitDetail";
+import ChatSessionsPage from "pages/sessions";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useShellular } from "state";
 import AgentsTab from "tabs/agents";
+import type { DesktopGitWorkspace } from "./gitWorkspace";
 import { AGENTS_NAVIGATION_ICON } from "./navigationIcons";
+import ProjectExplorerTree from "./ProjectExplorerTree";
+import { refreshProjectExplorer } from "./projectTreeWorkspace";
 import SidebarResizeHandle from "./SidebarResizeHandle";
 import {
 	backDesktopSecondarySidebar,
 	closeDesktopSecondarySidebar,
 	DESKTOP_SECONDARY_SIDEBAR_ID,
+	type DesktopSecondarySidebarRoute,
 	getDesktopSecondarySidebarSnapshot,
 	openDesktopSecondarySidebar,
 	pushDesktopSecondarySidebar,
 	secondarySidebarRouteKey,
+	showProjectFilesSidebar,
 	subscribeDesktopSecondarySidebar,
-	type DesktopSecondarySidebarRoute,
 } from "./secondarySidebar";
 
 export default function DesktopSecondarySidebar({
 	width,
 	overlay,
+	gitStates,
+	onRefreshGit,
 	onResize,
 	onResizeEnd,
 }: {
 	width: number;
 	overlay: boolean;
+	gitStates: DesktopGitWorkspace["states"];
+	onRefreshGit: (projectPath: string) => Promise<void>;
 	onResize: (width: number) => void;
 	onResizeEnd: (width: number) => void;
 }) {
@@ -90,6 +98,40 @@ export default function DesktopSecondarySidebar({
 				<h2 className="min-w-0 flex-1 truncate text-xs font-semibold text-primary-text">
 					{routeTitle(current)}
 				</h2>
+				{current.view === "project-files" && (
+					<>
+						<SidebarHeaderButton
+							icon="icon-search"
+							label={`Search ${current.projectName} files`}
+							onClick={() =>
+								showProjectFilesSidebar(
+									current.projectPath,
+									current.projectName,
+									{ search: true },
+								)
+							}
+						/>
+						<SidebarHeaderButton
+							icon="icon-refresh-cw"
+							label={`Refresh ${current.projectName} files`}
+							onClick={() => {
+								void refreshProjectExplorer(current.projectPath);
+								void onRefreshGit(current.projectPath);
+							}}
+						/>
+						<SidebarHeaderButton
+							icon="icon-git-branch"
+							label={`Open ${current.projectName} Git history`}
+							onClick={() =>
+								pushDesktopSecondarySidebar({
+									view: "git-history",
+									projectPath: current.projectPath,
+									projectName: current.projectName,
+								})
+							}
+						/>
+					</>
+				)}
 				<button
 					type="button"
 					className="desktop-secondary-sidebar-header-button"
@@ -113,6 +155,7 @@ export default function DesktopSecondarySidebar({
 						>
 							<SecondarySidebarRouteView
 								route={route}
+								gitStates={gitStates}
 								onOpenMainContent={() => {
 									if (overlay) closeDesktopSecondarySidebar();
 								}}
@@ -157,12 +200,14 @@ export default function DesktopSecondarySidebar({
 
 function SecondarySidebarRouteView({
 	route,
+	gitStates,
 	onOpenMainContent,
 }: {
 	route: DesktopSecondarySidebarRoute;
+	gitStates: DesktopGitWorkspace["states"];
 	onOpenMainContent: () => void;
 }) {
-	const { agents } = useShellular();
+	const { agents, projects } = useShellular();
 
 	switch (route.view) {
 		case "agents":
@@ -181,12 +226,25 @@ function SecondarySidebarRouteView({
 				/>
 			);
 		case "bookmarked-chats":
+			return <BookmarkSessionsPage embedded onNavigate={onOpenMainContent} />;
+		case "project-files": {
+			const project = projects.find(
+				(candidate) => candidate.path === route.projectPath,
+			) ?? {
+				path: route.projectPath,
+				name: route.projectName,
+				addedAt: 0,
+			};
 			return (
-				<BookmarkSessionsPage
-					embedded
+				<ProjectExplorerTree
+					project={project}
+					refreshToken={0}
+					searchToken={route.searchRequest ?? 0}
+					gitStatus={gitStates[route.projectPath]?.status}
 					onNavigate={onOpenMainContent}
 				/>
 			);
+		}
 		case "sessions": {
 			const agent = agents[route.agentId];
 			if (!agent) {
@@ -252,6 +310,28 @@ function SecondarySidebarRouteView({
 	}
 }
 
+function SidebarHeaderButton({
+	icon,
+	label,
+	onClick,
+}: {
+	icon: string;
+	label: string;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			className="desktop-secondary-sidebar-header-button"
+			onClick={onClick}
+			aria-label={label}
+			title={label}
+		>
+			<span className={icon} aria-hidden="true" />
+		</button>
+	);
+}
+
 function routeTitle(route: DesktopSecondarySidebarRoute) {
 	switch (route.view) {
 		case "agents":
@@ -262,6 +342,8 @@ function routeTitle(route: DesktopSecondarySidebarRoute) {
 			return route.workspacePath
 				? `Sessions · ${basename(route.workspacePath)}`
 				: "Sessions";
+		case "project-files":
+			return `${route.projectName} · Files`;
 		case "git-history":
 			return `${route.projectName} · History`;
 		case "git-commit":
@@ -277,6 +359,8 @@ function routeIcon(route: DesktopSecondarySidebarRoute) {
 			return "icon-bookmark";
 		case "sessions":
 			return "icon-message-square";
+		case "project-files":
+			return "icon-folder";
 		case "git-history":
 			return "icon-git-branch";
 		case "git-commit":

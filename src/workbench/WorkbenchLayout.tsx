@@ -23,6 +23,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import native from "bridge/native";
 import clsx from "clsx";
+import AppMenu from "components/AppMenu";
 import { showContextMenuForEvent } from "context-menu/service";
 import { copyToClipboard } from "lib/clipboard";
 import { redirectVerticalWheelToHorizontal } from "lib/horizontalWheel";
@@ -77,6 +78,9 @@ interface WorkbenchLayoutProps {
 	surfaceTitle: (surface: WorkbenchSurface) => string;
 	renderSurface: (surface: WorkbenchSurface) => ReactNode;
 	renderWelcome: () => ReactNode;
+	onNewTerminal: () => void;
+	onOpenFile: () => void;
+	onNewChat: () => void;
 	onCloseSurface: (surface: WorkbenchSurface) => Promise<boolean>;
 	onCloseSurfaces: (
 		surfaces: WorkbenchSurface[],
@@ -100,6 +104,9 @@ export default function WorkbenchLayout({
 	surfaceTitle,
 	renderSurface,
 	renderWelcome,
+	onNewTerminal,
+	onOpenFile,
+	onNewChat,
 	onCloseSurface,
 	onCloseSurfaces,
 }: WorkbenchLayoutProps) {
@@ -254,6 +261,9 @@ export default function WorkbenchLayout({
 						surfaceMap={surfaceMap}
 						surfaceTitle={surfaceTitle}
 						renderWelcome={renderWelcome}
+						onNewTerminal={onNewTerminal}
+						onOpenFile={onOpenFile}
+						onNewChat={onNewChat}
 						registerTargets={registerTargets}
 						onCloseSurface={onCloseSurface}
 						onCloseSurfaces={onCloseSurfaces}
@@ -381,6 +391,9 @@ interface NodeViewProps {
 	surfaceMap: ReadonlyMap<string, WorkbenchSurface>;
 	surfaceTitle: (surface: WorkbenchSurface) => string;
 	renderWelcome: () => ReactNode;
+	onNewTerminal: () => void;
+	onOpenFile: () => void;
+	onNewChat: () => void;
 	registerTargets: (id: string, targets: WorkbenchPaneTargets | null) => void;
 	onCloseSurface: (surface: WorkbenchSurface) => Promise<boolean>;
 	onCloseSurfaces: (
@@ -558,6 +571,9 @@ function PaneView({
 	surfaceMap,
 	surfaceTitle,
 	renderWelcome,
+	onNewTerminal,
+	onOpenFile,
+	onNewChat,
 	registerTargets,
 	onCloseSurface,
 	onCloseSurfaces,
@@ -577,12 +593,7 @@ function PaneView({
 		};
 		registerTargets(group.id, targets);
 		return () => registerTargets(group.id, null);
-	}, [
-		group.id,
-		focused,
-		hasTabs,
-		registerTargets,
-	]);
+	}, [group.id, hasTabs, registerTargets]);
 
 	useLayoutEffect(() => {
 		const pane = paneRef.current;
@@ -631,62 +642,83 @@ function PaneView({
 			<legend className="sr-only">
 				Pane with {group.tabs.length} {group.tabs.length === 1 ? "tab" : "tabs"}
 			</legend>
-			{hasTabs && (
-				<div className="workbench-tab-strip">
-					<div
-						className="workbench-tabs-scroll"
-						role="tablist"
-						aria-label={`Open views in pane ${group.id}`}
-						onWheel={redirectVerticalWheelToHorizontal}
+			<div className="workbench-tab-strip">
+				<div
+					className="workbench-tabs-scroll"
+					role="tablist"
+					aria-label={`Open views in pane ${group.id}`}
+					onWheel={redirectVerticalWheelToHorizontal}
+				>
+					<SortableContext
+						items={group.tabs.map((tab) => `tab:${tab.surfaceId}`)}
+						strategy={horizontalListSortingStrategy}
 					>
-						<SortableContext
-							items={group.tabs.map((tab) => `tab:${tab.surfaceId}`)}
-							strategy={horizontalListSortingStrategy}
-						>
-							{group.tabs.map((tab, index) => {
-								const surface = surfaceMap.get(tab.surfaceId);
-								if (!surface) return null;
-								return (
-									<SortableWorkbenchTab
-										key={surface.id}
-										group={group}
-										index={index}
-										tabPinned={tab.pinned}
-										surface={surface}
-										title={surfaceTitle(surface)}
-										snapshot={snapshot}
-										splitAvailability={splitAvailability}
-										onCloseSurface={onCloseSurface}
-										onCloseSurfaces={closeCaptured}
-									/>
-								);
-							})}
-						</SortableContext>
-					</div>
-					<div className="workbench-page-nav-slot" ref={navigationRef} />
-					<div className="workbench-page-actions-target" ref={actionsRef} />
-					{active && (
-						<button
-							type="button"
-							className="workbench-tabbar-icon-button shrink-0 text-secondary-text hover:text-primary-text"
-							aria-label="Pane actions"
-							title="Pane actions"
-							onClick={(event) =>
-								showTabContextMenu(event, {
-									group,
-									surface: active,
-									snapshot,
-									splitAvailability,
-									onCloseSurface,
-									onCloseSurfaces: closeCaptured,
-								})
-							}
-						>
-							<span className="icon-more-horizontal" aria-hidden="true" />
-						</button>
-					)}
+						{group.tabs.map((tab, index) => {
+							const surface = surfaceMap.get(tab.surfaceId);
+							if (!surface) return null;
+							return (
+								<SortableWorkbenchTab
+									key={surface.id}
+									group={group}
+									index={index}
+									tabPinned={tab.pinned}
+									surface={surface}
+									title={surfaceTitle(surface)}
+									snapshot={snapshot}
+									splitAvailability={splitAvailability}
+									onCloseSurface={onCloseSurface}
+									onCloseSurfaces={closeCaptured}
+								/>
+							);
+						})}
+					</SortableContext>
 				</div>
-			)}
+				<div className="workbench-page-nav-slot" ref={navigationRef} />
+				<div className="workbench-page-actions-target" ref={actionsRef} />
+				<AppMenu
+					ariaLabel="New"
+					buttonClassName="workbench-tabbar-icon-button shrink-0 text-secondary-text hover:text-primary-text"
+					items={[
+						{
+							icon: "icon-terminal",
+							label: "New Terminal",
+							onClick: onNewTerminal,
+						},
+						{
+							icon: "icon-file",
+							label: "Open File…",
+							onClick: onOpenFile,
+						},
+						{
+							icon: "icon-ai-chat",
+							label: "New Chat…",
+							onClick: onNewChat,
+						},
+					]}
+				>
+					<span className="icon-plus" aria-hidden="true" />
+				</AppMenu>
+				{active && (
+					<button
+						type="button"
+						className="workbench-tabbar-icon-button shrink-0 text-secondary-text hover:text-primary-text"
+						aria-label="Pane actions"
+						title="Pane actions"
+						onClick={(event) =>
+							showTabContextMenu(event, {
+								group,
+								surface: active,
+								snapshot,
+								splitAvailability,
+								onCloseSurface,
+								onCloseSurfaces: closeCaptured,
+							})
+						}
+					>
+						<span className="icon-more-horizontal" aria-hidden="true" />
+					</button>
+				)}
+			</div>
 			<div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
 				<div
 					ref={bodyRef}

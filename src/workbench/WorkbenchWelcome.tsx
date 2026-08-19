@@ -88,7 +88,7 @@ export default function WorkbenchWelcome({
 						</h2>
 						<button
 							type="button"
-							className="flex h-12 w-full items-center gap-3 rounded-lg bg-button-background px-4 text-left text-[13px] font-semibold text-button-text shadow-sm transition-[filter,transform] duration-100 hover:brightness-105 active:scale-[0.99] active:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-primary motion-reduce:transition-none"
+							className="flex h-12 w-full items-center gap-3 rounded-lg bg-surface-soft/50 px-4 text-left text-[13px] font-semibold text-primary-text transition-[background-color,transform] duration-100 hover:bg-surface-soft active:scale-[0.99] active:bg-surface-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent motion-reduce:transition-none"
 							onClick={onNewChat}
 						>
 							<span className="icon-ai-chat text-base" aria-hidden="true" />

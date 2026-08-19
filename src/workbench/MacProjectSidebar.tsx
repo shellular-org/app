@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ProjectInfo, useShellular } from "state";
 import { getHostInfo } from "state/connection";
 import { focusDesktopGit } from "./desktopGitNavigation";
-import type { DesktopGitRepositoryState } from "./gitWorkspace";
 import {
 	type WorkspaceCapabilities,
 	workspaceIntegration,
@@ -17,22 +16,18 @@ import {
 	PANE_HEADER_CLASS,
 	PANE_HEADER_GLYPH_CLASS,
 	PANE_HEADER_ICON_CLASS,
-	PaneSegmentedControl,
+	PaneIconButton,
 	PaneTitleButton,
 } from "./PaneHeader";
-import ProjectExplorerTree, { createProjectChild } from "./ProjectExplorerTree";
 import ProjectSessionsPanel from "./ProjectSessionsPanel";
-import { subscribeProjectSearch } from "./projectCommands";
 import {
 	normalizeProjectLayout,
 	type ProjectLayoutState,
-	type ProjectPaneMode,
 	resizePanePair,
 } from "./projectLayout";
-import { pruneProjectTreeWorkspace } from "./projectTreeWorkspace";
 import { buildProjectViewMenuItems } from "./projectViewMenu";
 import ResizablePaneStack from "./ResizablePaneStack";
-import { pruneShellularFileTreeCache } from "./ShellularFileTree";
+import { showProjectFilesSidebar } from "./secondarySidebar";
 import { openWorkbenchSurface } from "./store";
 
 export function desktopProjectLayoutKey(hostId: string) {
@@ -51,20 +46,12 @@ export function readDesktopProjectLayout(hostId: string) {
 	}
 }
 
-export default function DesktopProjectSidebar({
-	gitStates = {},
-}: {
-	gitStates?: Record<string, DesktopGitRepositoryState>;
-}) {
+export default function DesktopProjectSidebar() {
 	const { connectionStatus, projects, loadingProjects } = useShellular();
 	const hostId = getHostInfo()?.id ?? "disconnected";
 	const paths = useMemo(
 		() => projects.map((project) => project.path),
 		[projects],
-	);
-	const projectTreeCacheKeys = useMemo(
-		() => paths.map((path) => `project:${hostId}:${path}`),
-		[hostId, paths],
 	);
 	const [layout, setLayout] = useState<ProjectLayoutState>(() =>
 		normalizeProjectLayout(paths, readDesktopProjectLayout(hostId)),
@@ -80,11 +67,6 @@ export default function DesktopProjectSidebar({
 			JSON.stringify(layout),
 		);
 	}, [hostId, layout]);
-
-	useEffect(() => {
-		pruneShellularFileTreeCache("project", projectTreeCacheKeys);
-		pruneProjectTreeWorkspace(paths);
-	}, [projectTreeCacheKeys, paths]);
 
 	if (connectionStatus !== "connected") {
 		return <EmptyState mascot="sleep" message="Connect to browse projects" />;
@@ -120,18 +102,11 @@ export default function DesktopProjectSidebar({
 					renderPane={({ project, ...state }) => (
 						<DesktopProjectPane
 							project={project}
-							gitStatus={gitStates[project.path]?.status}
 							state={state}
 							onExpanded={(expanded) =>
 								setLayout((current) => ({
 									...current,
 									[project.path]: { ...current[project.path], expanded },
-								}))
-							}
-							onMode={(mode) =>
-								setLayout((current) => ({
-									...current,
-									[project.path]: { ...current[project.path], mode },
 								}))
 							}
 						/>
@@ -144,57 +119,23 @@ export default function DesktopProjectSidebar({
 
 export function DesktopProjectPane({
 	project,
-	gitStatus,
 	state,
 	onExpanded,
-	onMode,
 }: {
 	project: ProjectInfo;
-	gitStatus?: DesktopGitRepositoryState["status"];
 	state: ProjectLayoutState[string];
 	onExpanded: (expanded: boolean) => void;
-	onMode: (mode: ProjectPaneMode) => void;
 }) {
-	const [treeRefreshToken, setTreeRefreshToken] = useState(0);
-	const [treeSearchToken, setTreeSearchToken] = useState(0);
 	const [sessionsRefreshToken, setSessionsRefreshToken] = useState(0);
-	const [mountedModes, setMountedModes] = useState<Set<ProjectPaneMode>>(
-		() => new Set(state.expanded ? [state.mode] : []),
-	);
+	const [sessionsMounted, setSessionsMounted] = useState(state.expanded);
 	useEffect(() => {
-		if (!state.expanded) return;
-		setMountedModes((current) => {
-			if (current.has(state.mode)) return current;
-			return new Set([...current, state.mode]);
-		});
-	}, [state.expanded, state.mode]);
-	const refreshTree = useCallback(
-		() => setTreeRefreshToken((value) => value + 1),
-		[],
-	);
+		if (state.expanded) setSessionsMounted(true);
+	}, [state.expanded]);
 	const refreshSessions = useCallback(
 		() => setSessionsRefreshToken((value) => value + 1),
 		[],
 	);
-	const searchTree = useCallback(() => {
-		if (!state.expanded) onExpanded(true);
-		if (state.mode !== "tree") onMode("tree");
-		setTreeSearchToken((value) => value + 1);
-	}, [onExpanded, onMode, state.expanded, state.mode]);
-	useEffect(
-		() =>
-			subscribeProjectSearch((projectPath) => {
-				if (projectPath === project.path) searchTree();
-			}),
-		[project.path, searchTree],
-	);
-	const menuItems = useProjectMenu(
-		project,
-		state.mode,
-		searchTree,
-		refreshTree,
-		refreshSessions,
-	);
+	const menuItems = useProjectMenu(project, refreshSessions);
 	const menuCommands = menuItems.map((item) => ({
 		item,
 		command: projectMenuCommand(item.label),
@@ -218,11 +159,6 @@ export function DesktopProjectPane({
 		groups[groups.length - 1]?.push(entry.command);
 		return groups;
 	}, []);
-	const treeMounted =
-		mountedModes.has("tree") || (state.expanded && state.mode === "tree");
-	const sessionsMounted =
-		mountedModes.has("sessions") ||
-		(state.expanded && state.mode === "sessions");
 	return (
 		<section
 			className="flex h-full min-h-0 flex-col overflow-hidden bg-transparent"
@@ -243,25 +179,11 @@ export function DesktopProjectPane({
 					label={project.name}
 					onClick={() => onExpanded(!state.expanded)}
 				/>
-				{state.expanded && (
-					<PaneSegmentedControl
-						label={`${project.name} view`}
-						value={state.mode}
-						onChange={onMode}
-						options={[
-							{
-								value: "tree",
-								icon: "icon-account_tree",
-								label: "Project tree",
-							},
-							{
-								value: "sessions",
-								icon: "icon-ai-chat",
-								label: "Sessions",
-							},
-						]}
-					/>
-				)}
+				<PaneIconButton
+					icon="icon-folder"
+					label={`Open ${project.name} files`}
+					onClick={() => showProjectFilesSidebar(project.path, project.name)}
+				/>
 				<ContextMenuButton
 					ariaLabel={`Menu for ${project.name}`}
 					menuId="project-pane"
@@ -272,38 +194,17 @@ export function DesktopProjectPane({
 					<span className={`icon-more-horizontal ${PANE_HEADER_GLYPH_CLASS}`} />
 				</ContextMenuButton>
 			</header>
-			{(treeMounted || sessionsMounted) && (
+			{sessionsMounted && (
 				<div
 					className={
 						state.expanded ? "min-h-0 flex-1 overflow-hidden" : "hidden"
 					}
+					aria-hidden={!state.expanded}
 				>
-					{treeMounted && (
-						<div
-							className={state.mode === "tree" ? "h-full min-h-0" : "hidden"}
-							aria-hidden={state.mode !== "tree"}
-						>
-							<ProjectExplorerTree
-								project={project}
-								gitStatus={gitStatus}
-								refreshToken={treeRefreshToken}
-								searchToken={treeSearchToken}
-							/>
-						</div>
-					)}
-					{sessionsMounted && (
-						<div
-							className={
-								state.mode === "sessions" ? "h-full min-h-0" : "hidden"
-							}
-							aria-hidden={state.mode !== "sessions"}
-						>
-							<ProjectSessionsPanel
-								project={project}
-								refreshToken={sessionsRefreshToken}
-							/>
-						</div>
-					)}
+					<ProjectSessionsPanel
+						project={project}
+						refreshToken={sessionsRefreshToken}
+					/>
 				</div>
 			)}
 		</section>
@@ -311,10 +212,6 @@ export function DesktopProjectPane({
 }
 
 function projectMenuCommand(label: string) {
-	if (label === "New File") return "resource.newFile";
-	if (label === "New Folder") return "resource.newFolder";
-	if (label === "Search Files…") return "project.search";
-	if (label === "Refresh Explorer") return "resource.refresh";
 	if (label === "New Chat…") return "project.newChat";
 	if (label === "Refresh Sessions") return "project.refreshSessions";
 	if (label === "Open Git") return "project.openGit";
@@ -326,9 +223,6 @@ function projectMenuCommand(label: string) {
 
 function useProjectMenu(
 	project: ProjectInfo,
-	mode: ProjectPaneMode,
-	searchTree: () => void,
-	refreshTree: () => void,
 	refreshSessions: () => void,
 ): AppMenuItem[] {
 	const { createTerminal, removeProject } = useShellular();
@@ -341,12 +235,7 @@ function useProjectMenu(
 			.catch(() => setCapabilities(null));
 	}, []);
 	return useMemo(() => {
-		const viewItems = buildProjectViewMenuItems(mode, {
-			newFile: () => void createProjectChild(project.path, "file", refreshTree),
-			newFolder: () =>
-				void createProjectChild(project.path, "directory", refreshTree),
-			searchTree,
-			refreshTree,
+		const viewItems = buildProjectViewMenuItems({
 			newChat: () => requestNewChat(project.path),
 			refreshSessions,
 		});
@@ -402,14 +291,5 @@ function useProjectMenu(
 		];
 		commonItems[0] = { ...commonItems[0], divider: true };
 		return [...viewItems, ...commonItems];
-	}, [
-		capabilities,
-		createTerminal,
-		mode,
-		searchTree,
-		project,
-		refreshSessions,
-		refreshTree,
-		removeProject,
-	]);
+	}, [capabilities, createTerminal, project, refreshSessions, removeProject]);
 }
