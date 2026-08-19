@@ -19,6 +19,7 @@ import { getAgentIcon } from "lib/agents";
 import { registerShellularDiffThemes } from "lib/diffsTheme";
 import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
+import * as store from "lib/store";
 import EditorPage from "pages/editor";
 import {
 	formatGitReviewPrompt,
@@ -26,6 +27,7 @@ import {
 } from "pages/git-client/reviewComments";
 import type React from "react";
 import {
+	Fragment,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -100,6 +102,10 @@ import ChatBubble from "./chat-bubble";
 import ElicitationCard from "./chat-bubble/components/ElicitationCard";
 import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
 import type { TurnState } from "./chat-bubble/components/TurnHeader";
+import {
+	countStepsSince,
+	shouldShowAwayMarker,
+} from "./chat-bubble/lib/awayMarker";
 import {
 	formatStopReason,
 	getMessageKey,
@@ -289,6 +295,10 @@ export default function ChatConversationPage({
 		connectionStatusRef.current = connectionStatus;
 	}, [connectionStatus]);
 	const stickToBottomRef = useRef(true);
+	// Reactive counterpart of stickToBottomRef: the jump pill and the away rule
+	// have to re-render, and a ref cannot do that.
+	const [isAtBottom, setIsAtBottom] = useState(true);
+	const [lastSeenAt, setLastSeenAt] = useState<number | undefined>(undefined);
 	const prevScrollHeightRef = useRef(0);
 	const autoScrollFrameRef = useRef(0);
 	const autoScrollSuppressedRef = useRef(false);
@@ -501,6 +511,30 @@ export default function ChatConversationPage({
 	useEffect(() => {
 		allMessagesLengthRef.current = allMessages.length;
 	}, [allMessages.length]);
+
+	// Where reading stopped, so a turn that ran on while the app was backgrounded
+	// can say so. Anchored to a stored timestamp, never to the scroll position:
+	// scrolling past twenty-five dense rows is scanning, not reading.
+	const seenKey = `shellular:chat-last-seen:${agentId}:${activeSessionId || sessionId || "new"}`;
+	useEffect(() => {
+		let mounted = true;
+		void store
+			.get<number>(seenKey)
+			.then((value) => {
+				if (mounted) setLastSeenAt(value ?? undefined);
+			})
+			.catch(() => {});
+		// The marker advances on a deliberate boundary only: leaving the chat.
+		return () => {
+			mounted = false;
+			void store.set(seenKey, Date.now()).catch(() => {});
+		};
+	}, [seenKey]);
+
+	const awayCount = useMemo(
+		() => countStepsSince(lastVisibleMessage?.parts ?? [], lastSeenAt),
+		[lastVisibleMessage, lastSeenAt],
+	);
 
 	const hasMore = allMessages.length > visibleCount || hasMoreRemote;
 	const promptSuggestions = useMemo(
@@ -1310,6 +1344,9 @@ export default function ChatConversationPage({
 			if (selectionActiveRef.current) return;
 			const distanceFromBottom = getDistanceFromBottom();
 			stickToBottomRef.current = distanceFromBottom < 100;
+			// Deliberately tighter than the stick-to-bottom threshold: the pill
+			// should not appear while the view is still effectively at the end.
+			setIsAtBottom(distanceFromBottom < 80);
 		};
 		const handleUserScrollIntent = () => {
 			const distanceFromBottom = getDistanceFromBottom();
@@ -1738,26 +1775,45 @@ export default function ChatConversationPage({
 						workStartedAt,
 						workDurationMs,
 					}) => {
+						const marksAway =
+							msg === lastVisibleMessage &&
+							shouldShowAwayMarker(awayCount, isAtBottom);
 						return (
-							<ChatBubble
-								key={renderKey}
-								messageKey={messageKey}
-								parts={parts}
-								messageRole={msg.role}
-								assistantName={assistantName}
-								showActions={groupEnd}
-								copyParts={groupParts}
-								workParts={workParts}
-								workStartedAt={workStartedAt}
-								workDurationMs={workDurationMs}
-								backend={agentId}
-								turnState={turnState}
-								streaming={
-									chatIsStreaming &&
-									msg.role === "assistant" &&
-									msg === lastVisibleMessage
-								}
-							/>
+							<Fragment key={renderKey}>
+								{marksAway && (
+									// Deliberately not role="separator": every descendant of that
+									// role is automatically presentational, so the label would have
+									// to be duplicated into aria-label and the visible text dropped
+									// from the accessibility tree. This rule carries information
+									// rather than structure, so the text stays real text and the
+									// rules beside it are decorative pseudo-elements.
+									//
+									// It sits above the whole turn rather than between two of its
+									// rows: the away steps live inside one assistant bubble, and
+									// splitting a bubble would mean rendering its work log twice.
+									<div className="chat-away">
+										{`${awayCount} steps while you were away`}
+									</div>
+								)}
+								<ChatBubble
+									messageKey={messageKey}
+									parts={parts}
+									messageRole={msg.role}
+									assistantName={assistantName}
+									showActions={groupEnd}
+									copyParts={groupParts}
+									workParts={workParts}
+									workStartedAt={workStartedAt}
+									workDurationMs={workDurationMs}
+									backend={agentId}
+									turnState={turnState}
+									streaming={
+										chatIsStreaming &&
+										msg.role === "assistant" &&
+										msg === lastVisibleMessage
+									}
+								/>
+							</Fragment>
 						);
 					},
 				)}
@@ -1799,6 +1855,19 @@ export default function ChatConversationPage({
 				)}
 				<div className="chat-bottom-anchor" />
 			</div>
+			{chatIsStreaming && !isAtBottom && (
+				<button
+					type="button"
+					className="chat-jump haptic-trigger"
+					onClick={() => {
+						stickToBottomRef.current = true;
+						scrollToBottomNow(true);
+					}}
+				>
+					<span className="icon-chevron-down" aria-hidden="true" />
+					Jump to latest
+				</button>
+			)}
 			<ChatComposer
 				inputBarRef={inputBarRef}
 				inputRef={promptInputRef}
