@@ -1,6 +1,15 @@
 const ELLIPSIS = "…";
 
 /**
+ * Measured, not guessed: the narrowest column a path row gets is the settled
+ * fold's rail at 390px, 281 CSS px wide, and the mono face advances 7.2px per
+ * character there. Anything longer is clipped again by `text-overflow`, at the
+ * tail, which throws away the basename this whole helper exists to keep.
+ */
+const PATH_MAX_CHARS = 36;
+const COMMAND_MAX_CHARS = 38;
+
+/**
  * Shorten a path so the basename survives. The basename is the only part that
  * distinguishes one row from its neighbours, so the middle of the directory
  * goes first and the tail is never cut. The VS Code extension does the same
@@ -10,7 +19,7 @@ const ELLIPSIS = "…";
  * render, so the full value leaves the DOM and a screen reader would otherwise
  * hear the shortened path too.
  */
-export function elidePath(path: string, maxChars = 44): string {
+export function elidePath(path: string, maxChars = PATH_MAX_CHARS): string {
 	const clean = path.replace(/\/+$/, "");
 	if (clean.length <= maxChars) return clean;
 	// Carbon: an ellipsis should stand for three or more characters, otherwise
@@ -37,7 +46,10 @@ export function elidePath(path: string, maxChars = 44): string {
 }
 
 /** Keep the head of a command: the binary and its first arguments identify it. */
-export function elideCommand(command: string, maxChars = 48): string {
+export function elideCommand(
+	command: string,
+	maxChars = COMMAND_MAX_CHARS,
+): string {
 	const line = command.split(/\r?\n/, 1)[0]?.trim() ?? "";
 	if (line.length <= maxChars) return line;
 	return `${line.slice(0, maxChars - 1)}${ELLIPSIS}`;

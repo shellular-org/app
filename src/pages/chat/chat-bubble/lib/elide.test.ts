@@ -42,6 +42,14 @@ describe("elidePath", () => {
 			elidePath(`a/${"x".repeat(60)}.md`, 4).length,
 		).toBeGreaterThanOrEqual(5);
 	});
+
+	it("defaults to a budget that fits the narrowest column it renders in", () => {
+		// The settled rail is 281 CSS px at 390px, and the mono face advances
+		// 7.2px per character. A longer default is clipped again by CSS, at the
+		// tail, which is where the basename is.
+		expect(elidePath(LONG_PATH).length).toBeLessThanOrEqual(36);
+		expect(elidePath(LONG_PATH)).toContain("04-tax-basis.md");
+	});
 });
 
 describe("elideCommand", () => {
