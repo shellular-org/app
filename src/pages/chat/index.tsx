@@ -1908,37 +1908,35 @@ export default function ChatConversationPage({
 				configControls={
 					<button
 						type="button"
-						className="inline-flex h-[34px] min-w-0 max-w-full cursor-pointer items-center gap-[5px] overflow-hidden rounded-[9px] border-0 bg-transparent px-2 text-[12px] font-medium leading-none text-secondary-text transition-[background] duration-150 active:bg-surface-soft [-webkit-tap-highlight-color:transparent]"
+						className="haptic-trigger relative inline-flex min-h-10 min-w-0 max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] border-0 bg-transparent px-1 text-[12px] font-medium leading-none text-secondary-text transition-[background] duration-150 active:bg-surface-soft [-webkit-tap-highlight-color:transparent]"
 						onClick={() => setShowConfigSheet(true)}
+						aria-label="Session configuration"
 					>
-						<span
-							className="icon-settings shrink-0 text-[1.15rem]"
-							aria-hidden="true"
-						/>
-						{getProminentConfigOptions(configOptions).flatMap((option, i) => {
+						{getProminentConfigOptions(configOptions).map((option) => {
 							const options = flattenConfigValues(option);
 							const current = options.find(
 								(o) => String(o.value) === String(option.currentValue),
 							);
-							const tag = (
+							return (
 								<span
 									key={`${option.id}-value`}
-									className={`min-w-[3ch] max-w-[90px] shrink overflow-hidden text-ellipsis whitespace-nowrap ${option.category === "mode" ? "text-accent" : option.category === "model" ? "text-warning" : option.category === "thought_level" ? "text-[#818cf8]" : ""}`}
+									className="inline-flex min-w-0 shrink items-center gap-[3px]"
 								>
-									{current?.name ?? String(option.currentValue)}
+									{/* The glyph carries the category and the text carries the
+									    value, which is the transcript's own rule one surface
+									    down. Three bare words distinguished only by colour is
+									    what WCAG SC 1.4.1 forbids everywhere else here. */}
+									<span
+										className={`${getConfigIcon(option)} shrink-0 text-[0.95rem] opacity-70`}
+										aria-hidden="true"
+									/>
+									<span
+										className={`min-w-[3ch] shrink overflow-hidden text-ellipsis whitespace-nowrap ${option.category === "mode" ? "text-accent" : option.category === "model" ? "text-warning" : option.category === "thought_level" ? "text-[#818cf8]" : ""}`}
+									>
+										{current?.name ?? String(option.currentValue)}
+									</span>
 								</span>
 							);
-							return i === 0
-								? [tag]
-								: [
-										<span
-											key={`${option.id}-sep`}
-											className="mx-[3px] shrink-0 opacity-50"
-										>
-											·
-										</span>,
-										tag,
-									];
 						})}
 					</button>
 				}
