@@ -9,7 +9,7 @@ export default async function start(server) {
 
   // A remote or headless workstation has no browser to open; printing the URL
   // is all that is useful there.
-  if (server && server.open === false) {
+  if (server && server.headless) {
     return;
   }
 

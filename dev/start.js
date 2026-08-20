@@ -9,12 +9,12 @@ const isRelease = args.includes("--release") || args.includes("-r") || false;
 const noServer = args.includes("--no-server");
 // Bind and serve overrides, needed whenever the dev server is not reached over
 // the LAN: a remote workstation (VS Code Remote port forwarding) wants
-// `--host localhost --http`, and `--no-open` keeps a headless box from trying
+// `--host localhost --http`, and `--headless` keeps a headless box from trying
 // to launch a browser.
 const hostOverride = getArgValue("--host") || process.env.SHELLULAR_DEV_HOST;
 const portOverride = getArgValue("--port") || process.env.SHELLULAR_DEV_PORT;
 const noHttps = args.includes("--http");
-const noOpen = args.includes("--no-open");
+const headless = args.includes("--headless");
 
 const { default: start } = await import(`./${platform}/start.js`);
 
@@ -48,7 +48,7 @@ async function main() {
     const host = hostOverride || getIp();
     const port = portOverride || getPort();
     const protocol = platform === "browser" && !noHttps ? "https" : "http";
-    devServer = { host, port, protocol, open: !noOpen };
+    devServer = { host, port, protocol, headless };
     command = `webpack serve --mode development --env platform=${platform} host=${host} port=${port}${noHttps ? " https=false" : ""}`;
   }
 
