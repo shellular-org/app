@@ -3,7 +3,7 @@ import dialog from "bridge/dialog";
 import AppMenu from "components/AppMenu";
 import Loader from "components/Loader";
 import { getAgentIcon } from "lib/agents";
-import { chatTabId } from "lib/chatTabId";
+import { openChatPage, openGitClientPage } from "lib/navigate";
 import { useCallback, useState } from "react";
 import { type ProjectInfo, useShellular } from "state";
 import type { AcpAgentInfo } from "state/acp";
@@ -51,35 +51,20 @@ export default function ProjectList({ projects, adding }: Props) {
 				);
 				return;
 			}
-			const tabId = chatTabId(agent.id, "");
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				tabId,
-				<ChatConversationPage.default
-					chatTabId={tabId}
-					sessionId=""
-					title="New Chat"
-					agentId={agent.id}
-					workspacePath={project.path}
-					assistantName={agent.name}
-					providerName={agent.title || agent.name}
-					agentCapabilities={agent?.capabilities}
-					createOnFirstMessage
-				/>,
-			);
+			await openChatPage({
+				agentId: agent.id,
+				agent,
+				sessionId: "",
+				title: "New Chat",
+				workspacePath: project.path,
+				createOnFirstMessage: true,
+			});
 		},
 		[],
 	);
 
 	const openGitClient = useCallback(async (project: ProjectInfo) => {
-		const GitClientPage = await import("pages/git-client");
-		pushPage(
-			`git-client-${project.path}`,
-			<GitClientPage.default
-				projectPath={project.path}
-				projectName={project.name}
-			/>,
-		);
+		await openGitClientPage(project.path, project.name);
 	}, []);
 
 	return (
