@@ -8,7 +8,6 @@ import {
 	permissionTitleClass,
 } from "./permissionClasses";
 import ToolCallContentView from "./ToolCallContentView";
-import ToolOutputView from "./ToolOutputView";
 
 export default function PermissionRequestCard({
 	permission,
@@ -19,7 +18,11 @@ export default function PermissionRequestCard({
 }) {
 	const options = readPermissionOptions(permission);
 	const title = getTitle(permission);
-	const content = getContent(permission, title);
+	const content = getContent(permission);
+	// When the agent gave no reason, the heading *is* the command, and the
+	// subject block below already shows it in full. Printing it twice buries
+	// the reply buttons under a repeat.
+	const showTitle = title !== permission.title;
 	return (
 		<div className={permissionCardClass}>
 			<div className={permissionTitleClass}>
@@ -34,7 +37,7 @@ export default function PermissionRequestCard({
 					className="ml-auto shrink-0"
 				/>
 			</div>
-			<span className={permissionTitleClass}>{title}</span>
+			{showTitle ? <span className={permissionTitleClass}>{title}</span> : null}
 			{content}
 			<div className={permissionActionsClass}>
 				{options.map((option) => (
@@ -73,10 +76,15 @@ function readPermissionOptions(permission: AcpPermissionRequest) {
 	});
 }
 
-function getContent(permission: AcpPermissionRequest, title: string) {
+function getContent(permission: AcpPermissionRequest) {
 	const { metadata } = permission;
+	// Rendered directly, wrapping, with no height cap and no scroll region: this
+	// is the string a tap is about to execute, so every character of it has to
+	// be readable before the reader decides.
 	const defaultView = (
-		<ToolOutputView output={permission.title} title={title} />
+		<pre className="m-0 mb-2.5 box-border max-w-full overflow-hidden whitespace-pre-wrap rounded-lg border border-(--card-border) px-2.5 py-2 font-['JetBrainsMono_Nerd_Font',ui-monospace,Menlo,monospace] text-[11px] leading-[1.5] text-(--primary-text) [overflow-wrap:anywhere] [word-break:break-word]">
+			{permission.title}
+		</pre>
 	);
 	if (!metadata || typeof metadata !== "object" || !("toolCall" in metadata)) {
 		return defaultView;

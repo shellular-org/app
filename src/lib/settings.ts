@@ -28,11 +28,20 @@ export type TerminalSettings = {
 	letterSpacing: number;
 };
 
+export type ChatSettings = {
+	/**
+	 * Show the whole work trail of a turn, windowed, rather than only the
+	 * latest action. The old latest-only view is a window of one.
+	 */
+	showEveryStep: boolean;
+};
+
 export type AppSettings = {
 	theme: string;
 	server: ServerSettings;
 	editor: EditorSettings;
 	terminal: TerminalSettings;
+	chat: ChatSettings;
 	showHiddenFiles: boolean;
 	hapticFeedback: boolean;
 };
@@ -103,11 +112,16 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
 	letterSpacing: 1,
 };
 
+export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+	showEveryStep: true,
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
 	theme: "dark",
 	server: DEFAULT_SERVER_SETTINGS,
 	editor: DEFAULT_EDITOR_SETTINGS,
 	terminal: DEFAULT_TERMINAL_SETTINGS,
+	chat: DEFAULT_CHAT_SETTINGS,
 	showHiddenFiles: false,
 	hapticFeedback: true,
 };
@@ -209,6 +223,17 @@ function normalizeTerminalSettings(
 	};
 }
 
+function normalizeChatSettings(
+	settings?: Partial<ChatSettings> | null,
+): ChatSettings {
+	return {
+		showEveryStep:
+			typeof settings?.showEveryStep === "boolean"
+				? settings.showEveryStep
+				: DEFAULT_CHAT_SETTINGS.showEveryStep,
+	};
+}
+
 function normalizeSettings(
 	settings: Partial<AppSettings> | null | undefined,
 ): AppSettings {
@@ -217,6 +242,7 @@ function normalizeSettings(
 		server: normalizeServerSettings(settings?.server),
 		editor: normalizeEditorSettings(settings?.editor),
 		terminal: normalizeTerminalSettings(settings?.terminal),
+		chat: normalizeChatSettings(settings?.chat),
 		showHiddenFiles:
 			typeof settings?.showHiddenFiles === "boolean"
 				? settings.showHiddenFiles
@@ -263,6 +289,10 @@ export async function saveSettings(
 		terminal: {
 			...current.terminal,
 			...settings.terminal,
+		},
+		chat: {
+			...current.chat,
+			...settings.chat,
 		},
 	});
 	await file.write(SETTINGS_PATH, JSON.stringify(next));

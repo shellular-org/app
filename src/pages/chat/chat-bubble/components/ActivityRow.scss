@@ -1,0 +1,224 @@
+.activity-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  color: var(--secondary-text);
+
+  .chat-part-card-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    width: 100%;
+    min-width: 0;
+    // 48px, not the 31px used elsewhere: below that the row is not a reliable
+    // touch target on a phone. Set as min-height, never height, so a
+    // user-forced line height (WCAG SC 1.4.12) cannot clip it.
+    min-height: 48px;
+    padding: 6px 2px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    >em {
+      margin-left: 2px;
+      font-style: normal;
+      font-size: 10px;
+      opacity: 0.5;
+      flex-shrink: 0;
+    }
+  }
+
+  >.chat-disclosure-root {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .chat-disclosure-panel {
+    width: 100%;
+    min-width: 0;
+
+    >.chat-disclosure-panel-inner {
+      margin: 1px 0 5px 22px;
+      border-radius: 7px;
+      background: var(--surface-soft);
+    }
+  }
+
+  &--failed {
+    color: var(--error);
+
+    // The container colour alone does not reach the verb, which sets its own.
+    // The glyph already carries the state as a shape, per WCAG SC 1.4.1; this
+    // is so a failed row is findable while scrolling past twenty-five of them.
+    .activity-row-label strong {
+      color: var(--error);
+    }
+  }
+
+  &--running .activity-row-icon {
+    color: var(--accent);
+  }
+}
+
+.activity-row-icon {
+  width: 15px;
+  margin-top: 2px;
+  color: var(--secondary-text);
+  font-size: 13px;
+  text-align: center;
+  opacity: 0.72;
+  flex-shrink: 0;
+}
+
+.activity-row-label {
+  display: flex;
+  align-items: baseline;
+  // The object drops to its own full-width line when the verb, glyph and
+  // status leave it too little room. At 390px the shared line offers roughly
+  // 25 to 30 characters, so this is the normal case, not the exception.
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+
+  strong {
+    color: var(--primary-text);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+}
+
+.activity-row-object {
+  min-width: 0;
+  color: var(--secondary-text);
+  // A description is a sentence and carries meaning at both ends, so it wraps
+  // rather than being cut. Measured: median 28 characters, p90 41.
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+
+  &--mono {
+    font-family: 'JetBrainsMono Nerd Font', ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    white-space: nowrap;
+    -webkit-line-clamp: 1;
+    text-overflow: ellipsis;
+  }
+}
+
+// The unshortened value, kept in the accessibility tree only. Clipped rather
+// than `display: none`, which would remove it from that tree as well.
+.activity-row-object-full {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.activity-row-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 13px;
+  margin-top: 2px;
+  font-size: 12px;
+  flex-shrink: 0;
+
+  .icon-check {
+    opacity: 0.7;
+  }
+}
+
+.activity-row-detail {
+  // Pulled up under the row it belongs to: the tappable head is 48px tall for
+  // the touch target, which otherwise leaves the result floating midway
+  // between its own row and the next one.
+  margin: -9px 0 5px 22px;
+  color: var(--secondary-text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+
+  &--mono {
+    font-family: 'JetBrainsMono Nerd Font', ui-monospace, Menlo, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.activity-row-peek {
+  position: relative;
+  margin: -7px 0 3px 22px;
+  padding: 8px 9px 10px;
+  max-height: 66px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--secondary-text);
+  font-family: 'JetBrainsMono Nerd Font', ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  // Mask the overflow instead of adding a scroll region, which would be a
+  // touch trap inside a scrolling list. The mask sits over the cut end, so a
+  // block clipped at the top fades upward instead.
+  mask-image: linear-gradient(to bottom, #000 46px, transparent 66px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 46px, transparent 66px);
+
+  &--clipped-top {
+    mask-image: linear-gradient(to top, #000 46px, transparent 66px);
+    -webkit-mask-image: linear-gradient(to top, #000 46px, transparent 66px);
+  }
+
+  &--failed {
+    background: color-mix(in srgb, var(--error) 9%, transparent);
+    color: var(--error);
+  }
+}
+
+.activity-row-more {
+  margin: 2px 0 6px 22px;
+  color: var(--secondary-text);
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.activity-row-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: -7px 0 7px 22px;
+}
+
+.activity-row-chip {
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
+  color: var(--secondary-text);
+  font-family: 'JetBrainsMono Nerd Font', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &--more {
+    border-style: dashed;
+    opacity: 0.7;
+  }
+}

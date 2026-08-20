@@ -19,6 +19,7 @@ import { getAgentIcon } from "lib/agents";
 import { registerShellularDiffThemes } from "lib/diffsTheme";
 import keyboard from "lib/keyboard";
 import { normalizeRemoteWorkspacePath } from "lib/remotePath";
+import * as store from "lib/store";
 import EditorPage from "pages/editor";
 import {
 	formatGitReviewPrompt,
@@ -26,6 +27,7 @@ import {
 } from "pages/git-client/reviewComments";
 import type React from "react";
 import {
+	Fragment,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -99,6 +101,13 @@ import ChatSidebar from "./ChatSidebar";
 import ChatBubble from "./chat-bubble";
 import ElicitationCard from "./chat-bubble/components/ElicitationCard";
 import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
+import type { TurnState } from "./chat-bubble/components/TurnHeader";
+import {
+	type AwayMarker,
+	countStepsSince,
+	countWorkSteps,
+	shouldShowAwayMarker,
+} from "./chat-bubble/lib/awayMarker";
 import {
 	formatStopReason,
 	getMessageKey,
@@ -288,6 +297,12 @@ export default function ChatConversationPage({
 		connectionStatusRef.current = connectionStatus;
 	}, [connectionStatus]);
 	const stickToBottomRef = useRef(true);
+	// Reactive counterpart of stickToBottomRef: the jump pill and the away rule
+	// have to re-render, and a ref cannot do that.
+	const [isAtBottom, setIsAtBottom] = useState(true);
+	const [awayMarker, setAwayMarker] = useState<AwayMarker | undefined>(
+		undefined,
+	);
 	const prevScrollHeightRef = useRef(0);
 	const autoScrollFrameRef = useRef(0);
 	const autoScrollSuppressedRef = useRef(false);
@@ -476,34 +491,67 @@ export default function ChatConversationPage({
 	}, [chatIsStreaming, turnDurationByUserId, visibleMessages]);
 	const lastVisibleMessage = visibleMessages[visibleMessages.length - 1];
 
-	// What the agent is doing right now, read off the newest unfinished tool
-	// call in the streaming message. Falls back to "thinking" when it's just
-	// generating text.
-	const streamingStatusLabel = useMemo(() => {
-		if (!chatIsStreaming || lastVisibleMessage?.role !== "assistant") {
-			return undefined;
-		}
-		for (let index = lastVisibleMessage.parts.length - 1; index >= 0; index--) {
-			const part = lastVisibleMessage.parts[index];
+	// The turn header states what the agent is doing; the running row states what
+	// with. Pasting the tool title into a sentence is what produced
+	// `Claude Code is cd "/home/jk/… && for f in *.md; do echo …`.
+	const turnState = useMemo<TurnState>(() => {
+		if (pendingPermissions.length > 0) return "waiting-permission";
+		if (pendingElicitations.length > 0) return "waiting-answer";
+		const parts = lastVisibleMessage?.parts ?? [];
+		for (let index = parts.length - 1; index >= 0; index -= 1) {
+			const part = parts[index];
 			if (part.type !== "tool_call") continue;
-			const status = (part as { status?: unknown }).status;
-			if (status === "completed" || status === "failed" || status === "fail") {
-				continue;
-			}
-			const title = (part as { title?: unknown }).title;
-			if (typeof title === "string" && title.trim()) return title.trim();
-			const name = (part as { name?: unknown }).name;
-			if (typeof name === "string" && name.trim()) {
-				return `running ${name.trim()}`;
-			}
-			return undefined;
+			const status = part.status?.toLowerCase();
+			if (status === "pending" || status === "in_progress") return "working";
+			return status === "failed" || status === "fail" ? "failed" : "working";
 		}
-		return undefined;
-	}, [chatIsStreaming, lastVisibleMessage]);
+		return "working";
+	}, [
+		pendingPermissions.length,
+		pendingElicitations.length,
+		lastVisibleMessage,
+	]);
 
 	useEffect(() => {
 		allMessagesLengthRef.current = allMessages.length;
 	}, [allMessages.length]);
+
+	// Where reading stopped, so a turn that ran on while the app was backgrounded
+	// can say so. Anchored to what was on screen when you left, never to the
+	// scroll position: scrolling past twenty-five dense rows is scanning, not
+	// reading.
+	const seenKey = `shellular:chat-last-seen:${agentId}:${activeSessionId || sessionId || "new"}`;
+	const currentTurnKey = lastVisibleMessage
+		? getMessageKey(lastVisibleMessage)
+		: undefined;
+	const currentTurnSteps = countWorkSteps(lastVisibleMessage?.parts ?? []);
+	// Read in an effect, written in its cleanup: the marker advances on a
+	// deliberate boundary only, which is leaving the chat.
+	const turnRef = useRef({ key: currentTurnKey, steps: currentTurnSteps });
+	turnRef.current = { key: currentTurnKey, steps: currentTurnSteps };
+	useEffect(() => {
+		let mounted = true;
+		void store
+			.get<AwayMarker>(seenKey)
+			.then((value) => {
+				if (mounted) setAwayMarker(value ?? undefined);
+			})
+			.catch(() => {});
+		return () => {
+			mounted = false;
+			const { key, steps } = turnRef.current;
+			if (key) {
+				void store.set(seenKey, { messageKey: key, steps }).catch(() => {});
+			}
+		};
+	}, [seenKey]);
+
+	const awayCount = countStepsSince(
+		currentTurnKey,
+		currentTurnSteps,
+		awayMarker,
+	);
+	const showAwayDivider = shouldShowAwayMarker(awayCount, isAtBottom);
 
 	const hasMore = allMessages.length > visibleCount || hasMoreRemote;
 	const promptSuggestions = useMemo(
@@ -1313,6 +1361,9 @@ export default function ChatConversationPage({
 			if (selectionActiveRef.current) return;
 			const distanceFromBottom = getDistanceFromBottom();
 			stickToBottomRef.current = distanceFromBottom < 100;
+			// Deliberately tighter than the stick-to-bottom threshold: the pill
+			// should not appear while the view is still effectively at the end.
+			setIsAtBottom(distanceFromBottom < 80);
 		};
 		const handleUserScrollIntent = () => {
 			const distanceFromBottom = getDistanceFromBottom();
@@ -1717,7 +1768,18 @@ export default function ChatConversationPage({
 				pendingPermissions.length === 0 && (
 					<EmptyState message="No messages yet" mascot="greeting" />
 				)}
-			<div ref={historyContentRef} className="chat-history-content">
+			<div
+				ref={historyContentRef}
+				className="chat-history-content"
+				role="log"
+				aria-label="Conversation"
+				// The role is for structure, not for narration. Its implicit politeness
+				// is "polite", and a turn appends up to twenty-five rows, so leaving it
+				// on reads the whole work log aloud a row at a time. The turn header is
+				// a status region and announces the state change once, which is the part
+				// worth hearing; the rows stay navigable.
+				aria-live="off"
+			>
 				{syncing && allMessages.length === 0 && <ChatHistorySkeleton />}
 				{hasMore && historyScrollReady && (
 					<div ref={sentinelRef} className="chat-sentinel">
@@ -1736,25 +1798,56 @@ export default function ChatConversationPage({
 						workStartedAt,
 						workDurationMs,
 					}) => {
+						const marksAway = msg === lastVisibleMessage && showAwayDivider;
 						return (
-							<ChatBubble
-								key={renderKey}
-								messageKey={messageKey}
-								parts={parts}
-								messageRole={msg.role}
-								assistantName={assistantName}
-								showActions={groupEnd}
-								copyParts={groupParts}
-								workParts={workParts}
-								workStartedAt={workStartedAt}
-								workDurationMs={workDurationMs}
-								statusLabel={streamingStatusLabel}
-								streaming={
-									chatIsStreaming &&
-									msg.role === "assistant" &&
-									msg === lastVisibleMessage
-								}
-							/>
+							<Fragment key={renderKey}>
+								{marksAway && (
+									// The rule that says what is new *is* the way back to it, so
+									// the control sits centred on the line rather than floating
+									// above it. Two elements competing for the same corner is the
+									// collision Discord shipped twice in two months; one element
+									// cannot collide with itself.
+									//
+									// Deliberately not role="separator": every descendant of that
+									// role is presentational, which would drop the count from the
+									// accessibility tree. The count is content, not structure.
+									//
+									// It sits above the whole turn rather than between two of its
+									// rows: the away steps live inside one assistant bubble, and
+									// splitting a bubble would mean rendering its work log twice.
+									<button
+										type="button"
+										className="chat-away haptic-trigger"
+										onClick={() => {
+											stickToBottomRef.current = true;
+											scrollToBottomNow(true);
+										}}
+									>
+										<span className="chat-away-label">
+											{`${awayCount} steps while you were away`}
+											<span className="icon-chevron-down" aria-hidden="true" />
+										</span>
+									</button>
+								)}
+								<ChatBubble
+									messageKey={messageKey}
+									parts={parts}
+									messageRole={msg.role}
+									assistantName={assistantName}
+									showActions={groupEnd}
+									copyParts={groupParts}
+									workParts={workParts}
+									workStartedAt={workStartedAt}
+									workDurationMs={workDurationMs}
+									backend={agentId}
+									turnState={turnState}
+									streaming={
+										chatIsStreaming &&
+										msg.role === "assistant" &&
+										msg === lastVisibleMessage
+									}
+								/>
+							</Fragment>
 						);
 					},
 				)}
@@ -1765,6 +1858,7 @@ export default function ChatConversationPage({
 						parts={[]}
 						messageRole="assistant"
 						assistantName={assistantName}
+						turnState={turnState}
 						streaming
 					/>
 				)}
@@ -1795,6 +1889,19 @@ export default function ChatConversationPage({
 				)}
 				<div className="chat-bottom-anchor" />
 			</div>
+			{chatIsStreaming && !isAtBottom && !showAwayDivider && (
+				<button
+					type="button"
+					className="chat-jump haptic-trigger"
+					onClick={() => {
+						stickToBottomRef.current = true;
+						scrollToBottomNow(true);
+					}}
+				>
+					<span className="icon-chevron-down" aria-hidden="true" />
+					Jump to latest
+				</button>
+			)}
 			<ChatComposer
 				inputBarRef={inputBarRef}
 				inputRef={promptInputRef}
@@ -1835,37 +1942,36 @@ export default function ChatConversationPage({
 				configControls={
 					<button
 						type="button"
-						className="inline-flex h-[34px] min-w-0 max-w-full cursor-pointer items-center gap-[5px] overflow-hidden rounded-[9px] border-0 bg-transparent px-2 text-[12px] font-medium leading-none text-secondary-text transition-[background] duration-150 active:bg-surface-soft [-webkit-tap-highlight-color:transparent]"
+						className="haptic-trigger relative inline-flex min-h-10 min-w-0 max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[10px] border-0 bg-transparent px-1 text-[12px] font-medium leading-none text-secondary-text transition-[background] duration-150 active:bg-surface-soft [-webkit-tap-highlight-color:transparent]"
 						onClick={() => setShowConfigSheet(true)}
+						aria-label="Session configuration"
 					>
-						<span
-							className="icon-settings shrink-0 text-[1.15rem]"
-							aria-hidden="true"
-						/>
-						{getProminentConfigOptions(configOptions).flatMap((option, i) => {
+						{getProminentConfigOptions(configOptions).map((option) => {
 							const options = flattenConfigValues(option);
 							const current = options.find(
 								(o) => String(o.value) === String(option.currentValue),
 							);
-							const tag = (
+							return (
 								<span
 									key={`${option.id}-value`}
-									className={`min-w-[3ch] max-w-[90px] shrink overflow-hidden text-ellipsis whitespace-nowrap ${option.category === "mode" ? "text-accent" : option.category === "model" ? "text-warning" : option.category === "thought_level" ? "text-[#818cf8]" : ""}`}
+									className="inline-flex min-w-0 shrink items-center gap-[3px]"
 								>
-									{current?.name ?? String(option.currentValue)}
+									{/* The glyph carries the category and the text carries the
+									    value, which is the transcript's own rule one surface
+									    down. Three bare words distinguished only by colour is
+									    what WCAG SC 1.4.1 forbids everywhere else here. */}
+									<span
+										className={`${getConfigIcon(option)} shrink-0 text-[0.95rem] opacity-70`}
+										aria-hidden="true"
+									/>
+									{/* One colour for all three values: with a glyph per
+									    category the colour no longer tells them apart, it just
+									    makes the row loud. */}
+									<span className="min-w-[3ch] shrink overflow-hidden text-ellipsis whitespace-nowrap text-accent">
+										{current?.name ?? String(option.currentValue)}
+									</span>
 								</span>
 							);
-							return i === 0
-								? [tag]
-								: [
-										<span
-											key={`${option.id}-sep`}
-											className="mx-[3px] shrink-0 opacity-50"
-										>
-											·
-										</span>,
-										tag,
-									];
 						})}
 					</button>
 				}

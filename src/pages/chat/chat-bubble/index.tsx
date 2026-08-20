@@ -1,9 +1,10 @@
 import "./style.scss";
-import type { AcpMessagePart } from "@shellular/protocol";
-import Mascot from "components/Mascot";
+import type { AcpMessagePart, AiBackend } from "@shellular/protocol";
+import ChangedFilesBlock from "./components/ChangedFilesBlock";
 import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
+import TurnHeader, { type TurnState } from "./components/TurnHeader";
 import WorkLogView from "./components/WorkLogView";
 import {
 	getAnswerParts,
@@ -13,6 +14,7 @@ import {
 	type ToolCallPart,
 } from "./lib/messageParts";
 import { getRenderPartKey } from "./lib/utils";
+import { splitCommentary } from "./lib/workLogLayout";
 
 interface ChatBubbleProps {
 	parts: AcpMessagePart[];
@@ -29,13 +31,17 @@ interface ChatBubbleProps {
 	/** Parts to copy — the whole group's, not just this bubble's. */
 	copyParts?: AcpMessagePart[];
 	/**
-	 * What the agent is currently doing, derived from the live parts (e.g.
-	 * "running Bash"). Keeps the streaming indicator honest instead of always
-	 * claiming the agent is "thinking".
+	 * What the turn is blocked on, if anything. The header states it; the
+	 * running row states what the agent is doing it with.
 	 */
-	statusLabel?: string;
+	turnState?: TurnState;
 	/** Turn-level work projected out of the terminal assistant answer. */
 	workParts?: AcpMessagePart[];
+	/**
+	 * Which agent produced this turn. Row objects resolve per agent, because
+	 * the argument key that names a call is the agent's own convention.
+	 */
+	backend?: AiBackend;
 	workStartedAt?: number;
 	workDurationMs?: number;
 }
@@ -50,10 +56,11 @@ export default function ChatBubble({
 	streaming = false,
 	showActions = true,
 	copyParts,
-	statusLabel,
+	turnState,
 	workParts = [],
 	workStartedAt,
 	workDurationMs,
+	backend,
 }: ChatBubbleProps) {
 	// Just the answer: reasoning and tool calls are folded away on screen and
 	// carry their own copy buttons, so including them here would bury the reply
@@ -61,6 +68,11 @@ export default function ChatBubble({
 	const answerParts = getAnswerParts(copyParts ?? parts);
 	const canCopy =
 		!streaming && showActions && answerParts.some(isCopyableMessagePart);
+	// While the turn runs, its latest commentary answers "where is this going"
+	// and belongs in the header rather than at the end of the rail.
+	const { commentary, rest: railParts } = streaming
+		? splitCommentary(workParts)
+		: { commentary: undefined, rest: workParts };
 
 	return (
 		<div
@@ -69,13 +81,21 @@ export default function ChatBubble({
 			<div className="chat-bubble-role">
 				{messageRole === "user" ? "You" : assistantName}
 			</div>
-			{workParts.length > 0 ? (
+			{streaming ? (
+				<TurnHeader
+					assistantName={assistantName}
+					state={turnState ?? "working"}
+					startedAt={workStartedAt}
+					commentary={commentary}
+				/>
+			) : null}
+			{railParts.length > 0 ? (
 				<WorkLogView
-					parts={workParts}
+					parts={railParts}
 					streaming={streaming}
 					stateKey={`${messageKey}-work`}
-					startedAt={workStartedAt}
 					durationMs={workDurationMs}
+					backend={backend}
 				/>
 			) : null}
 			{parts.length > 0 ? (
@@ -85,6 +105,9 @@ export default function ChatBubble({
 					</div>
 				</div>
 			) : null}
+			{!streaming && workParts.length > 0 ? (
+				<ChangedFilesBlock parts={workParts} />
+			) : null}
 			{canCopy && (
 				<div className="chat-bubble-actions">
 					<CopyButton
@@ -92,16 +115,6 @@ export default function ChatBubble({
 						label="Copy response"
 						className="chat-bubble-copy"
 					/>
-				</div>
-			)}
-			{streaming && workParts.length === 0 && (
-				<div className="chat-typing">
-					<Mascot state="thinking" size={34} tone="inline" />
-					<span className="chat-typing-label">
-						{statusLabel
-							? `${assistantName} is ${statusLabel}…`
-							: `${assistantName} is thinking…`}
-					</span>
 				</div>
 			)}
 		</div>
