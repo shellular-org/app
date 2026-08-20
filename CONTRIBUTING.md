@@ -95,13 +95,19 @@ Icons use a custom icon font generated with [IcoMoon](https://icomoon.io).
 
 The icon CSS maps class names to Unicode codepoints. Browse `src/res/icons/style.css` for all available icon classes.
 
+## Branching & Releases
+
+- All branches must be created from `dev`
+- All pull requests must target `dev`
+- The team stages everything in `dev` and merges into `main` only when ready to release
+
 ## Commit Messages
 
 No strict convention is enforced. Keep them short and descriptive.
 
 ## Pull Requests
 
-1. Run `pnpm typecheck` and `pnpm format` before pushing
-2. Test on at least one platform (Android preferred)
-3. Keep PRs focused — one feature or fix per PR
-4. Update `selection.json` if icon changes were made
+1. Create your branch from `dev` and open PRs against `dev`
+2. Run `pnpm typecheck` and `pnpm format` before pushing
+3. Test on at least one mobile platform (both if you make native changes)
+4. Keep PRs focused — one feature or fix per PR
