@@ -51,13 +51,15 @@ export default (_, { env = {}, mode = "development" }) => {
 
 	let alias;
 	if (isDev) {
-		console.log(`dev server: ${host}:${port}`);
 		// Only alias the protocol package when this checkout really sits next to
 		// it in the monorepo. A standalone checkout has no ../packages, and an
 		// alias pointing at a missing file breaks every dev build.
 		const localProtocol = resolve("../packages/protocol/dist/index.js");
 		if (existsSync(localProtocol)) {
+			console.log(`using local protocol: ${localProtocol}`);
 			alias = { "@shellular/protocol": localProtocol };
+		} else {
+			console.log(`no local protocol found. using the one from node_modules`);
 		}
 	} else if (!compileConsole) {
 		clearOutputDir(outputPath);
