@@ -672,39 +672,67 @@ img.project-chat-agent-avatar-img {
 }
 
 // Where reading stopped, when a turn ran on while the app was backgrounded.
-// The rule is drawn at 55% of the accent, not 45%: at 45% it computes to
-// 3.05:1 against the dark canvas and clears WCAG SC 1.4.11 only because the
-// threshold is not rounded. At 55% it is 4.05:1. The label carries the
-// meaning, so the colour is not the only signal (SC 1.4.1, Level A).
+// The rule *is* the control: tapping it returns to the newest work, so there is
+// no floating pill hovering over the line it would otherwise obscure.
+//
+// The rule is drawn at 55% of the accent, not 45%: at 45% it computes to 3.05:1
+// against the dark canvas and clears WCAG SC 1.4.11 only because the threshold
+// is not rounded. At 55% it is 4.05:1. The label carries the meaning, so the
+// colour is not the only signal (SC 1.4.1, Level A).
 .chat-away {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin: 14px 0 10px;
+  gap: 10px;
+  width: 100%;
+  // 44px so the rule is a real target, not a hairline to aim at.
+  min-height: 44px;
+  margin: 10px 0 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
   font-size: 12px;
   font-weight: 620;
-  color: var(--accent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 
   &::before,
   &::after {
     content: "";
+    flex: 1;
     height: 1px;
     background: color-mix(in srgb, var(--accent) 55%, transparent);
   }
 
-  &::before {
-    flex: 0 0 14px;
-  }
-
-  &::after {
-    flex: 1;
+  &:active .chat-away-label {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
   }
 }
 
-// Scrolling up locks the view; this is the way back. The lock is the pause
-// mechanism WCAG SC 2.2.2 (Level A) requires for auto-updating content, so
-// the pill is conformance rather than decoration. Labelled rather than an
-// icon alone, and 44px tall rather than the 24 CSS px SC 2.5.8 permits.
+.chat-away-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  white-space: nowrap;
+
+  > [class^="icon-"] {
+    font-size: 10px;
+    opacity: 0.8;
+  }
+}
+
+// Scrolling up locks the view; this is the way back when there is no away rule
+// to carry it. The lock is the pause mechanism WCAG SC 2.2.2 (Level A) requires
+// for auto-updating content, so the pill is conformance rather than decoration.
+// Labelled rather than an icon alone. 38px is above the 24 CSS px SC 2.5.8 asks
+// for and below Apple's 44pt recommendation, which is the trade for a control
+// that floats over the transcript rather than sitting in it.
 .chat-jump {
   position: absolute;
   right: 14px;
@@ -716,15 +744,15 @@ img.project-chat-agent-avatar-img {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 44px;
-  padding: 0 15px;
+  min-height: 38px;
+  padding: 0 13px;
   border: 0;
-  border-radius: 22px;
+  border-radius: 19px;
   background: var(--accent);
   color: var(--button-text);
   font: inherit;
-  font-size: 12.5px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 640;
   cursor: pointer;
   box-shadow: 0 8px 20px -6px var(--shadow-color);
   -webkit-tap-highlight-color: transparent;

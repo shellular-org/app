@@ -535,6 +535,7 @@ export default function ChatConversationPage({
 		() => countStepsSince(lastVisibleMessage?.parts ?? [], lastSeenAt),
 		[lastVisibleMessage, lastSeenAt],
 	);
+	const showAwayDivider = shouldShowAwayMarker(awayCount, isAtBottom);
 
 	const hasMore = allMessages.length > visibleCount || hasMoreRemote;
 	const promptSuggestions = useMemo(
@@ -1775,25 +1776,36 @@ export default function ChatConversationPage({
 						workStartedAt,
 						workDurationMs,
 					}) => {
-						const marksAway =
-							msg === lastVisibleMessage &&
-							shouldShowAwayMarker(awayCount, isAtBottom);
+						const marksAway = msg === lastVisibleMessage && showAwayDivider;
 						return (
 							<Fragment key={renderKey}>
 								{marksAway && (
+									// The rule that says what is new *is* the way back to it, so
+									// the control sits centred on the line rather than floating
+									// above it. Two elements competing for the same corner is the
+									// collision Discord shipped twice in two months; one element
+									// cannot collide with itself.
+									//
 									// Deliberately not role="separator": every descendant of that
-									// role is automatically presentational, so the label would have
-									// to be duplicated into aria-label and the visible text dropped
-									// from the accessibility tree. This rule carries information
-									// rather than structure, so the text stays real text and the
-									// rules beside it are decorative pseudo-elements.
+									// role is presentational, which would drop the count from the
+									// accessibility tree. The count is content, not structure.
 									//
 									// It sits above the whole turn rather than between two of its
 									// rows: the away steps live inside one assistant bubble, and
 									// splitting a bubble would mean rendering its work log twice.
-									<div className="chat-away">
-										{`${awayCount} steps while you were away`}
-									</div>
+									<button
+										type="button"
+										className="chat-away haptic-trigger"
+										onClick={() => {
+											stickToBottomRef.current = true;
+											scrollToBottomNow(true);
+										}}
+									>
+										<span className="chat-away-label">
+											{`${awayCount} steps while you were away`}
+											<span className="icon-chevron-down" aria-hidden="true" />
+										</span>
+									</button>
 								)}
 								<ChatBubble
 									messageKey={messageKey}
@@ -1855,7 +1867,7 @@ export default function ChatConversationPage({
 				)}
 				<div className="chat-bottom-anchor" />
 			</div>
-			{chatIsStreaming && !isAtBottom && (
+			{chatIsStreaming && !isAtBottom && !showAwayDivider && (
 				<button
 					type="button"
 					className="chat-jump haptic-trigger"
@@ -1930,9 +1942,10 @@ export default function ChatConversationPage({
 										className={`${getConfigIcon(option)} shrink-0 text-[0.95rem] opacity-70`}
 										aria-hidden="true"
 									/>
-									<span
-										className={`min-w-[3ch] shrink overflow-hidden text-ellipsis whitespace-nowrap ${option.category === "mode" ? "text-accent" : option.category === "model" ? "text-warning" : option.category === "thought_level" ? "text-[#818cf8]" : ""}`}
-									>
+									{/* One colour for all three values: with a glyph per
+									    category the colour no longer tells them apart, it just
+									    makes the row loud. */}
+									<span className="min-w-[3ch] shrink overflow-hidden text-ellipsis whitespace-nowrap text-accent">
 										{current?.name ?? String(option.currentValue)}
 									</span>
 								</span>

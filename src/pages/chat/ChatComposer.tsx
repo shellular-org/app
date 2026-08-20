@@ -275,7 +275,7 @@ export function ChatComposer({
 					aria-disabled={!agentAvailable || !isConnected}
 				/>
 			</Combobox>
-			<div className="flex min-w-0 flex-wrap items-center gap-2 ios:px-3 ios-kbd:p-0">
+			<div className="flex min-w-0 items-center gap-2 ios:px-3 ios-kbd:p-0">
 				<input
 					ref={fileInputRef}
 					type="file"
