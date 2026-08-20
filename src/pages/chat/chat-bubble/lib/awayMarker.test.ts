@@ -1,39 +1,46 @@
 import type { AcpMessagePart } from "@shellular/protocol";
 import { describe, expect, it } from "vitest";
-import { countStepsSince, shouldShowAwayMarker } from "./awayMarker";
+import {
+	countStepsSince,
+	countWorkSteps,
+	shouldShowAwayMarker,
+} from "./awayMarker";
 
-const at = (timestamp: number) =>
-	({
-		type: "tool_call",
-		name: "execute",
-		id: `t${timestamp}`,
-		timestamp,
-	}) as unknown as AcpMessagePart;
+const step = (id: string) =>
+	({ type: "tool_call", name: "execute", id }) as AcpMessagePart;
+
+describe("countWorkSteps", () => {
+	it("counts the work parts and ignores commentary", () => {
+		expect(
+			countWorkSteps([
+				step("a"),
+				{ type: "text", text: "Checking." },
+				step("b"),
+			]),
+		).toBe(2);
+	});
+});
 
 describe("countStepsSince", () => {
 	it("counts nothing when the marker was never set", () => {
-		expect(countStepsSince([at(1), at(2)], undefined)).toBe(0);
+		expect(countStepsSince("m1", 7, undefined)).toBe(0);
 	});
 
-	it("counts only parts newer than the marker", () => {
-		expect(countStepsSince([at(1), at(2), at(3)], 1)).toBe(2);
+	it("counts what the turn gained since the marker", () => {
+		expect(countStepsSince("m1", 9, { messageKey: "m1", steps: 4 })).toBe(5);
 	});
 
-	it("normalises protocol seconds against millisecond markers", () => {
-		// Without the normalisation a seconds stamp is always smaller than a
-		// millisecond marker, so nothing would ever count as new.
-		const marker = 1_700_000_001_000;
-		expect(countStepsSince([at(1_700_000_000)], marker)).toBe(0);
-		expect(countStepsSince([at(1_700_000_002)], marker)).toBe(1);
+	it("counts a whole new turn as new", () => {
+		// The turn on screen when you left is finished; this one arrived after.
+		expect(countStepsSince("m2", 6, { messageKey: "m1", steps: 4 })).toBe(6);
 	});
 
-	it("ignores parts that carry no timestamp", () => {
-		expect(
-			countStepsSince(
-				[{ type: "text", text: "no stamp" } as AcpMessagePart, at(9_000)],
-				1_000,
-			),
-		).toBe(1);
+	it("never goes negative when the turn shrank", () => {
+		expect(countStepsSince("m1", 2, { messageKey: "m1", steps: 4 })).toBe(0);
+	});
+
+	it("counts nothing while the turn has not moved", () => {
+		expect(countStepsSince("m1", 4, { messageKey: "m1", steps: 4 })).toBe(0);
 	});
 });
 

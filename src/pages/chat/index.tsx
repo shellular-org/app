@@ -103,7 +103,9 @@ import ElicitationCard from "./chat-bubble/components/ElicitationCard";
 import PermissionRequestCard from "./chat-bubble/components/PermissionRequestCard";
 import type { TurnState } from "./chat-bubble/components/TurnHeader";
 import {
+	type AwayMarker,
 	countStepsSince,
+	countWorkSteps,
 	shouldShowAwayMarker,
 } from "./chat-bubble/lib/awayMarker";
 import {
@@ -298,7 +300,9 @@ export default function ChatConversationPage({
 	// Reactive counterpart of stickToBottomRef: the jump pill and the away rule
 	// have to re-render, and a ref cannot do that.
 	const [isAtBottom, setIsAtBottom] = useState(true);
-	const [lastSeenAt, setLastSeenAt] = useState<number | undefined>(undefined);
+	const [awayMarker, setAwayMarker] = useState<AwayMarker | undefined>(
+		undefined,
+	);
 	const prevScrollHeightRef = useRef(0);
 	const autoScrollFrameRef = useRef(0);
 	const autoScrollSuppressedRef = useRef(false);
@@ -513,27 +517,39 @@ export default function ChatConversationPage({
 	}, [allMessages.length]);
 
 	// Where reading stopped, so a turn that ran on while the app was backgrounded
-	// can say so. Anchored to a stored timestamp, never to the scroll position:
-	// scrolling past twenty-five dense rows is scanning, not reading.
+	// can say so. Anchored to what was on screen when you left, never to the
+	// scroll position: scrolling past twenty-five dense rows is scanning, not
+	// reading.
 	const seenKey = `shellular:chat-last-seen:${agentId}:${activeSessionId || sessionId || "new"}`;
+	const currentTurnKey = lastVisibleMessage
+		? getMessageKey(lastVisibleMessage)
+		: undefined;
+	const currentTurnSteps = countWorkSteps(lastVisibleMessage?.parts ?? []);
+	// Read in an effect, written in its cleanup: the marker advances on a
+	// deliberate boundary only, which is leaving the chat.
+	const turnRef = useRef({ key: currentTurnKey, steps: currentTurnSteps });
+	turnRef.current = { key: currentTurnKey, steps: currentTurnSteps };
 	useEffect(() => {
 		let mounted = true;
 		void store
-			.get<number>(seenKey)
+			.get<AwayMarker>(seenKey)
 			.then((value) => {
-				if (mounted) setLastSeenAt(value ?? undefined);
+				if (mounted) setAwayMarker(value ?? undefined);
 			})
 			.catch(() => {});
-		// The marker advances on a deliberate boundary only: leaving the chat.
 		return () => {
 			mounted = false;
-			void store.set(seenKey, Date.now()).catch(() => {});
+			const { key, steps } = turnRef.current;
+			if (key) {
+				void store.set(seenKey, { messageKey: key, steps }).catch(() => {});
+			}
 		};
 	}, [seenKey]);
 
-	const awayCount = useMemo(
-		() => countStepsSince(lastVisibleMessage?.parts ?? [], lastSeenAt),
-		[lastVisibleMessage, lastSeenAt],
+	const awayCount = countStepsSince(
+		currentTurnKey,
+		currentTurnSteps,
+		awayMarker,
 	);
 	const showAwayDivider = shouldShowAwayMarker(awayCount, isAtBottom);
 
@@ -1757,6 +1773,12 @@ export default function ChatConversationPage({
 				className="chat-history-content"
 				role="log"
 				aria-label="Conversation"
+				// The role is for structure, not for narration. Its implicit politeness
+				// is "polite", and a turn appends up to twenty-five rows, so leaving it
+				// on reads the whole work log aloud a row at a time. The turn header is
+				// a status region and announces the state change once, which is the part
+				// worth hearing; the rows stay navigable.
+				aria-live="off"
 			>
 				{syncing && allMessages.length === 0 && <ChatHistorySkeleton />}
 				{hasMore && historyScrollReady && (

@@ -92,12 +92,16 @@ const COMPOSER_CONTROL =
  * Send keeps its fill: it is the primary action on the surface. Stop takes the
  * same slot while a turn runs and keeps the same weight, tinted rather than
  * filled solid — a saturated block of red vibrates against a dark canvas.
+ *
+ * Both are 36px of fill inside a 44px target, which the `after` pseudo-element
+ * supplies without changing the layout.
  */
 const COMPOSER_STOP =
-	"haptic-trigger relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] p-0 text-[1.15rem] text-danger transition-opacity duration-150 after:absolute after:-inset-0.5 after:content-[''] [-webkit-tap-highlight-color:transparent]";
+	"haptic-trigger relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] p-0 text-[1.05rem] text-danger transition-opacity duration-150 after:absolute after:-inset-1 after:content-[''] [-webkit-tap-highlight-color:transparent]";
 
+/** The glyph inside carries an optical nudge; see the render site. */
 const COMPOSER_SEND =
-	"haptic-trigger relative flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-button-background p-0 text-[1.05rem] text-button-text transition-opacity duration-150 after:absolute after:-inset-0.5 after:content-[''] disabled:opacity-35 [-webkit-tap-highlight-color:transparent]";
+	"haptic-trigger relative flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-button-background p-0 text-[1.05rem] text-button-text transition-opacity duration-150 after:absolute after:-inset-1 after:content-[''] disabled:opacity-35 [-webkit-tap-highlight-color:transparent]";
 
 export function ChatComposer({
 	inputBarRef,
@@ -328,7 +332,17 @@ export function ChatComposer({
 						aria-disabled={!canSendPrompt || !isConnected || !agentAvailable}
 						aria-label={isStreaming ? "Queue prompt" : "Send"}
 					>
-						<span className="icon-send" aria-hidden="true" />
+						<span
+							className="icon-send"
+							// An optical nudge, not a geometric one. The glyph's bounding box
+							// is a centred square, but the paper plane's mass sits toward the
+							// upper right: traced on a canvas, the ink centroid is 7.3% right
+							// and 8.1% above the box centre, which is why a geometrically
+							// centred glyph reads as low and left. This puts the centroid on
+							// the centre, in em so it follows the font size.
+							style={{ transform: "translate(-0.073em, 0.081em)" }}
+							aria-hidden="true"
+						/>
 					</button>
 				)}
 			</div>
