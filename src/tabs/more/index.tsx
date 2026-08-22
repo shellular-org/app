@@ -1,8 +1,8 @@
 import { pushPage } from "App";
 import RatingDialog from "components/RatingDialog";
 import TabPageHeader from "components/TabPageHeader";
+import { openPortsPage } from "lib/navigate";
 import AboutPage from "pages/about";
-import PortsPage from "pages/ports";
 import ReachOutPage from "pages/reach-out";
 import SettingsPage from "pages/settings";
 import { useState } from "react";
@@ -25,7 +25,7 @@ export default function MoreTab() {
 			description: "View and manage open ports",
 			icon: "icon-power-cord",
 			onTap: () => {
-				pushPage("ports", <PortsPage />, { showConnectionBanner: false });
+				openPortsPage().catch(console.error);
 			},
 		},
 		{

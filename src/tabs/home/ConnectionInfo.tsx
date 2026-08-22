@@ -1,5 +1,4 @@
 import "./ConnectionInfo.scss";
-import { pushPage } from "App";
 import {
 	type AiBackend,
 	type HostUpdateResultMsg,
@@ -9,6 +8,7 @@ import dialog from "bridge/dialog";
 import AgentIcon from "components/AgentIcon";
 import Mascot from "components/Mascot";
 import appConfig from "lib/appConfig";
+import { openSessionsPage, openSystemMonitorPage } from "lib/navigate";
 import toast from "lib/toast";
 import { getPlatformIcon } from "lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -42,8 +42,7 @@ export default function ConnectionInfo({
 	const hiddenAgentCount = availableAgents.length - visibleAgents.length;
 
 	const openSysmon = useCallback(async () => {
-		const SysmonPage = await import("pages/sysmon");
-		pushPage("system-monitor", <SysmonPage.default />);
+		await openSystemMonitorPage();
 	}, []);
 
 	const onDisconnect = useCallback(async () => {
@@ -122,11 +121,7 @@ export default function ConnectionInfo({
 
 	const openSessions = useCallback(
 		async (backend: AiBackend) => {
-			const ChatSessionsPage = await import("pages/sessions");
-			pushPage(
-				`ai-${backend}`,
-				<ChatSessionsPage.default backend={backend} agent={agents[backend]} />,
-			);
+			await openSessionsPage(backend, agents[backend]);
 		},
 		[agents],
 	);

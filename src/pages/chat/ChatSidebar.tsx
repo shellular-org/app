@@ -1,7 +1,7 @@
-import { pushPage } from "App";
 import type { AiBackend } from "@shellular/protocol";
 import AgentIcon from "components/AgentIcon";
 import { getAgentIcon } from "lib/agents";
+import { openChatPage } from "lib/navigate";
 import { useEffect, useState } from "react";
 import { useShellular } from "state";
 import type { AcpAgentInfo } from "state/acp";
@@ -260,24 +260,13 @@ function pushChat({
 	workspacePath: string;
 	agent: AcpAgentInfo | undefined;
 }) {
-	const agentName = agent?.name ?? agentId;
-	import("pages/chat").then((mod) => {
-		const ChatConversationPage = mod.default;
-		pushPage(
-			tabId,
-			<ChatConversationPage
-				chatTabId={tabId}
-				sessionId={sessionId}
-				agentId={agentId}
-				workspacePath={workspacePath}
-				title={title}
-				assistantName={agentName}
-				agentAvailable={agent?.available ?? true}
-				unavailableMessage={`${agentName} is not available on this device.`}
-				providerName={agent?.title ?? agentName}
-				agentCapabilities={agent?.capabilities}
-				createOnFirstMessage={!sessionId}
-			/>,
-		);
-	});
+	openChatPage({
+		agentId,
+		agent,
+		sessionId,
+		title,
+		workspacePath,
+		tabId,
+		createOnFirstMessage: !sessionId,
+	}).catch(console.error);
 }
