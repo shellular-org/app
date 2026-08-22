@@ -20,6 +20,8 @@ export function getAgentIcon(agent: AiBackend) {
 			return "icon-cursor";
 		case "grok-build":
 			return "icon-grok";
+		case "fx":
+			return "icon-fx";
 		default:
 			return "icon-message-square";
 	}
