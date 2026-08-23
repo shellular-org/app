@@ -136,6 +136,13 @@ import {
 import { appendTextPart, pendingTokenSuffix } from "./lib/streamText";
 import { upsertMessage } from "./lib/upsertMessage";
 import { normalizeEditorPath } from "./pathUtils";
+import {
+	flattenConfigValues,
+	getProminentConfigOptions,
+	overlayPendingConfigValues,
+	reconcileDraftConfig,
+	type SessionConfigChange,
+} from "./sessionConfig";
 
 const PAGE_SIZE = 30;
 const STOP_REASON_METADATA = "stop-reason";
@@ -273,10 +280,14 @@ export default function ChatConversationPage({
 	const [configOptions, setConfigOptions] = useState<AiSessionConfigOption[]>(
 		[],
 	);
+	// Authoritative values returned by the live ACP session. Kept separate from
+	// the optimistic UI state so a failed model save can never authorize a send.
+	const confirmedConfigOptionsRef = useRef<AiSessionConfigOption[]>([]);
 	const [availableCommands, setAvailableCommands] = useState<
 		AcpAvailableCommand[]
 	>([]);
 	const [configSavingId, setConfigSavingId] = useState<string | null>(null);
+	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [showConfigSheet, setShowConfigSheet] = useState(false);
 	const [showContextSheet, setShowContextSheet] = useState(false);
 	const [pendingPermissions, setPendingPermissions] = useState<
@@ -354,11 +365,10 @@ export default function ChatConversationPage({
 	// to. Replayed onto the real session right after it is created, keyed by
 	// option id so the last pick for an option wins.
 	const pendingConfigChangesRef = useRef(
-		new Map<
-			string,
-			{ option: AiSessionConfigOption; value: string | boolean }
-		>(),
+		new Map<string, SessionConfigChange>(),
 	);
+	const configChangeTasksRef = useRef(new Map<string, Promise<void>>());
+	const submitInFlightRef = useRef(false);
 	const queuedEditComposerBackupRef = useRef<{
 		parts: ComposerPart[];
 		imageAttachments: ComposerAttachment[];
@@ -712,6 +722,19 @@ export default function ChatConversationPage({
 		visibleCount,
 	]);
 
+	const receiveConfirmedConfigOptions = useCallback(
+		(nextOptions: AiSessionConfigOption[]) => {
+			confirmedConfigOptionsRef.current = nextOptions;
+			setConfigOptions(
+				overlayPendingConfigValues(
+					nextOptions,
+					pendingConfigChangesRef.current.values(),
+				),
+			);
+		},
+		[],
+	);
+
 	const handleSessionStatus = useCallback(
 		(properties: Record<string, unknown>) => {
 			const nextUsage = readContextWindowUsage(properties);
@@ -721,11 +744,13 @@ export default function ChatConversationPage({
 				readConfigOptions(
 					(properties.status as { configOptions?: unknown })?.configOptions,
 				);
-			if (nextOptions) setConfigOptions(nextOptions);
+			if (nextOptions) {
+				receiveConfirmedConfigOptions(nextOptions);
+			}
 			const nextCommands = readAvailableCommands(properties.availableCommands);
 			if (nextCommands) setAvailableCommands(nextCommands);
 		},
-		[],
+		[receiveConfirmedConfigOptions],
 	);
 
 	const handlePermissionRequest = useCallback(
@@ -886,7 +911,9 @@ export default function ChatConversationPage({
 					const nextOptions = readConfigOptions(
 						(state as { configOptions?: unknown }).configOptions,
 					);
-					if (nextOptions) setConfigOptions(nextOptions);
+					if (nextOptions) {
+						receiveConfirmedConfigOptions(nextOptions);
+					}
 					const nextCommands = readAvailableCommands(
 						(state as { availableCommands?: unknown }).availableCommands,
 					);
@@ -943,6 +970,7 @@ export default function ChatConversationPage({
 			appendStreamToken,
 			handlePermissionRequest,
 			handleSessionStatus,
+			receiveConfirmedConfigOptions,
 			scrollToBottomNow,
 		],
 	);
@@ -1067,6 +1095,10 @@ export default function ChatConversationPage({
 
 	useEffect(() => {
 		setActiveSessionId(sessionId);
+		confirmedConfigOptionsRef.current = [];
+		pendingConfigChangesRef.current.clear();
+		configChangeTasksRef.current.clear();
+		setConfigSavingId(null);
 		stickToBottomRef.current = true;
 		streamedTextRef.current.clear();
 		directPromptDispatchRef.current = null;
@@ -1147,7 +1179,7 @@ export default function ChatConversationPage({
 		acpAttachSession(agentId, targetSessionId, resolvedWorkspacePath || ".")
 			.then((result) => {
 				if (cancelled) return;
-				setConfigOptions(result.configOptions);
+				receiveConfirmedConfigOptions(result.configOptions);
 				setAvailableCommands(result.availableCommands);
 				setAllMessages(result.messages);
 				remoteBaseIdxRef.current = result.from ?? 0;
@@ -1206,6 +1238,7 @@ export default function ChatConversationPage({
 		applyRevisionedSessionEvent,
 		sessionId,
 		resolvedWorkspacePath,
+		receiveConfirmedConfigOptions,
 	]);
 
 	// Scroll to bottom after React commits new messages or streaming tokens
@@ -1583,7 +1616,7 @@ export default function ChatConversationPage({
 				setAllMessages(refreshed.messages);
 				setVisibleCount(PAGE_SIZE);
 				setSyncing(Boolean(refreshed.syncing));
-				setConfigOptions(refreshed.configOptions);
+				receiveConfirmedConfigOptions(refreshed.configOptions);
 				setAvailableCommands(refreshed.availableCommands);
 				remoteBaseIdxRef.current = refreshed.from ?? 0;
 				remoteGenerationRef.current = refreshed.generation;
@@ -1630,7 +1663,7 @@ export default function ChatConversationPage({
 				ownerDialogOpenRef.current = false;
 			}
 		},
-		[agentId, draftKey, resolvedWorkspacePath],
+		[agentId, draftKey, resolvedWorkspacePath, receiveConfirmedConfigOptions],
 	);
 
 	useEffect(() => {
@@ -1863,6 +1896,7 @@ export default function ChatConversationPage({
 				unavailableMessage={unavailableMessage}
 				isStreaming={chatIsStreaming}
 				isEditingQueuedPrompt={editingQueuedPrompt !== null}
+				isSubmitting={isSubmitting || queueEditBusy}
 				canSendPrompt={canSendPrompt}
 				sendBlockedReason={sendBlockedReason}
 				promptSuggestions={promptSuggestions}
@@ -1870,7 +1904,6 @@ export default function ChatConversationPage({
 				onPromptSuggestion={applyPromptSuggestion}
 				onPromptSuggestionHover={setActivePromptSuggestionIndex}
 				onInput={handleComposerInput}
-				onKeyDown={handlePromptKeyDown}
 				onPaste={handleComposerPaste}
 				onAttachFiles={handleAttachFiles}
 				onRemoveImageAttachment={handleRemoveImageAttachment}
@@ -1879,6 +1912,7 @@ export default function ChatConversationPage({
 				onOpenGitReview={openGitReview}
 				onClearReviewComments={() => setReviewComments([])}
 				onSend={handleSend}
+				onSaveQueuedPrompt={handleSaveQueuedPrompt}
 				onStop={handleStop}
 				contextMeter={contextMeter}
 				queueControls={
@@ -1887,7 +1921,7 @@ export default function ChatConversationPage({
 						onEdit={handleEditQueuedPrompt}
 						onRemove={handleRemoveQueuedPrompt}
 						editingItem={editingQueuedPrompt}
-						editBusy={queueEditBusy}
+						editBusy={queueEditBusy || isSubmitting}
 						onSaveEdit={handleSaveQueuedPrompt}
 						onCancelEdit={handleCancelQueuedPrompt}
 					/>
@@ -1897,6 +1931,7 @@ export default function ChatConversationPage({
 						type="button"
 						className="inline-flex h-[34px] min-w-0 max-w-full cursor-pointer items-center gap-[5px] overflow-hidden rounded-[9px] border-0 bg-transparent px-2 text-[12px] font-medium leading-none text-secondary-text transition-[background] duration-150 active:bg-surface-soft [-webkit-tap-highlight-color:transparent]"
 						onClick={() => setShowConfigSheet(true)}
+						disabled={isSubmitting}
 					>
 						<span
 							className="icon-settings shrink-0 text-[1.15rem]"
@@ -1960,12 +1995,13 @@ export default function ChatConversationPage({
 								</div>
 								{/* Changing config mid-generation is explicitly allowed by ACP
 								    ("the current mode can be changed at any point during a
-								    session, whether the Agent is idle or generating"). Only
-								    disable while syncing: during an attach reconcile the agent
-								    may not have registered the session yet, so a set can fail. */}
+								    session, whether the Agent is idle or generating"). Disable
+								    only during attach sync or the brief send preflight. */}
 								<ConfigControl
 									value={String(option.currentValue)}
-									disabled={syncing || configSavingId === option.id}
+									disabled={
+										isSubmitting || syncing || configSavingId === option.id
+									}
 									onChange={(nextValue) =>
 										handleConfigChange(option, nextValue)
 									}
@@ -1993,7 +2029,7 @@ export default function ChatConversationPage({
 	);
 
 	async function handleSend() {
-		if (editingQueuedPrompt) return;
+		if (editingQueuedPrompt || submitInFlightRef.current) return;
 		const composerOnlyParts = readComposerParts(promptInputRef.current);
 		const text = composerPartsToText(composerOnlyParts).trim();
 		const pendingImages = imageAttachments;
@@ -2025,154 +2061,90 @@ export default function ChatConversationPage({
 				attachment,
 			})),
 		];
-
+		const displayedDraftConfig =
+			createOnFirstMessage && !activeSessionIdRef.current
+				? getProminentConfigOptions(configOptions)
+				: [];
+		submitInFlightRef.current = true;
+		setIsSubmitting(true);
 		setError("");
-		setComposerParts([]);
-		setImageAttachments([]);
-		setReviewComments([]);
-		setComposerTrigger(null);
-		setFileSuggestions([]);
-		clearComposer(promptInputRef.current);
-		// The composer is empty now, so this drops the draft — without it the
-		// restore effect would put the just-sent prompt straight back.
+		// Persist the current DOM before any async work. It remains untouched until
+		// the live session has confirmed the model/configuration shown in the UI.
 		saveComposerDraft(draftKey, promptInputRef.current);
-		// Sending is an explicit "take me to the new turn", so it outranks any
-		// selection still sitting in the transcript.
-		selectionActiveRef.current = false;
-		scrollToBottom(true);
-		stickToBottomRef.current = true;
-
-		const queuedSessionId = activeSessionId || sessionId;
-		const queueThisPrompt =
-			queuedSessionId &&
-			shouldQueuePrompt({
-				sessionId: queuedSessionId,
-				sessionIsStreaming: getSessionStreaming(agentId, queuedSessionId),
-				queuedSessionIds: queuedPrompts.map((item) => item.sessionId),
-			});
-		if (queuedSessionId && queueThisPrompt) {
-			try {
-				const content = await composerPartsToAcpContent(parts);
-				acpQueuePrompt(agentId, queuedSessionId, text, content);
-			} catch (err) {
-				setError(getErrorMessage(err));
-			}
-			return;
-		}
-
-		const sentAt = Date.now();
-		sentTurnStartRef.current = sentAt;
-		const userId = `user_local_${sentAt}`;
-		ownerRecoveryRef.current = {
-			sessionId: activeSessionId || sessionId,
-			userMessageId: userId,
-			parts,
-			imageAttachments: pendingImages,
-		};
-		streamingUserIdRef.current = userId;
-		streamingAssistantIdRef.current = null;
-		streamedTextRef.current.clear();
-		setAllMessages((prev) => [
-			...prev,
-			{
-				id: userId,
-				requestId: userId,
-				role: "user",
-				parts: [
-					...composerPartsToMessageParts(parts),
-					...(reviewPrompt
-						? [{ type: "text" as const, text: `\n\n${reviewPrompt}` }]
-						: []),
-				],
-				timestamp: Date.now(),
-			},
-		]);
-
-		const callbacks: AcpPromptCallbacks = {
-			onToken: () => {},
-			onUsage: (usage) => {
-				const nextUsage = readContextWindowUsage({ usage });
-				if (nextUsage) setContextWindowUsage(nextUsage);
-			},
-			onEnd: (stopReason) => {
-				ownerRecoveryRef.current = null;
-				ownerRetryRef.current = null;
-				if (shouldShowStopReason(stopReason)) {
-					appendStopReason(stopReason);
-				}
-				finishStreamingTurn();
-			},
-			onError: (err, details) => {
-				finishStreamingTurn();
-				if (details) {
-					void handleSessionOwnerError(details);
-				} else {
-					ownerRecoveryRef.current = null;
-					ownerRetryRef.current = null;
-					setError(err);
-				}
-			},
-			onMessage: (msg) => {
-				upsertAcpMessageRef.current(msg);
-			},
-			onPermission: handlePermissionRequest,
-		};
-
+		let committed = false;
+		let targetSessionId = activeSessionIdRef.current || sessionId;
 		try {
-			let targetSessionId = activeSessionId;
-			if (createOnFirstMessage && !targetSessionId) {
-				if (!createSessionPromiseRef.current) {
-					// `session/new` returns everything needed to start prompting, so no
-					// attach follows it. Per ACP, `session/load` exists to resume a
-					// *previous* conversation; a session created moments ago has no
-					// history to replay. Attaching here also forced the CLI down its
-					// cold-miss path, which emits `syncing: "messages"` and clears it
-					// milliseconds later — before the subscription below exists — so
-					// the chat stayed stuck on its loading skeleton.
-					createSessionPromiseRef.current = acpCreateSession(
-						agentId,
-						resolvedWorkspacePath || ".",
-						"",
-						configOptions,
-					).then((result) => ({
-						sessionId: result.session.id ?? "",
-						configOptions: result.configOptions,
-						availableCommands: result.availableCommands,
-						messages: [],
-						revision: result.revision,
-						syncing: false,
-					}));
-				}
-				const result = await createSessionPromiseRef.current;
-				targetSessionId = result.sessionId;
-				if (ownerRecoveryRef.current) {
-					ownerRecoveryRef.current.sessionId = targetSessionId;
-				}
-				setActiveSessionId(targetSessionId);
-				activeSessionIdRef.current = targetSessionId;
-				setConfigOptions(result.configOptions);
-				setAvailableCommands(result.availableCommands);
-				// A freshly created session has no history, but the optimistic user
-				// bubble for the message being sent is already in state — keep it
-				// rather than clobbering it with the (empty) attach result.
-				if (result.messages.length) setAllMessages(result.messages);
-				setSyncing(Boolean(result.syncing));
-				cleanupRef.current?.();
-				attachReadyRef.current = true;
-				attachedSessionIdRef.current = targetSessionId;
-				attachedRevisionRef.current = result.revision;
-				cleanupRef.current = acpSubscribeSessionEvents(
-					agentId,
-					targetSessionId,
-					applyRevisionedSessionEvent,
-				);
-			}
-			if (!targetSessionId) throw new Error("Unable to create ACP session");
-			if (pendingConfigChangesRef.current.size) {
-				await flushPendingConfigChanges(targetSessionId);
-			}
+			await waitForConfigChanges();
+			targetSessionId = await prepareSessionForPrompt(displayedDraftConfig);
 			const content = await composerPartsToAcpContent(parts);
 			if (reviewPrompt) content.push({ type: "text", text: reviewPrompt });
+
+			const commitComposerSubmission = () => {
+				setComposerParts([]);
+				setImageAttachments([]);
+				setReviewComments([]);
+				setComposerTrigger(null);
+				setFileSuggestions([]);
+				clearComposer(promptInputRef.current);
+				saveComposerDraft(draftKey, promptInputRef.current);
+				selectionActiveRef.current = false;
+				scrollToBottom(true);
+				stickToBottomRef.current = true;
+				committed = true;
+			};
+
+			const queueThisPrompt = shouldQueuePrompt({
+				sessionId: targetSessionId,
+				sessionIsStreaming: getSessionStreaming(agentId, targetSessionId),
+				queuedSessionIds: queuedPrompts.map((item) => item.sessionId),
+			});
+			if (queueThisPrompt) {
+				acpQueuePrompt(agentId, targetSessionId, text, content);
+				commitComposerSubmission();
+				return;
+			}
+
+			const sentAt = Date.now();
+			sentTurnStartRef.current = sentAt;
+			const userId = `user_local_${sentAt}`;
+			ownerRecoveryRef.current = {
+				sessionId: targetSessionId,
+				userMessageId: userId,
+				parts,
+				imageAttachments: pendingImages,
+			};
+			streamingUserIdRef.current = userId;
+			streamingAssistantIdRef.current = null;
+			streamedTextRef.current.clear();
+			const callbacks: AcpPromptCallbacks = {
+				onToken: () => {},
+				onUsage: (usage) => {
+					const nextUsage = readContextWindowUsage({ usage });
+					if (nextUsage) setContextWindowUsage(nextUsage);
+				},
+				onEnd: (stopReason) => {
+					ownerRecoveryRef.current = null;
+					ownerRetryRef.current = null;
+					if (shouldShowStopReason(stopReason)) {
+						appendStopReason(stopReason);
+					}
+					finishStreamingTurn(targetSessionId);
+				},
+				onError: (err, details) => {
+					finishStreamingTurn(targetSessionId);
+					if (details) {
+						void handleSessionOwnerError(details);
+					} else {
+						ownerRecoveryRef.current = null;
+						ownerRetryRef.current = null;
+						setError(err);
+					}
+				},
+				onMessage: (msg) => {
+					upsertAcpMessageRef.current(msg);
+				},
+				onPermission: handlePermissionRequest,
+			};
 			const sendPrompt = () => {
 				setSessionStreaming(agentId, targetSessionId, true);
 				directPromptDispatchRef.current = {
@@ -2187,11 +2159,43 @@ export default function ChatConversationPage({
 				);
 				cleanupSendRef.current = cleanup;
 			};
+			try {
+				sendPrompt();
+			} catch (err) {
+				setSessionStreaming(agentId, targetSessionId, false);
+				directPromptDispatchRef.current = null;
+				streamingUserIdRef.current = null;
+				streamingAssistantIdRef.current = null;
+				streamedTextRef.current.clear();
+				ownerRecoveryRef.current = null;
+				ownerRetryRef.current = null;
+				throw err;
+			}
 			ownerRetryRef.current = sendPrompt;
-			sendPrompt();
+			setAllMessages((prev) => [
+				...prev,
+				{
+					id: userId,
+					requestId: userId,
+					role: "user",
+					parts: [
+						...composerPartsToMessageParts(parts),
+						...(reviewPrompt
+							? [{ type: "text" as const, text: `\n\n${reviewPrompt}` }]
+							: []),
+					],
+					timestamp: Date.now(),
+				},
+			]);
+			commitComposerSubmission();
 		} catch (err) {
-			finishStreamingTurn();
 			setError(getErrorMessage(err));
+		} finally {
+			submitInFlightRef.current = false;
+			setIsSubmitting(false);
+			if (!committed) {
+				requestAnimationFrame(() => promptInputRef.current?.focus());
+			}
 		}
 	}
 
@@ -2466,32 +2470,236 @@ export default function ChatConversationPage({
 		streamedTextRef.current.clear();
 	}
 
-	/**
-	 * Apply config picks the user made while the chat was still a draft. Runs
-	 * before the first prompt so the turn uses the mode/model they chose. Failures
-	 * are surfaced but never block the send — the session is valid either way, it
-	 * just runs with the agent's default for that option.
-	 */
-	async function flushPendingConfigChanges(targetSessionId: string) {
-		const pending = [...pendingConfigChangesRef.current.values()];
-		pendingConfigChangesRef.current.clear();
-		for (const { option, value } of pending) {
-			try {
-				const setMethod = (option as { _setMethod?: unknown })._setMethod;
-				if (setMethod === "mode") {
-					await acpSetMode(agentId, targetSessionId, String(value));
-				} else {
-					const nextOptions = await acpSetConfigOption(
-						agentId,
-						targetSessionId,
-						option.id,
-						value,
-					);
-					if (nextOptions.length) setConfigOptions(nextOptions);
-				}
-			} catch (err) {
-				setError(getErrorMessage(err));
+	async function prepareSessionForPrompt(
+		displayedDraftConfig: AiSessionConfigOption[],
+	) {
+		let targetSessionId = activeSessionIdRef.current || sessionId;
+		let liveConfigOptions = targetSessionId
+			? confirmedConfigOptionsRef.current
+			: configOptions;
+		const explicitDraftConfigIds = new Set(
+			pendingConfigChangesRef.current.keys(),
+		);
+		let createdSession = false;
+
+		if (createOnFirstMessage && !targetSessionId) {
+			if (!createSessionPromiseRef.current) {
+				// `session/new` cannot apply config options. Create the session first,
+				// then reconcile the displayed draft settings below before prompting.
+				createSessionPromiseRef.current = acpCreateSession(
+					agentId,
+					resolvedWorkspacePath || ".",
+					"",
+				).then((result) => ({
+					sessionId: result.session.id ?? "",
+					configOptions: result.configOptions,
+					availableCommands: result.availableCommands,
+					messages: [],
+					revision: result.revision,
+					syncing: false,
+				}));
 			}
+			const creation = createSessionPromiseRef.current;
+			let result: Awaited<typeof creation>;
+			try {
+				result = await creation;
+			} catch (error) {
+				if (createSessionPromiseRef.current === creation) {
+					createSessionPromiseRef.current = null;
+				}
+				throw error;
+			}
+			targetSessionId = result.sessionId;
+			if (!targetSessionId) throw new Error("Unable to create ACP session");
+			createdSession = true;
+			liveConfigOptions = result.configOptions;
+			setActiveSessionId(targetSessionId);
+			activeSessionIdRef.current = targetSessionId;
+			receiveConfirmedConfigOptions(liveConfigOptions);
+			setAvailableCommands(result.availableCommands);
+			if (result.messages.length) setAllMessages(result.messages);
+			setSyncing(Boolean(result.syncing));
+			cleanupRef.current?.();
+			attachReadyRef.current = true;
+			attachedSessionIdRef.current = targetSessionId;
+			attachedRevisionRef.current = result.revision;
+			cleanupRef.current = acpSubscribeSessionEvents(
+				agentId,
+				targetSessionId,
+				applyRevisionedSessionEvent,
+			);
+		}
+
+		if (!targetSessionId) throw new Error("Unable to create ACP session");
+		liveConfigOptions = await flushPendingConfigChanges(
+			targetSessionId,
+			liveConfigOptions,
+		);
+
+		if (createdSession && displayedDraftConfig.length) {
+			const reconciliation = reconcileDraftConfig(
+				displayedDraftConfig,
+				liveConfigOptions,
+				explicitDraftConfigIds,
+			);
+			if (reconciliation.unsupported.length) {
+				throw unsupportedConfigError(reconciliation.unsupported[0]);
+			}
+			for (const change of reconciliation.changes) {
+				const nextOptions = await applySessionConfigChange(
+					targetSessionId,
+					change,
+				);
+				if (nextOptions) liveConfigOptions = nextOptions;
+			}
+		}
+
+		return targetSessionId;
+	}
+
+	async function waitForConfigChanges() {
+		while (configChangeTasksRef.current.size) {
+			const entries = [...configChangeTasksRef.current.entries()];
+			const results = await Promise.allSettled(entries.map(([, task]) => task));
+			const failed = results.find(
+				(result): result is PromiseRejectedResult =>
+					result.status === "rejected",
+			);
+			if (failed) throw failed.reason;
+			const hasNewerTask = entries.some(
+				([id, task]) => configChangeTasksRef.current.get(id) !== task,
+			);
+			if (!hasNewerTask) return;
+		}
+	}
+
+	/** Apply unapplied choices in order, deleting each only after confirmation. */
+	async function flushPendingConfigChanges(
+		targetSessionId: string,
+		initialOptions: AiSessionConfigOption[],
+	) {
+		let liveOptions = initialOptions;
+		const pending = [...pendingConfigChangesRef.current.values()];
+		for (const originalChange of pending) {
+			const current = pendingConfigChangesRef.current.get(
+				originalChange.option.id,
+			);
+			if (!current || !sameConfigChange(current, originalChange)) continue;
+			const change = resolveLiveConfigChange(current, liveOptions);
+			if (String(change.option.currentValue) === String(change.value)) {
+				markConfigChangeConfirmed(change);
+				continue;
+			}
+			const nextOptions = await applySessionConfigChange(
+				targetSessionId,
+				change,
+			);
+			if (nextOptions) liveOptions = nextOptions;
+		}
+		return liveOptions;
+	}
+
+	async function applySessionConfigChange(
+		targetSessionId: string,
+		change: SessionConfigChange,
+	): Promise<AiSessionConfigOption[] | null> {
+		const { option, value } = change;
+		try {
+			const setMethod = (option as { _setMethod?: unknown })._setMethod;
+			if (setMethod === "mode") {
+				await acpSetMode(agentId, targetSessionId, String(value));
+				const confirmedOptions = confirmedConfigOptionsRef.current.map(
+					(item) =>
+						item.id === option.id ? { ...item, currentValue: value } : item,
+				);
+				receiveConfirmedConfigOptions(confirmedOptions);
+				markConfigChangeConfirmed(change);
+				return null;
+			}
+
+			const nextOptions = await acpSetConfigOption(
+				agentId,
+				targetSessionId,
+				option.id,
+				value,
+			);
+			const confirmed = nextOptions.find((item) => item.id === option.id);
+			if (!confirmed || String(confirmed.currentValue) !== String(value)) {
+				throw new Error("The agent did not confirm the requested value");
+			}
+			receiveConfirmedConfigOptions(nextOptions);
+			markConfigChangeConfirmed(change);
+			return nextOptions;
+		} catch (error) {
+			throw new Error(
+				`Could not apply ${option.name} “${configValueLabel(change)}”. Retry before sending. ${getErrorMessage(error)}`,
+			);
+		}
+	}
+
+	function resolveLiveConfigChange(
+		change: SessionConfigChange,
+		liveOptions: AiSessionConfigOption[],
+	): SessionConfigChange {
+		const liveOption = liveOptions.find(
+			(option) => option.id === change.option.id,
+		);
+		if (!liveOption) {
+			dropUnsupportedPendingConfig(change, liveOptions);
+			throw unsupportedConfigError(change);
+		}
+		const liveChange = { option: liveOption, value: change.value };
+		if (
+			liveOption.type === "select" &&
+			!flattenConfigValues(liveOption).some(
+				(candidate) => candidate.value === String(change.value),
+			)
+		) {
+			dropUnsupportedPendingConfig(change, liveOptions);
+			throw unsupportedConfigError(liveChange);
+		}
+		return liveChange;
+	}
+
+	function dropUnsupportedPendingConfig(
+		change: SessionConfigChange,
+		liveOptions: AiSessionConfigOption[],
+	) {
+		const pending = pendingConfigChangesRef.current.get(change.option.id);
+		if (pending && sameConfigChange(pending, change)) {
+			pendingConfigChangesRef.current.delete(change.option.id);
+		}
+		receiveConfirmedConfigOptions(liveOptions);
+	}
+
+	function unsupportedConfigError(change: SessionConfigChange) {
+		return new Error(
+			`${change.option.name} “${configValueLabel(change)}” is no longer available. Choose another option; your message was not sent.`,
+		);
+	}
+
+	function configValueLabel({ option, value }: SessionConfigChange) {
+		return (
+			flattenConfigValues(option).find(
+				(candidate) => candidate.value === String(value),
+			)?.name ?? String(value)
+		);
+	}
+
+	function sameConfigChange(
+		left: SessionConfigChange,
+		right: SessionConfigChange,
+	) {
+		return (
+			left.option.id === right.option.id &&
+			String(left.value) === String(right.value)
+		);
+	}
+
+	function markConfigChangeConfirmed(change: SessionConfigChange) {
+		const pending = pendingConfigChangesRef.current.get(change.option.id);
+		if (pending && sameConfigChange(pending, change)) {
+			pendingConfigChangesRef.current.delete(change.option.id);
 		}
 	}
 
@@ -2508,34 +2716,36 @@ export default function ChatConversationPage({
 				item.id === option.id ? { ...item, currentValue: nextValue } : item,
 			),
 		);
-		try {
-			const targetSessionId = activeSessionId || sessionId;
-			// A draft chat has no session to configure yet. Keep the pick in local
-			// state (already applied above) and replay it onto the real session the
-			// moment the first send creates one.
-			if (!targetSessionId) {
-				pendingConfigChangesRef.current.set(option.id, {
-					option,
-					value: nextValue,
-				});
-				return;
-			}
-			const setMethod = (option as { _setMethod?: unknown })._setMethod;
-			if (setMethod === "mode") {
-				await acpSetMode(agentId, targetSessionId, String(nextValue));
-			} else {
-				const nextOptions = await acpSetConfigOption(
-					agentId,
-					targetSessionId,
-					option.id,
-					nextValue,
-				);
-				if (nextOptions.length) setConfigOptions(nextOptions);
-			}
-		} catch (err) {
-			setError(getErrorMessage(err));
-		} finally {
+		const change = { option, value: nextValue };
+		pendingConfigChangesRef.current.set(option.id, change);
+		const targetSessionId = activeSessionIdRef.current || sessionId;
+		if (!targetSessionId) {
 			setConfigSavingId(null);
+			return;
+		}
+
+		const previousTask = configChangeTasksRef.current.get(option.id);
+		const task = (async () => {
+			if (previousTask) await previousTask.catch(() => {});
+			const desired = pendingConfigChangesRef.current.get(option.id);
+			if (!desired || !sameConfigChange(desired, change)) return;
+			await applySessionConfigChange(targetSessionId, change);
+		})();
+		configChangeTasksRef.current.set(option.id, task);
+		try {
+			await task;
+		} catch (error) {
+			const desired = pendingConfigChangesRef.current.get(option.id);
+			if (desired && sameConfigChange(desired, change)) {
+				setError(getErrorMessage(error));
+			}
+		} finally {
+			if (configChangeTasksRef.current.get(option.id) === task) {
+				configChangeTasksRef.current.delete(option.id);
+				setConfigSavingId((current) =>
+					current === option.id ? null : current,
+				);
+			}
 		}
 	}
 
@@ -2648,35 +2858,6 @@ export default function ChatConversationPage({
 			if (result.sessionId) return result.sessionId;
 		}
 		return "draft";
-	}
-
-	function handlePromptKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-		if (promptSuggestions.length > 0) {
-			if (e.key === "ArrowDown") {
-				e.preventDefault();
-				setActivePromptSuggestionIndex(
-					(index) => (index + 1) % promptSuggestions.length,
-				);
-				return;
-			}
-			if (e.key === "ArrowUp") {
-				e.preventDefault();
-				setActivePromptSuggestionIndex(
-					(index) =>
-						(index - 1 + promptSuggestions.length) % promptSuggestions.length,
-				);
-				return;
-			}
-			if (e.key === "Tab") {
-				e.preventDefault();
-				applyPromptSuggestion(
-					promptSuggestions[
-						Math.min(activePromptSuggestionIndex, promptSuggestions.length - 1)
-					],
-				);
-				return;
-			}
-		}
 	}
 }
 
@@ -3022,38 +3203,6 @@ function readConfigOptions(value: unknown): AiSessionConfigOption[] | null {
 
 function readAvailableCommands(value: unknown): AcpAvailableCommand[] | null {
 	return Array.isArray(value) ? (value as AcpAvailableCommand[]) : null;
-}
-
-function getProminentConfigOptions(options: AiSessionConfigOption[]) {
-	const supported = options.filter(
-		(option) => option.type === "select" && flattenConfigValues(option).length,
-	);
-	const preferred = supported.filter((option) =>
-		["mode", "model", "thought_level"].includes(String(option.category ?? "")),
-	);
-	return (preferred.length ? preferred : supported).slice(0, 3);
-}
-
-function flattenConfigValues(option: AiSessionConfigOption) {
-	const values: { value: string; name: string }[] = [];
-	for (const item of option.options ?? []) {
-		if ("options" in item && Array.isArray(item.options)) {
-			for (const child of item.options) {
-				values.push({
-					value: String(child.value),
-					name: child.name || String(child.value),
-				});
-			}
-			continue;
-		}
-		if ("value" in item) {
-			values.push({
-				value: String(item.value),
-				name: item.name || String(item.value),
-			});
-		}
-	}
-	return values;
 }
 
 function shouldUseConfigCombobox(
