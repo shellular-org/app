@@ -7,6 +7,10 @@ vi.mock("bridge/dialog", () => ({
 vi.mock("components/Mascot", () => ({
 	default: ({ label }: { label: string }) => <span>{label}</span>,
 }));
+vi.mock("lib/navigate", () => ({
+	openSessionsPage: vi.fn(),
+	openSystemMonitorPage: vi.fn(),
+}));
 vi.mock("state", () => ({
 	useShellular: () => ({
 		serverUrl: "https://example.test",
@@ -25,7 +29,7 @@ import ConnectionInfo from "./ConnectionInfo";
 afterEach(cleanup);
 
 describe("Home connection card", () => {
-	it("keeps connection controls without a System Monitor shortcut", () => {
+	it("keeps connection controls and exposes System Monitor", () => {
 		render(
 			<ConnectionInfo
 				hostInfo={
@@ -39,6 +43,8 @@ describe("Home connection card", () => {
 			/>,
 		);
 		expect(screen.getByRole("button", { name: "Disconnect" })).toBeVisible();
-		expect(screen.queryByRole("button", { name: "System Monitor" })).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "System Monitor" }),
+		).toBeVisible();
 	});
 });

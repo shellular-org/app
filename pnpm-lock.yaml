@@ -69,8 +69,8 @@ importers:
         specifier: 1.0.0-beta.5
         version: 1.0.0-beta.5(@pierre/theme@2.0.0)(@shikijs/themes@3.23.0)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(shiki@3.23.0)
       '@shellular/protocol':
-        specifier: ^0.0.32
-        version: 0.0.32
+        specifier: ^0.0.33
+        version: 0.0.33
       '@xterm/addon-fit':
         specifier: ^0.11.0
         version: 0.11.0
@@ -1657,8 +1657,8 @@ packages:
   '@rolldown/pluginutils@1.0.1':
     resolution: {integrity: sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw==}
 
-  '@shellular/protocol@0.0.32':
-    resolution: {integrity: sha512-sNHYfU3sO0AldDGLR5cGaFareCfs0BGRnvCbmMtYTEMkMhVLTBwtD2D90/WOx1llZl8E27rlbQlNoM1ZjFiHQA==}
+  '@shellular/protocol@0.0.33':
+    resolution: {integrity: sha512-A8v/CzpYtzGsD6iYk/0baT8FhQf9AaD4eZi8Q9L9vi8kSuTS05r+6L//YRIJVCEIKWNC3Q8BBcL36UF7C71OSw==}
 
   '@shikijs/core@3.23.0':
     resolution: {integrity: sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA==}
@@ -5912,7 +5912,7 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.1': {}
 
-  '@shellular/protocol@0.0.32':
+  '@shellular/protocol@0.0.33':
     dependencies:
       '@agentclientprotocol/sdk': 1.3.0(zod@4.3.6)
       zod: 4.3.6

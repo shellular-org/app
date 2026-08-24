@@ -40,9 +40,15 @@ export default (_, { env = {}, mode = "development" }) => {
 		platform = "android",
 		host,
 		port,
+		https = "true",
 		console: compileConsole = false,
 	} = env;
 	const isDesktopUI = DESKTOP_UI_PLATFORMS.has(platform);
+	// The browser target is served over https so the phone gets a secure
+	// context on the LAN. Behind a localhost tunnel (VS Code Remote port
+	// forwarding) http is both a secure context and one less certificate
+	// warning, so `https=false` turns TLS off.
+	const useHttps = platform === "browser" && https !== "false";
 	const outputPath =
 		platform === "browser"
 			? BROWSER_BUNDLE
@@ -54,11 +60,16 @@ export default (_, { env = {}, mode = "development" }) => {
 
 	let alias;
 	if (isDev) {
-		console.log(`dev server: ${host}:${port}`);
-		alias = {
-			// assuming app & packages are in the same monorepo, adjust as needed
-			"@shellular/protocol": resolve("../packages/protocol/dist/index.js"),
-		};
+		// Only alias the protocol package when this checkout really sits next to
+		// it in the monorepo. A standalone checkout has no ../packages, and an
+		// alias pointing at a missing file breaks every dev build.
+		const localProtocol = resolve("../packages/protocol/dist/index.js");
+		if (existsSync(localProtocol)) {
+			console.log(`using local protocol: ${localProtocol}`);
+			alias = { "@shellular/protocol": localProtocol };
+		} else {
+			console.log(`no local protocol found. using the one from node_modules`);
+		}
 	} else if (!compileConsole) {
 		clearOutputDir(outputPath);
 	}
@@ -134,7 +145,7 @@ export default (_, { env = {}, mode = "development" }) => {
 							webSocketURL: {
 								hostname: host,
 								port: Number(port),
-								protocol: platform === "browser" ? "wss" : "ws",
+								protocol: useHttps ? "wss" : "ws",
 								pathname: "/ws",
 							},
 						},
@@ -147,7 +158,7 @@ export default (_, { env = {}, mode = "development" }) => {
 							: {}),
 						...(platform === "browser"
 							? {
-									server: "https",
+									server: useHttps ? "https" : "http",
 									headers: (request) => {
 										const isAuthCallback =
 											new URL(
@@ -277,7 +288,10 @@ export default (_, { env = {}, mode = "development" }) => {
 				DISPLAY_NAME: packageJson.displayName,
 				HOST: isDev && host ? host : null,
 				PORT: isDev && port ? port : null,
-				ORIGIN: isDev && host && port ? `http://${host}:${port}` : null,
+				ORIGIN:
+					isDev && host && port
+						? `${useHttps ? "https" : "http"}://${host}:${port}`
+						: null,
 			}),
 		],
 		optimization: {

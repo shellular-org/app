@@ -3,6 +3,7 @@ import browser from "bridge/browser";
 import AppDialogHost from "components/AppDialog";
 import ConnectionStatus from "components/ConnectionStatus";
 import EmptyState from "components/EmptyState";
+import StartupRunner from "components/StartupRunner";
 import actionStack from "lib/actionStack";
 import { AuthProvider, useAuth } from "lib/auth";
 import { ONBOARDING_KEY, resolveOnboardingVisibility } from "lib/onboarding";
@@ -222,6 +223,7 @@ function AuthenticatedApp() {
 		<ShellularProvider>
 			{process.env.IS_DESKTOP_UI ? <DesktopShell /> : <MobileShell />}
 			<AppDialogHost />
+			<StartupRunner />
 			{pageStack.map(({ id, element }) => {
 				const isClosing = closingIds.has(id);
 				const isVisible = id === topNonClosingPage?.id || isClosing;

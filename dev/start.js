@@ -8,6 +8,14 @@ const args = process.argv.slice(2);
 const platform = args.find((arg) => /(android|ios|macos|browser)/i.test(arg)) || "android";
 const isRelease = args.includes("--release") || args.includes("-r") || false;
 const noServer = args.includes("--no-server");
+// Bind and serve overrides, needed whenever the dev server is not reached over
+// the LAN: a remote workstation (VS Code Remote port forwarding) wants
+// `--host localhost --http`, and `--headless` keeps a headless box from trying
+// to launch a browser.
+const hostOverride = getArgValue("--host") || process.env.SHELLULAR_DEV_HOST;
+const portOverride = getArgValue("--port") || process.env.SHELLULAR_DEV_PORT;
+const noHttps = args.includes("--http");
+const headless = args.includes("--headless");
 
 const { default: start } = await import(`./${platform}/start.js`);
 
@@ -38,10 +46,11 @@ async function main() {
   } else if (noServer) {
     command = `webpack --mode development --env platform=${platform}`;
   } else {
-    const host = getIp();
-    const port = getPort();
-    devServer = { host, port };
-    command = `webpack serve --mode development --env platform=${platform} host=${host} port=${port}`;
+    const host = hostOverride || getIp();
+    const port = portOverride || getPort();
+    const protocol = platform === "browser" && !noHttps ? "https" : "http";
+    devServer = { host, port, protocol, headless };
+    command = `webpack serve --mode development --env platform=${platform} host=${host} port=${port}${noHttps ? " https=false" : ""}`;
   }
 
   console.log(command);
@@ -71,11 +80,7 @@ async function main() {
     // bundle with the current port is on disk before installing the APK.
     // For one-shot builds, also wait for a real compile before starting.
     // For browser dev server, any output is fine because the browser can wait.
-    const needsBundle =
-      platform === "android" ||
-      platform === "ios" ||
-      platform === "macos" ||
-      buildsOnce;
+    const needsBundle = platform === "android" || platform === "ios" || platform === "macos" || buildsOnce;
     if (needsBundle && !detectSuccessfulCompilation(chunk)) {
       return;
     }
@@ -142,6 +147,21 @@ function printToStdOut(error, stdout, stderr) {
   if (stderr) {
     process.stderr.write(stderr);
   }
+}
+
+/**
+ * Reads the value of a `--flag value` or `--flag=value` argument.
+ * @param {string} flag - The flag to look for.
+ * @returns {string|undefined} The value, or undefined when the flag is absent.
+ */
+function getArgValue(flag) {
+  const inline = args.find((arg) => arg.startsWith(`${flag}=`));
+  if (inline) {
+    return inline.slice(flag.length + 1);
+  }
+
+  const index = args.indexOf(flag);
+  return index !== -1 ? args[index + 1] : undefined;
 }
 
 function getPort() {

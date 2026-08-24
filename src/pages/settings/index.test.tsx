@@ -27,6 +27,7 @@ vi.mock("lib/settings", async (importOriginal) => {
 			},
 			editor: original.DEFAULT_EDITOR_SETTINGS,
 			terminal: original.DEFAULT_TERMINAL_SETTINGS,
+			startup: original.DEFAULT_STARTUP_SETTINGS,
 			showHiddenFiles: false,
 			hapticFeedback: true,
 		})),
@@ -42,6 +43,15 @@ vi.mock("lib/store", () => ({
 
 vi.mock("lib/toast", () => ({
 	default: vi.fn(),
+}));
+
+vi.mock("state", () => ({
+	useShellular: () => ({
+		savedHosts: [],
+		agents: {},
+		projects: [],
+		connectionStatus: "disconnected",
+	}),
 }));
 
 vi.mock("themes", () => ({

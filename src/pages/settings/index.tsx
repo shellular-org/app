@@ -5,16 +5,26 @@ import { ONBOARDING_KEY } from "lib/onboarding";
 import {
 	DEFAULT_EDITOR_SETTINGS,
 	DEFAULT_SERVER_SETTINGS,
+	DEFAULT_STARTUP_SETTINGS,
 	DEFAULT_TERMINAL_SETTINGS,
 	loadSettings,
 	MONOSPACE_FONT_FAMILY_OPTIONS,
 	type ServerProtocol,
+	type StartupConnectMode,
+	type StartupTarget,
 	saveSettings,
 	type TerminalCursorStyle,
 } from "lib/settings";
+import {
+	STARTUP_CONNECT_OPTIONS,
+	STARTUP_TARGET_OPTIONS,
+	startupTargetNeedsAgent,
+	startupTargetNeedsProject,
+} from "lib/startupPlan";
 import * as store from "lib/store";
 import toast from "lib/toast";
 import React, { useEffect, useState } from "react";
+import { useShellular } from "state";
 import themes from "themes";
 import {
 	DESKTOP_COMMAND_IDS,
@@ -248,6 +258,7 @@ function matchesSettingsSearch(
 
 export type SettingsCategory =
 	| "look-and-feel"
+	| "startup"
 	| "editor"
 	| "terminal"
 	| "keybindings"
@@ -319,6 +330,23 @@ export default function SettingsPage({
 		DEFAULT_TERMINAL_SETTINGS.letterSpacing,
 	);
 
+	const { savedHosts, agents, projects, connectionStatus } = useShellular();
+	const [startupConnect, setStartupConnect] = useState<StartupConnectMode>(
+		DEFAULT_STARTUP_SETTINGS.connect,
+	);
+	const [startupHostId, setStartupHostId] = useState(
+		DEFAULT_STARTUP_SETTINGS.hostId,
+	);
+	const [startupTarget, setStartupTarget] = useState<StartupTarget>(
+		DEFAULT_STARTUP_SETTINGS.target,
+	);
+	const [startupAgentId, setStartupAgentId] = useState(
+		DEFAULT_STARTUP_SETTINGS.agentId,
+	);
+	const [startupProjectPath, setStartupProjectPath] = useState(
+		DEFAULT_STARTUP_SETTINGS.projectPath,
+	);
+
 	const [hapticFeedback, setHapticFeedback] = useState(true);
 	const [isSavingServer, setIsSavingServer] = useState(false);
 	const [testOnboarding, setTestOnboarding] = useState(false);
@@ -359,6 +387,11 @@ export default function SettingsPage({
 			setTerminalScrollback(s.terminal.scrollback);
 			setTerminalLetterSpacing(s.terminal.letterSpacing);
 			setHapticFeedback(s.hapticFeedback);
+			setStartupConnect(s.startup.connect);
+			setStartupHostId(s.startup.hostId);
+			setStartupTarget(s.startup.target);
+			setStartupAgentId(s.startup.agentId);
+			setStartupProjectPath(s.startup.projectPath);
 		});
 	}, []);
 
@@ -442,6 +475,33 @@ export default function SettingsPage({
 		await persistSettings({ terminal: { letterSpacing: value } });
 	}
 
+	async function handleStartupConnectChange(value: string) {
+		const connect = value as StartupConnectMode;
+		setStartupConnect(connect);
+		await persistSettings({ startup: { connect } });
+	}
+
+	async function handleStartupHostChange(hostId: string) {
+		setStartupHostId(hostId);
+		await persistSettings({ startup: { hostId } });
+	}
+
+	async function handleStartupTargetChange(value: string) {
+		const target = value as StartupTarget;
+		setStartupTarget(target);
+		await persistSettings({ startup: { target } });
+	}
+
+	async function handleStartupAgentChange(agentId: string) {
+		setStartupAgentId(agentId);
+		await persistSettings({ startup: { agentId } });
+	}
+
+	async function handleStartupProjectChange(projectPath: string) {
+		setStartupProjectPath(projectPath);
+		await persistSettings({ startup: { projectPath } });
+	}
+
 	async function handleHapticFeedbackChange(value: boolean) {
 		setHapticFeedback(value);
 		await persistSettings({ hapticFeedback: value });
@@ -483,6 +543,7 @@ export default function SettingsPage({
 		label: string;
 	}> = [
 		{ id: "look-and-feel", label: "Look & Feel" },
+		{ id: "startup", label: "Startup" },
 		{ id: "editor", label: "Editor" },
 		{ id: "terminal", label: "Terminal" },
 		...(process.env.IS_DESKTOP_UI
@@ -511,6 +572,34 @@ export default function SettingsPage({
 			description: "Vibrates on touch interactions.",
 		},
 	]);
+	const showStartupSettings = matchesSettingsSearch(searchQuery, [
+		{
+			title: "Auto-connect",
+			description: "Which host the app connects to when it is opened.",
+		},
+		{ title: "Host", description: "The host to connect to on every launch." },
+		{ title: "Open", description: "What the app opens once the host is up." },
+		{ title: "Agent", description: "The agent the chat starts with." },
+		{
+			title: "Project",
+			description: "The folder the chat or git client opens.",
+		},
+	]);
+	const autoConnectOff = startupConnect === "off";
+	const isConnected = connectionStatus === "connected";
+	const startupHostOptions = savedHosts.map((host) => ({
+		value: host.hostId,
+		label:
+			host.alias ||
+			`${host.username ? `${host.username}@` : ""}${host.hostname}`,
+	}));
+	const startupAgentOptions = Object.values(agents)
+		.filter((agent) => agent.available)
+		.map((agent) => ({ value: agent.id, label: agent.title || agent.name }));
+	const startupProjectOptions = projects.map((project) => ({
+		value: project.path,
+		label: project.name,
+	}));
 	const showEditorSettings = matchesSettingsSearch(searchQuery, [
 		{ title: "Font Size", description: "Controls the font size in pixels." },
 		{
@@ -685,6 +774,105 @@ export default function SettingsPage({
 											/>
 										}
 									/>
+								</SettingsGroup>
+							</div>
+						)}
+
+						{((isSearching && showStartupSettings) ||
+							(!isSearching && activeTab === "startup")) && (
+							<div className="animate-in fade-in duration-300">
+								{isSearching && (
+									<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">
+										Startup
+									</h2>
+								)}
+								<SettingsGroup title="Connection" searchQuery={searchQuery}>
+									<SettingsItem
+										title="Auto-connect"
+										description="Which host the app connects to when it is opened."
+										control={
+											<AppSelect
+												value={startupConnect}
+												onChange={handleStartupConnectChange}
+												options={STARTUP_CONNECT_OPTIONS}
+											/>
+										}
+									/>
+									{startupConnect === "pinned-host" && (
+										<SettingsItem
+											title="Host"
+											description={
+												savedHosts.length
+													? "The host to connect to on every launch."
+													: "Connect to a host once so it can be picked here."
+											}
+											control={
+												<AppSelect
+													value={startupHostId}
+													onChange={handleStartupHostChange}
+													options={startupHostOptions}
+													disabled={!savedHosts.length}
+												/>
+											}
+										/>
+									)}
+								</SettingsGroup>
+								<SettingsGroup
+									title="After connecting"
+									searchQuery={searchQuery}
+								>
+									<SettingsItem
+										title="Open"
+										description={
+											autoConnectOff
+												? "Not used while Auto-connect is off: a cold start is never connected, and every target except Home needs the host."
+												: "What the app opens once the host is up."
+										}
+										control={
+											<AppSelect
+												value={startupTarget}
+												onChange={handleStartupTargetChange}
+												options={STARTUP_TARGET_OPTIONS}
+												disabled={autoConnectOff}
+											/>
+										}
+									/>
+									{startupTargetNeedsAgent(startupTarget) && (
+										<SettingsItem
+											title="Agent"
+											description={
+												isConnected
+													? "The agent the chat starts with."
+													: "Connect to a host to change this."
+											}
+											control={
+												<AppSelect
+													value={startupAgentId}
+													onChange={handleStartupAgentChange}
+													options={startupAgentOptions}
+													disabled={autoConnectOff || !isConnected}
+												/>
+											}
+										/>
+									)}
+									{startupTargetNeedsProject(startupTarget) && (
+										<SettingsItem
+											title="Project"
+											description={
+												isConnected
+													? "The folder the chat or git client opens."
+													: "Connect to a host to change this."
+											}
+											control={
+												<AppSelect
+													value={startupProjectPath}
+													onChange={handleStartupProjectChange}
+													options={startupProjectOptions}
+													disabled={autoConnectOff || !isConnected}
+												/>
+											}
+										/>
+									)}
 								</SettingsGroup>
 							</div>
 						)}

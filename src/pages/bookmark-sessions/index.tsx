@@ -1,10 +1,9 @@
 import "pages/sessions/style.scss";
-import { pushPage } from "App";
 import AppMenu from "components/AppMenu";
 import EmptyState from "components/EmptyState";
 import Page from "components/Page";
 import { getAgentIcon } from "lib/agents";
-import { chatTabId } from "lib/chatTabId";
+import { openChatPage } from "lib/navigate";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback } from "react";
 import { useShellular } from "state";
@@ -12,7 +11,6 @@ import {
 	type BookmarkedSession,
 	useBookmarkedSessions,
 } from "state/bookmarkSessions";
-import { tryOpenChatSurface } from "workbench/openers";
 
 /**
  * Global bookmarked-chats view, pushed from the Agents tab. Lists every bookmarked
@@ -36,35 +34,13 @@ export default function BookmarkSessionsPage({
 		async (bookmark: BookmarkedSession) => {
 			const agent = agents[bookmark.agentId];
 			if (!agent?.available) return;
-			const tabId = chatTabId(bookmark.agentId, bookmark.sessionId);
-			if (
-				tryOpenChatSurface({
-					id: tabId,
-					agentId: bookmark.agentId,
-					sessionId: bookmark.sessionId,
-					title: bookmark.title,
-					workspacePath: bookmark.workspacePath,
-				})
-			) {
-				onNavigate?.();
-				return;
-			}
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				tabId,
-				<ChatConversationPage.default
-					chatTabId={tabId}
-					sessionId={bookmark.sessionId}
-					title={bookmark.title}
-					agentId={bookmark.agentId}
-					workspacePath={bookmark.workspacePath}
-					assistantName={agent.name}
-					agentAvailable={agent.available}
-					unavailableMessage={`${agent.name} is not available on this device.`}
-					providerName={agent.title}
-					agentCapabilities={agent.capabilities}
-				/>,
-			);
+			await openChatPage({
+				agentId: bookmark.agentId,
+				agent,
+				sessionId: bookmark.sessionId,
+				title: bookmark.title,
+				workspacePath: bookmark.workspacePath,
+			});
 			onNavigate?.();
 		},
 		[agents, onNavigate],

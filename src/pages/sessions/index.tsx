@@ -10,6 +10,7 @@ import PageSearchToolbar from "components/PageSearchToolbar";
 import { getAgentIcon } from "lib/agents";
 import { chatTabId } from "lib/chatTabId";
 import { copyToClipboard } from "lib/clipboard";
+import { openChatPage } from "lib/navigate";
 import { getResumeCommand } from "lib/resumeCommand";
 import { formatRelativeTime } from "lib/utils";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,7 +25,6 @@ import {
 	getStreamingSessions,
 	listenToSessionStreamingEvent,
 } from "state/sessions";
-import { tryOpenChatSurface } from "workbench/openers";
 
 export default function ChatSessionsPage({
 	backend,
@@ -122,7 +122,9 @@ export default function ChatSessionsPage({
 		[scopedLocalTabs],
 	);
 	const mergedSessions = useMemo(() => {
-		const known = new Set(sessions.map((session) => session.id).filter(Boolean));
+		const known = new Set(
+			sessions.map((session) => session.id).filter(Boolean),
+		);
 		const cached = scopedLocalTabs
 			.filter((tab) => tab.sessionId && !known.has(tab.sessionId))
 			.map(
@@ -173,10 +175,7 @@ export default function ChatSessionsPage({
 		const query = searchQuery.trim().toLowerCase();
 		if (!query) return draftTabs;
 		return draftTabs.filter((tab) =>
-			[tab.title, tab.projectPath]
-				.join(" ")
-				.toLowerCase()
-				.includes(query),
+			[tab.title, tab.projectPath].join(" ").toLowerCase().includes(query),
 		);
 	}, [draftTabs, searchQuery]);
 
@@ -260,47 +259,19 @@ export default function ChatSessionsPage({
 			workspacePath: string;
 			tabId?: string;
 		}) => {
-			const tabId = opts.tabId ?? chatTabId(backend, opts.sessionId);
-			if (
-				tryOpenChatSurface({
-					id: tabId,
-					agentId: backend,
-					sessionId: opts.sessionId,
-					title: opts.title,
-					workspacePath: opts.workspacePath,
-					createOnFirstMessage: !opts.sessionId,
-				})
-			) {
-				onNavigate?.();
-				return;
-			}
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				tabId,
-				<ChatConversationPage.default
-					chatTabId={tabId}
-					sessionId={opts.sessionId}
-					title={opts.title}
-					agentId={backend}
-					workspacePath={opts.workspacePath}
-					assistantName={agent.name}
-					agentAvailable={agentAvailable}
-					unavailableMessage={`${agent.name} is not available on this device.`}
-					providerName={agent.title}
-					agentCapabilities={agent?.capabilities}
-					createOnFirstMessage={!opts.sessionId}
-				/>,
-			);
+			await openChatPage({
+				agentId: backend,
+				agent,
+				sessionId: opts.sessionId,
+				title: opts.title,
+				workspacePath: opts.workspacePath,
+				tabId: opts.tabId,
+				agentAvailable,
+				createOnFirstMessage: !opts.sessionId,
+			});
 			onNavigate?.();
 		},
-		[
-			agent?.capabilities,
-			agentAvailable,
-			agent.name,
-			agent.title,
-			backend,
-			onNavigate,
-		],
+		[agent, agentAvailable, backend, onNavigate],
 	);
 
 	const openNewChatForWorkspace = useCallback(
@@ -423,77 +394,77 @@ export default function ChatSessionsPage({
 			scrollRef={scrollRef}
 			rightSlot={
 				embedded ? undefined : (
-				<>
-					<button
-						type="button"
-						className="agent-sessions-header-btn haptic-trigger"
-						data-active={searchVisible}
-						onClick={toggleSearch}
-						aria-label={searchOpen ? "Close search" : "Search sessions"}
-					>
-						<span
-							className={searchOpen ? "icon-x" : "icon-search"}
-							aria-hidden="true"
-						/>
-					</button>
-					{!searchVisible && (
-						<>
-							<button
-								type="button"
-								className="agent-sessions-header-btn haptic-trigger"
-								onClick={load}
-								disabled={loading}
-								aria-label="Refresh sessions"
-							>
-								<span className="icon-refresh-cw" aria-hidden="true" />
-							</button>
-							{infoNote && (
+					<>
+						<button
+							type="button"
+							className="agent-sessions-header-btn haptic-trigger"
+							data-active={searchVisible}
+							onClick={toggleSearch}
+							aria-label={searchOpen ? "Close search" : "Search sessions"}
+						>
+							<span
+								className={searchOpen ? "icon-x" : "icon-search"}
+								aria-hidden="true"
+							/>
+						</button>
+						{!searchVisible && (
+							<>
 								<button
 									type="button"
 									className="agent-sessions-header-btn haptic-trigger"
-									onClick={() => setShowInfo(true)}
-									aria-label={`About ${agent.title} sessions`}
+									onClick={load}
+									disabled={loading}
+									aria-label="Refresh sessions"
 								>
-									<span className="icon-info" aria-hidden="true" />
+									<span className="icon-refresh-cw" aria-hidden="true" />
 								</button>
-							)}
-							<AppMenu
-								ariaLabel="Project button"
-								buttonClassName="agent-sessions-header-btn"
-								items={[
-									...(projects
-										? projects.map((project) => ({
-												label: project.name,
-												icon: "icon-folder",
-												key: project.path,
-												onClick() {
-													openNewChatForWorkspace(project.path);
-												},
-											}))
-										: []),
-									{
-										label: "Add Project",
-										icon: "icon-plus",
-										async onClick() {
-											const FileBrowserPage = await import("pages/files");
-											pushPage(
-												"select-project",
-												<FileBrowserPage.default
-													onSelectFolder={(path) => {
-														addProject(path);
-														openNewChatForWorkspace(path);
-													}}
-												/>,
-											);
+								{infoNote && (
+									<button
+										type="button"
+										className="agent-sessions-header-btn haptic-trigger"
+										onClick={() => setShowInfo(true)}
+										aria-label={`About ${agent.title} sessions`}
+									>
+										<span className="icon-info" aria-hidden="true" />
+									</button>
+								)}
+								<AppMenu
+									ariaLabel="Project button"
+									buttonClassName="agent-sessions-header-btn"
+									items={[
+										...(projects
+											? projects.map((project) => ({
+													label: project.name,
+													icon: "icon-folder",
+													key: project.path,
+													onClick() {
+														openNewChatForWorkspace(project.path);
+													},
+												}))
+											: []),
+										{
+											label: "Add Project",
+											icon: "icon-plus",
+											async onClick() {
+												const FileBrowserPage = await import("pages/files");
+												pushPage(
+													"select-project",
+													<FileBrowserPage.default
+														onSelectFolder={(path) => {
+															addProject(path);
+															openNewChatForWorkspace(path);
+														}}
+													/>,
+												);
+											},
 										},
-									},
-								]}
-							>
-								<span className="icon-plus" aria-hidden="true" />
-							</AppMenu>
-						</>
-					)}
-				</>
+									]}
+								>
+									<span className="icon-plus" aria-hidden="true" />
+								</AppMenu>
+							</>
+						)}
+					</>
 				)
 			}
 		>
@@ -566,11 +537,7 @@ export default function ChatSessionsPage({
 					);
 				}
 
-				if (
-					!mergedSessions.length &&
-					!bookmarked.length &&
-					!draftTabs.length
-				) {
+				if (!mergedSessions.length && !bookmarked.length && !draftTabs.length) {
 					return <EmptyState message={"No sessions found"} mascot="thinking" />;
 				}
 
@@ -723,26 +690,28 @@ export default function ChatSessionsPage({
 												<h3>{group.label}</h3>
 												<ul className="agent-sessions-list">
 													{group.sessions.map((session, i) => (
-												<li
-													key={session.id ?? `${group.label}-${i}`}
-													className="agent-sessions-item"
-													data-active={
-														session.id === activeSessionItem ||
-														Boolean(
-															session.id &&
-																chatTabId(backend, session.id) === activeChatId,
-														)
-													}
-												>
-													<button
-														type="button"
-														className="agent-sessions-item-info haptic-trigger"
-														aria-current={
-															session.id &&
-															chatTabId(backend, session.id) === activeChatId
-																? "page"
-																: undefined
-														}
+														<li
+															key={session.id ?? `${group.label}-${i}`}
+															className="agent-sessions-item"
+															data-active={
+																session.id === activeSessionItem ||
+																Boolean(
+																	session.id &&
+																		chatTabId(backend, session.id) ===
+																			activeChatId,
+																)
+															}
+														>
+															<button
+																type="button"
+																className="agent-sessions-item-info haptic-trigger"
+																aria-current={
+																	session.id &&
+																	chatTabId(backend, session.id) ===
+																		activeChatId
+																		? "page"
+																		: undefined
+																}
 																onClick={() => openSession(session)}
 															>
 																<div className="agent-sessions-icon-wrap">

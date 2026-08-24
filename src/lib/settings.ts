@@ -30,11 +30,39 @@ export type TerminalSettings = {
 	letterSpacing: number;
 };
 
+export type StartupConnectMode = "off" | "last-host" | "pinned-host";
+
+export type StartupTarget =
+	| "home"
+	| "new-chat"
+	| "last-chat"
+	| "terminal"
+	| "git-client"
+	| "system-monitor"
+	| "ports";
+
+/**
+ * What the app does on a cold start. One global rule rather than one per host:
+ * the phone is normally pointed at a single machine, and a per-host rule would
+ * multiply the settings surface for no gain.
+ */
+export type StartupSettings = {
+	connect: StartupConnectMode;
+	/** Host id used when `connect` is "pinned-host"; ignored otherwise. */
+	hostId: string;
+	target: StartupTarget;
+	/** Agent id for the two chat targets; ignored otherwise. */
+	agentId: string;
+	/** Absolute workspace path for the chat and git targets; ignored otherwise. */
+	projectPath: string;
+};
+
 export type AppSettings = {
 	theme: string;
 	server: ServerSettings;
 	editor: EditorSettings;
 	terminal: TerminalSettings;
+	startup: StartupSettings;
 	showHiddenFiles: boolean;
 	hapticFeedback: boolean;
 };
@@ -107,11 +135,25 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
 	letterSpacing: 1,
 };
 
+/**
+ * Off, and Home. That is not caution, it is the contract: the feature is
+ * opt-in, and an installation that never opens the Startup page keeps behaving
+ * exactly as the app did before it existed.
+ */
+export const DEFAULT_STARTUP_SETTINGS: StartupSettings = {
+	connect: "off",
+	hostId: "",
+	target: "home",
+	agentId: "",
+	projectPath: "",
+};
+
 const DEFAULT_SETTINGS: AppSettings = {
 	theme: "dark",
 	server: DEFAULT_SERVER_SETTINGS,
 	editor: DEFAULT_EDITOR_SETTINGS,
 	terminal: DEFAULT_TERMINAL_SETTINGS,
+	startup: DEFAULT_STARTUP_SETTINGS,
 	showHiddenFiles: false,
 	hapticFeedback: true,
 };
@@ -221,6 +263,47 @@ function normalizeTerminalSettings(
 	};
 }
 
+function isStartupConnectMode(value: unknown): value is StartupConnectMode {
+	return value === "off" || value === "last-host" || value === "pinned-host";
+}
+
+function isStartupTarget(value: unknown): value is StartupTarget {
+	return (
+		value === "home" ||
+		value === "new-chat" ||
+		value === "last-chat" ||
+		value === "terminal" ||
+		value === "git-client" ||
+		value === "system-monitor" ||
+		value === "ports"
+	);
+}
+
+function normalizeStartupSettings(
+	settings?: Partial<StartupSettings> | null,
+): StartupSettings {
+	return {
+		connect: isStartupConnectMode(settings?.connect)
+			? settings.connect
+			: DEFAULT_STARTUP_SETTINGS.connect,
+		hostId:
+			typeof settings?.hostId === "string"
+				? settings.hostId
+				: DEFAULT_STARTUP_SETTINGS.hostId,
+		target: isStartupTarget(settings?.target)
+			? settings.target
+			: DEFAULT_STARTUP_SETTINGS.target,
+		agentId:
+			typeof settings?.agentId === "string"
+				? settings.agentId
+				: DEFAULT_STARTUP_SETTINGS.agentId,
+		projectPath:
+			typeof settings?.projectPath === "string"
+				? settings.projectPath
+				: DEFAULT_STARTUP_SETTINGS.projectPath,
+	};
+}
+
 function normalizeSettings(
 	settings: Partial<AppSettings> | null | undefined,
 ): AppSettings {
@@ -229,6 +312,7 @@ function normalizeSettings(
 		server: normalizeServerSettings(settings?.server),
 		editor: normalizeEditorSettings(settings?.editor),
 		terminal: normalizeTerminalSettings(settings?.terminal),
+		startup: normalizeStartupSettings(settings?.startup),
 		showHiddenFiles:
 			typeof settings?.showHiddenFiles === "boolean"
 				? settings.showHiddenFiles
@@ -275,6 +359,10 @@ export async function saveSettings(
 		terminal: {
 			...current.terminal,
 			...settings.terminal,
+		},
+		startup: {
+			...current.startup,
+			...settings.startup,
 		},
 	});
 	await file.write(SETTINGS_PATH, JSON.stringify(next));

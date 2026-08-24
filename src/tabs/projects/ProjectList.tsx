@@ -2,7 +2,7 @@ import { pushPage, toToTab } from "App";
 import dialog from "bridge/dialog";
 import AppMenu from "components/AppMenu";
 import Loader from "components/Loader";
-import { chatTabId } from "lib/chatTabId";
+import { openChatPage, openGitClientPage } from "lib/navigate";
 import { useCallback, useEffect, useState } from "react";
 import { type ProjectInfo, useShellular } from "state";
 import type { AcpAgentInfo } from "state/acp";
@@ -12,8 +12,7 @@ import {
 	workspaceIntegration,
 } from "workbench/integration";
 import { openInWorkbench } from "workbench/navigation";
-import { showGitHistorySidebar } from "workbench/secondarySidebar";
-import { tryOpenChatSurface, tryOpenFileSurface } from "workbench/openers";
+import { tryOpenFileSurface } from "workbench/openers";
 import { buildProjectMenuItems } from "workbench/projectCommands";
 
 interface Props {
@@ -67,61 +66,20 @@ export default function ProjectList({ projects, adding }: Props) {
 				);
 				return;
 			}
-			const tabId = chatTabId(agent.id, "");
-			if (
-				tryOpenChatSurface({
-					id: tabId,
-					agentId: agent.id,
-					sessionId: "",
-					title: "New Chat",
-					workspacePath: project.path,
-					createOnFirstMessage: true,
-				})
-			)
-				return;
-			const ChatConversationPage = await import("pages/chat");
-			pushPage(
-				tabId,
-				<ChatConversationPage.default
-					chatTabId={tabId}
-					sessionId=""
-					title="New Chat"
-					agentId={agent.id}
-					workspacePath={project.path}
-					assistantName={agent.name}
-					providerName={agent.title || agent.name}
-					agentCapabilities={agent?.capabilities}
-					createOnFirstMessage
-				/>,
-			);
+			await openChatPage({
+				agentId: agent.id,
+				agent,
+				sessionId: "",
+				title: "New Chat",
+				workspacePath: project.path,
+				createOnFirstMessage: true,
+			});
 		},
 		[],
 	);
 
 	const openGitClient = useCallback(async (project: ProjectInfo) => {
-		if (process.env.IS_DESKTOP_UI) {
-			showGitHistorySidebar(project.path, project.name);
-			return;
-		}
-		if (
-			openInWorkbench({
-				kind: "git",
-				id: `git:${project.path}`,
-				title: `${project.name} · Git`,
-				icon: "icon-git-branch",
-				projectPath: project.path,
-				projectName: project.name,
-			})
-		)
-			return;
-		const GitClientPage = await import("pages/git-client");
-		pushPage(
-			`git-client-${project.path}`,
-			<GitClientPage.default
-				projectPath={project.path}
-				projectName={project.name}
-			/>,
-		);
+		await openGitClientPage(project.path, project.name);
 	}, []);
 
 	const openExplorer = useCallback(async (project: ProjectInfo) => {

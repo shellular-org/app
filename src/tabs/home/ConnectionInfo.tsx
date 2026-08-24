@@ -1,5 +1,4 @@
 import "./ConnectionInfo.scss";
-import { pushPage } from "App";
 import {
 	type AiBackend,
 	type HostUpdateResultMsg,
@@ -9,6 +8,7 @@ import dialog from "bridge/dialog";
 import AgentIcon from "components/AgentIcon";
 import Mascot from "components/Mascot";
 import appConfig from "lib/appConfig";
+import { openSessionsPage, openSystemMonitorPage } from "lib/navigate";
 import toast from "lib/toast";
 import { getPlatformIcon } from "lib/utils";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -40,6 +40,10 @@ export default function ConnectionInfo({
 		[agentsExpanded, availableAgents],
 	);
 	const hiddenAgentCount = availableAgents.length - visibleAgents.length;
+
+	const openSysmon = useCallback(async () => {
+		await openSystemMonitorPage();
+	}, []);
 
 	const onDisconnect = useCallback(async () => {
 		const ok = await dialog.confirm(
@@ -117,11 +121,7 @@ export default function ConnectionInfo({
 
 	const openSessions = useCallback(
 		async (backend: AiBackend) => {
-			const ChatSessionsPage = await import("pages/sessions");
-			pushPage(
-				`ai-${backend}`,
-				<ChatSessionsPage.default backend={backend} agent={agents[backend]} />,
-			);
+			await openSessionsPage(backend, agents[backend]);
 		},
 		[agents],
 	);
@@ -132,6 +132,14 @@ export default function ConnectionInfo({
 				<Mascot state="success" size={22} tone="inline" label="Connected" />
 				<span>Connected</span>
 
+				<button
+					type="button"
+					className="connection-icon-btn"
+					onClick={openSysmon}
+					aria-label="System Monitor"
+				>
+					<span className="icon-activity" aria-hidden="true" />
+				</button>
 				<button
 					type="button"
 					className="connection-disconnect-btn danger"

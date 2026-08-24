@@ -4,7 +4,7 @@ import ChatSidebar from "./ChatSidebar";
 
 const mocks = vi.hoisted(() => ({
 	removeChatTab: vi.fn(),
-	tryOpenChatSurface: vi.fn(() => true),
+	openChatPage: vi.fn(async () => undefined),
 }));
 
 vi.mock("state", () => ({ useShellular: () => ({ agents: {} }) }));
@@ -29,9 +29,7 @@ vi.mock("state/sessions", () => ({
 	getSessionStreaming: () => false,
 	listenToSessionStreamingEvent: () => () => {},
 }));
-vi.mock("workbench/openers", () => ({
-	tryOpenChatSurface: mocks.tryOpenChatSurface,
-}));
+vi.mock("lib/navigate", () => ({ openChatPage: mocks.openChatPage }));
 
 describe("ChatSidebar", () => {
 	it("exposes active navigation and opens existing chats through the workbench", () => {
@@ -50,9 +48,9 @@ describe("ChatSidebar", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: /^Second chat/ }));
 		expect(onNavigate).toHaveBeenCalledOnce();
-		expect(mocks.tryOpenChatSurface).toHaveBeenCalledWith(
+		expect(mocks.openChatPage).toHaveBeenCalledWith(
 			expect.objectContaining({
-				id: "chat:two",
+				tabId: "chat:two",
 				sessionId: "session-2",
 				workspacePath: "/repo",
 			}),

@@ -14,6 +14,7 @@ vi.mock("components/OfflineBanner", () => ({ default: () => null }));
 vi.mock("components/NoticeDialog", () => ({ default: () => null }));
 vi.mock("components/RatingDialog", () => ({ default: () => null }));
 vi.mock("components/Scanner", () => ({ default: () => null }));
+vi.mock("components/StartupBanner", () => ({ default: () => null }));
 vi.mock("./ConnectionInfo", () => ({
 	default: () => <section aria-label="Remote workspace" />,
 }));
@@ -24,6 +25,7 @@ vi.mock("lib/notices", () => ({
 vi.mock("lib/ratingService", () => ({
 	shouldPromptForRating: vi.fn(async () => false),
 }));
+vi.mock("lib/navigate", () => ({ openChatPage: vi.fn() }));
 vi.mock("lib/utils", () => ({
 	getOnlineStatus: () => true,
 }));
