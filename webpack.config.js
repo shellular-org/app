@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rm } from "node:fs";
 import { join, resolve } from "node:path";
 import ReactRefreshWebpackPlugin from "@pmmmwh/react-refresh-webpack-plugin";
 import MiniCssExtractPlugin from "mini-css-extract-plugin";
+import MonacoWebpackPlugin from "monaco-editor-webpack-plugin";
 import {
 	defineReactCompilerLoaderOption,
 	reactCompilerLoader,
@@ -14,7 +15,9 @@ const PLATFORMS = join(process.cwd(), "platforms");
 const ANDROID_BUNDLE = join(PLATFORMS, "android/app/src/main/assets/bundle");
 const BROWSER_BUNDLE = join(PLATFORMS, "browser/bundle");
 const IOS_BUNDLE = join(PLATFORMS, "ios/shellular/bundle");
+const MACOS_BUNDLE = join(PLATFORMS, "macos/shellular/bundle");
 const MIXINS = `@use "${join(process.cwd(), "src/mixins.scss")}" as *;`;
+const DESKTOP_UI_PLATFORMS = new Set(["browser", "macos", "windows", "linux"]);
 
 if (!existsSync(ANDROID_BUNDLE)) {
 	mkdirSync(ANDROID_BUNDLE, { recursive: true });
@@ -27,6 +30,9 @@ if (!existsSync(BROWSER_BUNDLE)) {
 if (!existsSync(IOS_BUNDLE)) {
 	mkdirSync(IOS_BUNDLE, { recursive: true });
 }
+if (!existsSync(MACOS_BUNDLE)) {
+	mkdirSync(MACOS_BUNDLE, { recursive: true });
+}
 
 export default (_, { env = {}, mode = "development" }) => {
 	const isDev = mode === "development";
@@ -37,6 +43,7 @@ export default (_, { env = {}, mode = "development" }) => {
 		https = "true",
 		console: compileConsole = false,
 	} = env;
+	const isDesktopUI = DESKTOP_UI_PLATFORMS.has(platform);
 	// The browser target is served over https so the phone gets a secure
 	// context on the LAN. Behind a localhost tunnel (VS Code Remote port
 	// forwarding) http is both a secure context and one less certificate
@@ -47,7 +54,9 @@ export default (_, { env = {}, mode = "development" }) => {
 			? BROWSER_BUNDLE
 			: platform === "ios"
 				? IOS_BUNDLE
-				: ANDROID_BUNDLE;
+				: platform === "macos"
+					? MACOS_BUNDLE
+					: ANDROID_BUNDLE;
 
 	let alias;
 	if (isDev) {
@@ -231,7 +240,18 @@ export default (_, { env = {}, mode = "development" }) => {
 				},
 			],
 		},
+		dotenv: {
+			prefix: "DEV_",
+		},
 		plugins: [
+			...(isDesktopUI
+				? [
+						new MonacoWebpackPlugin({
+							filename: "monaco/[name].worker.js",
+							publicPath: "./",
+						}),
+					]
+				: []),
 			...(!isDev ? [new MiniCssExtractPlugin({ ignoreOrder: true })] : []),
 			...(isDev ? [new ReactRefreshWebpackPlugin()] : []),
 			{
@@ -260,8 +280,10 @@ export default (_, { env = {}, mode = "development" }) => {
 				ID: packageJson.name,
 				VERSION: packageJson.version,
 				IS_IOS: platform === "ios",
+				IS_MACOS: platform === "macos",
 				IS_BROWSER: platform === "browser",
 				IS_ANDROID: platform === "android",
+				IS_DESKTOP_UI: isDesktopUI,
 				VERSION_CODE: packageJson.versionCode,
 				DISPLAY_NAME: packageJson.displayName,
 				HOST: isDev && host ? host : null,
@@ -286,6 +308,9 @@ export default (_, { env = {}, mode = "development" }) => {
 		devtool: false,
 		entry: {
 			console: "./src/console.ts",
+		},
+		resolve: {
+			extensions: [".ts", ".js"],
 		},
 		output: {
 			path: outputPath,

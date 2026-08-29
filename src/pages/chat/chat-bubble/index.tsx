@@ -1,6 +1,7 @@
 import "./style.scss";
 import type { AcpMessagePart } from "@shellular/protocol";
 import Mascot from "components/Mascot";
+import { ChatDiffContext } from "./ChatDiffContext";
 import CopyButton from "./components/CopyButton";
 import MessagePartView from "./components/MessagePartView";
 import ToolCallGroupView from "./components/ToolCallGroupView";
@@ -19,6 +20,7 @@ interface ChatBubbleProps {
 	messageRole: "user" | "assistant";
 	assistantName: string;
 	messageKey: string;
+	workspacePath: string;
 	streaming?: boolean;
 	/**
 	 * Whether this bubble closes a visual group of consecutive same-role
@@ -47,6 +49,7 @@ export default function ChatBubble({
 	messageRole,
 	assistantName,
 	messageKey,
+	workspacePath,
 	streaming = false,
 	showActions = true,
 	copyParts,
@@ -63,48 +66,50 @@ export default function ChatBubble({
 		!streaming && showActions && answerParts.some(isCopyableMessagePart);
 
 	return (
-		<div
-			className={`chat-bubble chat-bubble--${messageRole}${streaming ? " chat-bubble--streaming" : ""}`}
-		>
-			<div className="chat-bubble-role">
-				{messageRole === "user" ? "You" : assistantName}
-			</div>
-			{workParts.length > 0 ? (
-				<WorkLogView
-					parts={workParts}
-					streaming={streaming}
-					stateKey={`${messageKey}-work`}
-					startedAt={workStartedAt}
-					durationMs={workDurationMs}
-				/>
-			) : null}
-			{parts.length > 0 ? (
-				<div className="chat-bubble-content">
-					<div className="chat-bubble-text chat-bubble-text--md">
-						{renderMessageParts(parts, messageRole, messageKey)}
-					</div>
+		<ChatDiffContext.Provider value={{ messageKey, workspacePath }}>
+			<div
+				className={`chat-bubble chat-bubble--${messageRole}${streaming ? " chat-bubble--streaming" : ""}`}
+			>
+				<div className="chat-bubble-role">
+					{messageRole === "user" ? "You" : assistantName}
 				</div>
-			) : null}
-			{canCopy && (
-				<div className="chat-bubble-actions">
-					<CopyButton
-						getText={() => messagePartsToMarkdown(answerParts)}
-						label="Copy response"
-						className="chat-bubble-copy"
+				{workParts.length > 0 ? (
+					<WorkLogView
+						parts={workParts}
+						streaming={streaming}
+						stateKey={`${messageKey}-work`}
+						startedAt={workStartedAt}
+						durationMs={workDurationMs}
 					/>
-				</div>
-			)}
-			{streaming && workParts.length === 0 && (
-				<div className="chat-typing">
-					<Mascot state="thinking" size={34} tone="inline" />
-					<span className="chat-typing-label">
-						{statusLabel
-							? `${assistantName} is ${statusLabel}…`
-							: `${assistantName} is thinking…`}
-					</span>
-				</div>
-			)}
-		</div>
+				) : null}
+				{parts.length > 0 ? (
+					<div className="chat-bubble-content">
+						<div className="chat-bubble-text chat-bubble-text--md">
+							{renderMessageParts(parts, messageRole, messageKey)}
+						</div>
+					</div>
+				) : null}
+				{canCopy && (
+					<div className="chat-bubble-actions">
+						<CopyButton
+							getText={() => messagePartsToMarkdown(answerParts)}
+							label="Copy response"
+							className="chat-bubble-copy"
+						/>
+					</div>
+				)}
+				{streaming && workParts.length === 0 && (
+					<div className="chat-typing">
+						<Mascot state="thinking" size={34} tone="inline" />
+						<span className="chat-typing-label">
+							{statusLabel
+								? `${assistantName} is ${statusLabel}…`
+								: `${assistantName} is thinking…`}
+						</span>
+					</div>
+				)}
+			</div>
+		</ChatDiffContext.Provider>
 	);
 }
 

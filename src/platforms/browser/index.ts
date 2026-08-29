@@ -83,23 +83,6 @@ window.Bridge = {
 };
 
 export default async function setup() {
-	const browserCss = document.createElement("style");
-	browserCss.textContent = `
-	::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    background: var(--accent);
-  }
-
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }`;
-
-	document.head.append(browserCss);
-
 	checkBrowser(isMobile);
 
 	if ("virtualKeyboard" in navigator) {

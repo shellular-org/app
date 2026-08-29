@@ -2,12 +2,18 @@ import { pushPage, toToTab } from "App";
 import dialog from "bridge/dialog";
 import AppMenu from "components/AppMenu";
 import Loader from "components/Loader";
-import { getAgentIcon } from "lib/agents";
 import { openChatPage, openGitClientPage } from "lib/navigate";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { type ProjectInfo, useShellular } from "state";
 import type { AcpAgentInfo } from "state/acp";
 import { createTerminal } from "state/terminals";
+import {
+	type WorkspaceCapabilities,
+	workspaceIntegration,
+} from "workbench/integration";
+import { openInWorkbench } from "workbench/navigation";
+import { tryOpenFileSurface } from "workbench/openers";
+import { buildProjectMenuItems } from "workbench/projectCommands";
 
 interface Props {
 	projects: ProjectInfo[];
@@ -22,6 +28,15 @@ export default function ProjectList({ projects, adding }: Props) {
 	const [removingProjectPath, setRemovingProjectPath] = useState<string | null>(
 		null,
 	);
+	const [capabilities, setCapabilities] =
+		useState<WorkspaceCapabilities | null>(null);
+
+	useEffect(() => {
+		workspaceIntegration
+			.capabilities()
+			.then(setCapabilities)
+			.catch(() => {});
+	}, []);
 
 	const handleRemoveProject = async (project: ProjectInfo) => {
 		setRemovingProjectPath(project.path);
@@ -67,6 +82,34 @@ export default function ProjectList({ projects, adding }: Props) {
 		await openGitClientPage(project.path, project.name);
 	}, []);
 
+	const openExplorer = useCallback(async (project: ProjectInfo) => {
+		if (project.path === "/") {
+			dialog.message(
+				"Choose a folder inside the filesystem root. The root directory itself cannot be opened as a project.",
+				"Invalid Project",
+			);
+			return;
+		}
+		if (
+			tryOpenFileSurface({
+				id: `files:${project.path}`,
+				title: project.name,
+				initialPath: project.path,
+				mode: "project",
+			})
+		)
+			return;
+		const FileBrowserPage = await import("pages/files");
+		pushPage(
+			"project-explorer",
+			<FileBrowserPage.default
+				initialPath={project.path}
+				mode="project"
+				title={project.name}
+			/>,
+		);
+	}, []);
+
 	return (
 		<div className="project-list">
 			{projects.map((project) => (
@@ -78,24 +121,7 @@ export default function ProjectList({ projects, adding }: Props) {
 					<button
 						type="button"
 						className="project-item-main"
-						onClick={async () => {
-							if (project.path === "/") {
-								dialog.message(
-									"Choose a folder inside the filesystem root. The root directory itself cannot be opened as a project.",
-									"Invalid Project",
-								);
-								return;
-							}
-							const FileBrowserPage = await import("pages/files");
-							pushPage(
-								"project-explorer",
-								<FileBrowserPage.default
-									initialPath={project.path}
-									mode="project"
-									title={project.name}
-								/>,
-							);
-						}}
+						onClick={() => openExplorer(project)}
 					>
 						<div className="project-item-icon">
 							<span className="icon-folder" aria-hidden="true" />
@@ -135,40 +161,39 @@ export default function ProjectList({ projects, adding }: Props) {
 					<AppMenu
 						buttonClassName="project-item-menu-btn"
 						ariaLabel={`Menu for ${project.name}`}
-						items={[
-							...availableAgents.map((agent) => ({
-								icon: getAgentIcon(agent.id),
-								label: `New ${agent.title || agent.name} chat`,
-								onClick: () => openNewChat(project, agent),
-							})),
+						items={buildProjectMenuItems(
+							project,
+							availableAgents,
+							capabilities,
 							{
-								icon: "icon-terminal",
-								label: "Open in Terminal",
-								divider: true,
-								onClick: () => {
-									createTerminal({
+								onNewChat: (agent) => openNewChat(project, agent),
+								onExplore: () => openExplorer(project),
+								onGit: () => openGitClient(project),
+								onShellularTerminal: async () => {
+									const terminalId = await createTerminal({
 										cwd: project.path,
 									});
+									if (
+										terminalId &&
+										openInWorkbench({
+											kind: "terminal",
+											id: `terminal:${terminalId}`,
+											title: "Terminal",
+											icon: "icon-terminal",
+											terminalId,
+										})
+									)
+										return;
 									toToTab("terminals");
 								},
+								onRemove: () => handleRemoveProject(project),
+								onOpenInEditor: (editorId) =>
+									workspaceIntegration.openInEditor(project.path, editorId),
+								onReveal: () => workspaceIntegration.reveal(project.path),
+								onOpenSystemTerminal: () =>
+									workspaceIntegration.openSystemTerminal(project.path),
 							},
-							...(project.gitInfo?.hasGit
-								? [
-										{
-											icon: "icon-git-branch",
-											label: "Open Git",
-											onClick: () => openGitClient(project),
-										},
-									]
-								: []),
-							{
-								icon: "icon-trash",
-								label: "Remove",
-								onClick: () => handleRemoveProject(project),
-								danger: true,
-								divider: true,
-							},
-						]}
+						)}
 					>
 						<span className="icon-more-vertical" aria-hidden="true" />
 					</AppMenu>

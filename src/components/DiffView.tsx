@@ -5,7 +5,11 @@ import type {
 	SelectedLineRange,
 } from "@pierre/diffs";
 import { MultiFileDiff } from "@pierre/diffs/react";
-import { registerShellularDiffThemes } from "lib/diffsTheme";
+import {
+	diffThemeName,
+	diffThemeNameFromId,
+	registerShellularDiffThemes,
+} from "lib/diffsTheme";
 import {
 	DEFAULT_EDITOR_SETTINGS,
 	type EditorSettings,
@@ -63,9 +67,13 @@ export default function DiffView<LAnnotation = undefined>({
 		}),
 		[path, newText],
 	);
-	const [themeType, setThemeType] = useState<"light" | "dark">(() =>
-		themes.current?.type === "light" ? "light" : "dark",
-	);
+	const [activeTheme, setActiveTheme] = useState(() => ({
+		name: themes.current
+			? diffThemeName(themes.current)
+			: diffThemeNameFromId("dark"),
+		type:
+			themes.current?.type === "light" ? ("light" as const) : ("dark" as const),
+	}));
 	const [editorSettings, setEditorSettings] = useState<EditorSettings>(
 		DEFAULT_EDITOR_SETTINGS,
 	);
@@ -83,7 +91,10 @@ export default function DiffView<LAnnotation = undefined>({
 	useEffect(
 		() =>
 			themes.subscribe((theme) => {
-				setThemeType(theme.type === "light" ? "light" : "dark");
+				setActiveTheme({
+					name: diffThemeName(theme),
+					type: theme.type === "light" ? "light" : "dark",
+				});
 			}),
 		[],
 	);
@@ -119,10 +130,10 @@ export default function DiffView<LAnnotation = undefined>({
 			disableWorkerPool
 			options={{
 				theme: {
-					light: "shellular-champagne-light",
-					dark: "shellular-champagne-noir",
+					light: activeTheme.name,
+					dark: activeTheme.name,
 				},
-				themeType,
+				themeType: activeTheme.type,
 				diffStyle: "unified",
 				diffIndicators: "bars",
 				overflow: editorSettings.wordWrap ? "wrap" : "scroll",

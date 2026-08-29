@@ -1,5 +1,10 @@
 import type Theme from "classes/theme";
 import permissions from "lib/permissions";
+import {
+	DESKTOP_COMMAND_IDS,
+	type DesktopKeyboardCommand,
+	type ShortcutModifier,
+} from "workbench/desktopShortcuts";
 import bridge from "./bridge";
 
 export type AppInfo = {
@@ -31,7 +36,27 @@ export type NavigationMode = {
 	statusBarHeight: number;
 };
 
+export type DesktopCommand = DesktopKeyboardCommand;
+
+export type DesktopCapabilities = {
+	localWorkspace: boolean;
+	canPickLocalFiles: boolean;
+	canRevealLocalPath: boolean;
+	canOpenSystemTerminal: boolean;
+};
+
+export type DesktopNativeShortcut = {
+	key: string;
+	modifiers: ShortcutModifier[];
+};
+
+export type DesktopShortcutContext = {
+	contextualNew: "new-chat" | "new-file";
+	shortcuts?: Partial<Record<DesktopCommand, DesktopNativeShortcut | null>>;
+};
+
 const native = bridge("Native");
+let desktopCommandRegistration = 0;
 
 export default {
 	exitApp(): Promise<void> {
@@ -76,6 +101,62 @@ export default {
 			"setIntentHandler",
 			[],
 		);
+	},
+	setDesktopCommandHandler(
+		handler: (command: DesktopCommand) => void,
+		onerror: (e: Error) => void = console.error,
+	) {
+		desktopCommandRegistration += 1;
+		const registrationId = `desktop-command-${desktopCommandRegistration}`;
+		let active = true;
+		Bridge.exec(
+			(data) => {
+				if (active && isDesktopCommand(data)) handler(data);
+			},
+			onerror,
+			"Native",
+			"setDesktopCommandHandler",
+			[registrationId],
+		);
+		return () => {
+			if (!active) return;
+			active = false;
+			void native("clearDesktopCommandHandler", [registrationId]).catch(
+				onerror,
+			);
+		};
+	},
+	getDesktopCapabilities(): Promise<DesktopCapabilities> {
+		return native("getDesktopCapabilities") as Promise<DesktopCapabilities>;
+	},
+	pickLocalFiles(rootPath?: string): Promise<string[]> {
+		return native("pickLocalFiles", rootPath ? [rootPath] : []) as Promise<
+			string[]
+		>;
+	},
+	pickLocalDirectory(rootPath: string): Promise<string | null> {
+		return native("pickLocalDirectory", [rootPath]) as Promise<string | null>;
+	},
+	revealLocalPath(path: string): Promise<void> {
+		return native("revealLocalPath", [path]) as Promise<void>;
+	},
+	openSystemTerminal(path: string): Promise<void> {
+		return native("openSystemTerminal", [path]) as Promise<void>;
+	},
+	setWindowTitle(title: string): Promise<void> {
+		return native("setWindowTitle", [title]) as Promise<void>;
+	},
+	setDesktopShortcutContext(context: DesktopShortcutContext): Promise<void> {
+		return native("setDesktopShortcutContext", [context]) as Promise<void>;
+	},
+	loadBundledAsset(path: string): Promise<string> {
+		return native("loadBundledAsset", [path]) as Promise<string>;
+	},
+	readClipboardText(): Promise<string> {
+		return native("readClipboardText") as Promise<string>;
+	},
+	writeClipboardText(text: string): Promise<void> {
+		return native("writeClipboardText", [text]) as Promise<void>;
 	},
 	async setTheme(theme: Theme) {
 		const themeStyle = document.querySelector("style#theme-data");
@@ -123,3 +204,10 @@ export default {
 		return native("setKeyboardSuggestionsEnabled", [enabled]) as Promise<void>;
 	},
 };
+
+function isDesktopCommand(value: unknown): value is DesktopCommand {
+	return (
+		typeof value === "string" &&
+		(DESKTOP_COMMAND_IDS as string[]).includes(value)
+	);
+}

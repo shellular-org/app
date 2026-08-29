@@ -1,7 +1,7 @@
 import { getConnectionSnapshot } from "state/connection";
 import { fetchPorts, type PortEntry } from "state/ports";
-import { addBrowserHistory, getBrowserHistory } from "./history";
-import { buildHomePage } from "./home";
+import { addBrowserHistory } from "./history";
+import { getBrowserHomeDocument } from "./homeDocument";
 import { buildPortsPage } from "./ports";
 import { themeStyles } from "./shared";
 
@@ -39,7 +39,7 @@ export function initBrowserBridge(): void {
 		switch (name) {
 			case "home": {
 				const hostId = getConnectionSnapshot().hostInfo?.id;
-				return buildHomePage(hostId ? getBrowserHistory(hostId) : []);
+				return getBrowserHomeDocument(hostId);
 			}
 			case "ports": {
 				try {

@@ -17,7 +17,13 @@ import {
  * session across all agents. The per-agent sessions page filters in place
  * instead of using this page.
  */
-export default function BookmarkSessionsPage() {
+export default function BookmarkSessionsPage({
+	embedded = false,
+	onNavigate,
+}: {
+	embedded?: boolean;
+	onNavigate?: () => void;
+} = {}) {
 	const { agents } = useShellular();
 	const { bookmarked, toggleBookmark } = useBookmarkedSessions();
 	const visibleBookmarks = bookmarked.filter(
@@ -35,12 +41,16 @@ export default function BookmarkSessionsPage() {
 				title: bookmark.title,
 				workspacePath: bookmark.workspacePath,
 			});
+			onNavigate?.();
 		},
-		[agents],
+		[agents, onNavigate],
 	);
 
 	return (
-		<Page className="agent-sessions-page" title="Bookmarked">
+		<Page
+			className={`agent-sessions-page${embedded ? " is-sidebar-embedded" : ""}`}
+			title="Bookmarked"
+		>
 			{!visibleBookmarks.length ? (
 				<EmptyState message="No bookmarked chats yet" mascot="thinking" />
 			) : (

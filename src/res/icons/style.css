@@ -1,6 +1,6 @@
 @font-face {
   font-family: 'shellular-app';
-  src: url('shellular-app.ttf?16kua3') format('truetype');
+  src: url('shellular-app.ttf?ea63fx') format('truetype');
   font-weight: normal;
   font-style: normal;
   font-display: block;
@@ -22,6 +22,9 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+.icon-account_tree:before {
+  content: "\ea63";
+}
 .icon-fx:before {
   content: "\ea62";
 }

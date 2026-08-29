@@ -32,7 +32,7 @@ export function addBrowserHistory(
 ): void {
 	const list = getBrowserHistory(hostId);
 	// Remove duplicate if same URL exists
-	const filtered = list.slice(0, 3).filter((e) => e.url !== entry.url);
+	const filtered = list.filter((e) => e.url !== entry.url);
 	filtered.unshift({
 		url: entry.url,
 		title: entry.title,

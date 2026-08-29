@@ -2,37 +2,64 @@ import "./style.scss";
 import { pushPage } from "App";
 import type { HostInfo } from "@shellular/protocol";
 import clsx from "clsx";
+import AccountAvatarButton from "components/AccountAvatarButton";
 import AppMenu from "components/AppMenu";
 import NoticeDialog from "components/NoticeDialog";
 import OfflineBanner from "components/OfflineBanner";
 import RatingDialog from "components/RatingDialog";
 import Scanner from "components/Scanner";
+import SemanticStatusIcon from "components/SemanticStatusIcon";
 import StartupBanner from "components/StartupBanner";
 import { AnimatePresence, domMax, LazyMotion, m } from "framer-motion";
 import { getAgentIcon } from "lib/agents";
-import { useAuth } from "lib/auth";
 import { copyToClipboard } from "lib/clipboard";
 import { openChatPage } from "lib/navigate";
 import { dismissNotice, getUndismissedNotices, type Notice } from "lib/notices";
 import { shouldPromptForRating } from "lib/ratingService";
 import { getResumeCommand } from "lib/resumeCommand";
-import { getInitials, getOnlineStatus } from "lib/utils";
+import { getOnlineStatus } from "lib/utils";
 import AccountPage from "pages/account";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useShellular } from "state";
-import { getHostInfo } from "state/connection";
+import {
+	getConnectionSnapshot,
+	getHostInfo,
+	subscribeState,
+} from "state/connection";
+import {
+	connectLocalCli,
+	getLocalCliSnapshot,
+	subscribeLocalCli,
+} from "state/localCli";
 import {
 	dismissSessionActivity,
 	getActiveSessionActivities,
 	type SessionActivity,
 	subscribeSessionActivities,
 } from "state/sessions";
+import { tryOpenUtilitySurface } from "workbench/openers";
 import ConnectionInfo from "./ConnectionInfo";
 import SavedHostItem from "./SavedHostItem";
+import { getSessionStatusPresentation } from "./sessionStatusPresentation";
 
-export default function HomeTab() {
-	const { savedHosts, connectionStatus, isSwitching, agents } = useShellular();
-	const { user } = useAuth();
+export default function HomeTab({
+	showAccount = true,
+}: {
+	showAccount?: boolean;
+}) {
+	const {
+		savedHosts,
+		connectionStatus,
+		isSwitching,
+		agents,
+		disconnect,
+		hostPlatform,
+	} = useShellular();
+	const connection = useSyncExternalStore(
+		subscribeState,
+		getConnectionSnapshot,
+	);
+	const localCli = useSyncExternalStore(subscribeLocalCli, getLocalCliSnapshot);
 	// Treat an in-flight reconnect as "still connected" for display purposes, so
 	// a dropped CLI doesn't visually reset the home view to the host picker while
 	// we're transparently retrying. The reconnect overlay communicates the state.
@@ -41,7 +68,7 @@ export default function HomeTab() {
 	const [showScanner, setShowScanner] = useState(false);
 	const [hostInfo, setHostInfo] = useState<HostInfo | null>(getHostInfo);
 	const [isOnline, setIsOnline] = useState<boolean>(getOnlineStatus);
-	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(() =>
+	const [activeSessions, setActiveSessions] = useState<SessionActivity[]>(
 		getActiveSessionActivities(),
 	);
 	const [showRatingDialog, setShowRatingDialog] = useState(false);
@@ -51,6 +78,7 @@ export default function HomeTab() {
 	const visibleActiveSessions = activeSessions.filter(
 		(session) => agents[session.agentId]?.available,
 	);
+	const isLocalConnection = isLive && connection.transport === "local";
 
 	useEffect(() => {
 		// Keep the last host info on screen during a reconnect (isLive) so the
@@ -106,41 +134,37 @@ export default function HomeTab() {
 	return (
 		<LazyMotion features={domMax}>
 			<div className="home-tab">
-				<div className="home-hero">
-					<div className="home-hero-brand">
-						<span className="icon-shellular" aria-hidden="true" />
-						<h1>Shellular</h1>
-						<span className="home-hero-beta-badge">Beta</span>
+				{!process.env.IS_DESKTOP_UI && (
+					<div className="home-hero">
+						<div className="home-hero-brand">
+							<span className="icon-shellular" aria-hidden="true" />
+							<h1>Shellular</h1>
+							<span className="home-hero-beta-badge">Beta</span>
+						</div>
+						{showAccount && <AccountAvatarButton onClick={openAccountPage} />}
 					</div>
-					{user && (
-						<button
-							type="button"
-							className="haptic-trigger grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-card-border bg-surface-strong text-accent transition-transform duration-150 active:scale-95"
-							onClick={openAccountPage}
-							aria-label="Account"
-						>
-							{user.avatarUrl ? (
-								<img
-									src={user.avatarUrl}
-									alt=""
-									className="h-full w-full object-cover"
-								/>
-							) : (
-								<span className="text-[13px] font-bold leading-none uppercase tracking-tight">
-									{getInitials(user.name || user.email)}
-								</span>
-							)}
-						</button>
-					)}
-				</div>
+				)}
 
 				<div className={clsx("px-4", { hidden: isOnline })}>
 					<OfflineBanner onChange={setIsOnline} />
 				</div>
 				<StartupBanner />
-				{isOnline && hostInfo && <ConnectionInfo hostInfo={hostInfo} />}
+				{isOnline && hostInfo && (
+					<div
+						className={clsx(
+							process.env.IS_DESKTOP_UI &&
+								"pt-[var(--workbench-sidebar-gutter,18px)]",
+						)}
+					>
+						{isLocalConnection ? (
+							<LocalConnectionInfo onDisconnect={disconnect} />
+						) : (
+							<ConnectionInfo hostInfo={hostInfo} />
+						)}
+					</div>
+				)}
 				{isOnline && hostInfo && visibleActiveSessions.length > 0 && (
-					<div className="px-[18px] pt-0.5 pb-[18px]">
+					<div className="px-[var(--workbench-sidebar-gutter,18px)] pt-0.5 pb-[var(--workbench-sidebar-gutter,18px)]">
 						<h2 className="mb-2.5 ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45">
 							Active Sessions
 						</h2>
@@ -148,6 +172,7 @@ export default function HomeTab() {
 							{visibleActiveSessions.map((session) => {
 								const agent = agents[session.agentId];
 								const dismissible = isDismissible(session);
+								const status = getSessionStatusPresentation(session.status);
 								return (
 									<li
 										key={`${session.agentId}:${session.sessionId}`}
@@ -155,7 +180,7 @@ export default function HomeTab() {
 									>
 										<button
 											type="button"
-											className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-0 text-left"
+											className="haptic-trigger flex min-w-0 flex-1 items-center gap-3 py-3 pl-3.5 pr-1 text-left"
 											onClick={() => openSession(session, agent)}
 										>
 											<span
@@ -166,7 +191,7 @@ export default function HomeTab() {
 												<span className="truncate text-[14px] font-[650] text-primary-text">
 													{sessionDisplayTitle(session)}
 												</span>
-												<span className="truncate text-[11px] text-secondary-text opacity-[0.58]">
+												<span className="card-subtext truncate text-[11px]">
 													{[
 														agent?.title ?? session.agentId,
 														basename(session.workspacePath),
@@ -175,49 +200,60 @@ export default function HomeTab() {
 														.join(" · ")}
 												</span>
 											</span>
-											<span
-												className={clsx(
-													"ml-2 shrink-0 truncate text-[11px] font-bold",
-													statusColor(session.status),
-												)}
-											>
-												{statusLabel(session)}
-											</span>
 										</button>
-										<AppMenu
-											ariaLabel="Session options"
-											buttonClassName="shrink-0 px-3.5 py-3 opacity-50"
-											placement="bottom end"
-											items={[
-												{
-													key: "copy-id",
-													icon: "icon-copy",
-													label: "Copy Session ID",
-													onClick: () => copySessionId(session.sessionId),
-												},
-												{
-													key: "resume",
-													icon: "icon-terminal",
-													label: "Copy Resume Command",
-													onClick: () =>
-														copyResumeCommand(session, hostInfo.platform),
-												},
-												...(dismissible
-													? [
-															{
-																key: "dismiss",
-																icon: "icon-eye-off",
-																label: "Dismiss",
-																onClick: () =>
-																	dismissSessionActivity(
-																		session.agentId,
-																		session.sessionId,
-																	),
-															},
-														]
-													: []),
-											]}
-										/>
+										<div
+											className={clsx(
+												"flex shrink-0 items-center gap-1",
+												dismissible ? "pr-1.5" : "pr-3",
+											)}
+										>
+											<SemanticStatusIcon
+												icon={status.icon}
+												label={status.label}
+												tone={status.tone}
+												animated={status.animated}
+												className="pointer-events-none"
+											/>
+											<AppMenu
+												ariaLabel="Session options"
+												buttonClassName="grid size-7 shrink-0 cursor-pointer place-items-center rounded-md bg-surface-soft text-secondary-text hover:bg-surface-strong hover:text-primary-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-accent"
+												placement="bottom end"
+												items={[
+													{
+														key: "copy-id",
+														icon: "icon-copy",
+														label: "Copy Session ID",
+														onClick: () => copySessionId(session.sessionId),
+													},
+													{
+														key: "resume",
+														icon: "icon-terminal",
+														label: "Copy Resume Command",
+														onClick: () =>
+															copyResumeCommand(session, hostPlatform),
+													},
+													...(dismissible
+														? [
+																{
+																	key: "dismiss",
+																	icon: "icon-eye-off",
+																	label: "Dismiss",
+																	onClick: () =>
+																		dismissSessionActivity(
+																			session.agentId,
+																			session.sessionId,
+																		),
+																},
+															]
+														: []),
+												]}
+											>
+												<span
+													className="icon-more-horizontal text-[14px] leading-none"
+													aria-hidden="true"
+												/>
+											</AppMenu>
+										</div>
 									</li>
 								);
 							})}
@@ -242,6 +278,38 @@ export default function HomeTab() {
 						</m.div>
 					)}
 				</AnimatePresence>
+				{localCli.capability?.available && !isLive && (
+					<div className="saved-machines-section">
+						<h2 className="saved-machines-title">This Machine</h2>
+						<button
+							type="button"
+							className="flex w-full items-center gap-3 rounded-xl border border-card-border bg-popup-background p-3 text-left shadow-[var(--shadow)]"
+							onClick={() => void connectLocalCli()}
+						>
+							<span
+								className="icon-shellular before:!text-current text-xl"
+								aria-hidden="true"
+							/>
+							<span className="min-w-0 flex-1">
+								<span className="block truncate text-sm font-bold text-primary-text">
+									{localCli.cli?.machineName ?? "This Mac"}
+								</span>
+								<span className="card-subtext block truncate text-[11px]">
+									{localCli.busy
+										? localCli.phase === "connecting"
+											? "Connecting…"
+											: "Preparing local access…"
+										: (localCli.error ??
+											`Local · ${localCli.cli?.directory ?? "available"}`)}
+								</span>
+							</span>
+							<span
+								className="icon-chevron_right opacity-40"
+								aria-hidden="true"
+							/>
+						</button>
+					</div>
+				)}
 
 				{savedHosts.length > 0 && !showScanner && !isLive && (
 					<div className="saved-machines-section">
@@ -296,7 +364,43 @@ export default function HomeTab() {
 }
 
 function openAccountPage() {
+	if (tryOpenUtilitySurface("account", "Account", "icon-user")) return;
 	pushPage("account", <AccountPage />, { showConnectionBanner: false });
+}
+
+function LocalConnectionInfo({ onDisconnect }: { onDisconnect: () => void }) {
+	return (
+		<section className="local-connection-card" aria-label="Local workspace">
+			<div className="local-connection-icon">
+				<span className="icon-monitor" aria-hidden="true" />
+			</div>
+			<div className="local-connection-copy">
+				<span>{localMachineLabel()}</span>
+				<small>Working locally on this computer</small>
+			</div>
+			<button
+				type="button"
+				className="local-connection-exit"
+				onClick={onDisconnect}
+				aria-label="Leave local workspace"
+				title="Leave local workspace"
+			>
+				<span className="icon-log-out" aria-hidden="true" />
+			</button>
+		</section>
+	);
+}
+
+function localMachineLabel() {
+	if (process.env.PLATFORM === "macos") return "This Mac";
+	const platform = navigator.platform.toLowerCase();
+	const userAgent = navigator.userAgent.toLowerCase();
+	if (platform.includes("win") || userAgent.includes("windows"))
+		return "This PC";
+	if (platform.includes("linux") || userAgent.includes("linux")) {
+		return "This Computer";
+	}
+	return "This Computer";
 }
 
 async function openSession(
@@ -350,43 +454,6 @@ function isDismissible(session: SessionActivity): boolean {
 			return false;
 		default:
 			return true;
-	}
-}
-
-function statusColor(status: SessionActivity["status"]): string {
-	switch (status) {
-		case "starting":
-		case "running":
-			return "text-info";
-		case "waiting_for_permission":
-			return "text-warning";
-		case "error":
-			return "text-danger";
-		case "finished":
-			return "text-success";
-		default:
-			return "text-secondary-text opacity-70";
-	}
-}
-
-function statusLabel(session: SessionActivity) {
-	switch (session.status) {
-		case "starting":
-			return "Starting";
-		case "running":
-			return "Working";
-		case "waiting_for_permission":
-			return "Permission";
-		case "stopping":
-			return "Stopping";
-		case "stopped":
-			return "Stopped";
-		case "cancelled":
-			return "Cancelled";
-		case "error":
-			return "Error";
-		default:
-			return "Finished";
 	}
 }
 

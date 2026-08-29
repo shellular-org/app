@@ -1,4 +1,4 @@
-import browser from "bridge/browser";
+import "./style.scss";
 import dialog from "bridge/dialog";
 import { cachePorts } from "browser";
 import EmptyState from "components/EmptyState";
@@ -7,6 +7,7 @@ import Page from "components/Page";
 import { useCallback, useEffect, useState } from "react";
 import { useShellular } from "state";
 import { fetchPorts, killPort, type PortEntry } from "state/ports";
+import { openBrowserSurface } from "workbench/browserSurface";
 
 // Ports that are almost certainly running an HTTP server
 const WEB_PORTS = new Set([
@@ -179,7 +180,10 @@ export default function PortsPage() {
 		// Prefer the portless `<name>.localhost` URL when the user has one mapped.
 		const url = entry.portlessUrl ?? buildPortUrl(entry.port);
 		setExpandedPort(null);
-		await browser.open(url);
+		await openBrowserSurface(
+			url,
+			entry.portlessUrl?.replace(/^https?:\/\//, "") ?? `:${entry.port}`,
+		);
 	}
 
 	const rightSlot = (
@@ -216,7 +220,7 @@ export default function PortsPage() {
 	}
 
 	return (
-		<Page title="Ports" rightSlot={rightSlot}>
+		<Page title="Ports" rightSlot={rightSlot} className="ports-page">
 			{!loading && !error && ports.length > 0 && (
 				<div className="shrink-0 flex items-center gap-2 px-3 h-[38px] box-border mb-3 bg-surface-soft border border-card-border rounded-[10px]">
 					<span
@@ -322,7 +326,7 @@ export default function PortsPage() {
 								<span className="text-[13px] font-bold text-primary-text font-['Courier_New',monospace] overflow-hidden text-ellipsis whitespace-nowrap">
 									{group.process}
 								</span>
-								<span className="text-[11px] font-semibold text-secondary-text opacity-55 shrink-0">
+								<span className="card-subtext shrink-0 text-[11px] font-semibold">
 									{group.entries.length} port
 									{group.entries.length !== 1 ? "s" : ""}
 								</span>
@@ -371,7 +375,7 @@ export default function PortsPage() {
 														</span>
 													)}
 													<span className="flex items-center gap-[7px]">
-														<span className="text-[11px] text-secondary-text opacity-55">
+														<span className="card-subtext text-[11px]">
 															PID {entry.pid}
 														</span>
 														{entry.portlessUrl && (

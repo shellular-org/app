@@ -160,6 +160,7 @@ export default function TerminalTab() {
 
 				<div className="terminal-tab-bar">
 					<AppMenu
+						contextual={false}
 						buttonClassName="terminal-title-btn"
 						ariaLabel="Switch terminal"
 						placement="bottom start"

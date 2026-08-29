@@ -14,6 +14,8 @@ export type EditorSettings = {
 	wordWrap: boolean;
 	lineNumbers: boolean;
 	tabSize: number;
+	minimap: boolean;
+	stickyScroll: boolean;
 };
 
 export type TerminalCursorStyle = "block" | "underline" | "bar";
@@ -119,6 +121,8 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
 	wordWrap: true,
 	lineNumbers: true,
 	tabSize: 4,
+	minimap: true,
+	stickyScroll: true,
 };
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
@@ -194,6 +198,14 @@ function normalizeEditorSettings(
 			typeof settings?.tabSize === "number"
 				? Math.min(8, Math.max(1, Math.round(settings.tabSize)))
 				: DEFAULT_EDITOR_SETTINGS.tabSize,
+		minimap:
+			typeof settings?.minimap === "boolean"
+				? settings.minimap
+				: DEFAULT_EDITOR_SETTINGS.minimap,
+		stickyScroll:
+			typeof settings?.stickyScroll === "boolean"
+				? settings.stickyScroll
+				: DEFAULT_EDITOR_SETTINGS.stickyScroll,
 	};
 }
 

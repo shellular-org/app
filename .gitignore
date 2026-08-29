@@ -26,9 +26,7 @@ local.properties
 
 # Platform-specific files
 .gradle
-platforms/android/app/src/main/assets/bundle
-platforms/ios/shellular/bundle
-platforms/browser/bundle
+platforms/**/*/bundle
 platforms/android/app/release
 platforms/android/build
 keystore.jks
@@ -36,9 +34,16 @@ keystore.jks
 /build.json
 dev/terminals.config
 
+# Apple build and signing artifacts
 *.xcarchive
+*.ipa
+*.p12
+*.p8
+*.mobileprovision
+platforms/ios/Runner 20??-??-?? ??-??-??/
 xcuserdata
 *.xcuserstate
+.build
 
 *.xcconfig
 

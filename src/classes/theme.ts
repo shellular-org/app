@@ -2,6 +2,21 @@ import type { ITheme } from "@xterm/xterm";
 import color from "classes/color";
 import { isValidColor } from "./color/regex";
 
+export type ThemeSyntax = {
+	comment: string;
+	keyword: string;
+	string: string;
+	number: string;
+	function: string;
+	type: string;
+	variable: string;
+	property: string;
+	tag: string;
+	regexp: string;
+	operator: string;
+	constant: string;
+};
+
 export default class Theme {
 	static WHITE = "#ffffff";
 	static BLACK = "#000000";
@@ -258,6 +273,10 @@ export default class Theme {
 		return this.secondaryText;
 	}
 
+	get cardSubtextOpacity() {
+		return "0.6";
+	}
+
 	get cardBg() {
 		return this.secondary;
 	}
@@ -278,6 +297,45 @@ export default class Theme {
 		return "rgba(0, 0, 0, 0.05)";
 	}
 
+	get scrollbarTrack() {
+		return "transparent";
+	}
+
+	get scrollbarThumb() {
+		return "rgba(255, 255, 255, 0.14)";
+	}
+
+	get scrollbarThumbHover() {
+		return "rgba(255, 255, 255, 0.24)";
+	}
+
+	get scrollbarThumbActive() {
+		return "rgba(255, 255, 255, 0.34)";
+	}
+
+	/**
+	 * Shared semantic syntax colors for Monaco, CodeMirror, and diff views.
+	 * Themes with a distinctive editor palette can override this without
+	 * leaking editor-specific configuration into the rest of the app.
+	 */
+	get syntaxTheme(): ThemeSyntax {
+		const terminal = this.xtermTheme;
+		return {
+			comment: this.textMuted,
+			keyword: this.accent,
+			string: terminal.green ?? this.success,
+			number: terminal.blue ?? this.info,
+			function: terminal.brightBlue ?? terminal.blue ?? this.info,
+			type: terminal.brightYellow ?? terminal.yellow ?? this.accent,
+			variable: this.primaryText,
+			property: terminal.cyan ?? this.info,
+			tag: this.accent,
+			regexp: terminal.cyan ?? this.info,
+			operator: this.accent,
+			constant: terminal.magenta ?? this.accent2,
+		};
+	}
+
 	get json() {
 		const json: Record<string, string> = {};
 		const prototype = Object.getPrototypeOf(Object.getPrototypeOf(this));
@@ -285,7 +343,7 @@ export default class Theme {
 		const getters = props.filter(([, { get }]) => typeof get === "function");
 
 		for (const [key] of getters) {
-			if (["css", "json"].includes(key)) {
+			if (["css", "json", "syntaxTheme"].includes(key)) {
 				continue;
 			}
 
@@ -349,6 +407,10 @@ export default class Theme {
 			cursorAccent: this.primary,
 			selectionBackground: "rgba(255, 255, 255, 0.18)",
 			selectionInactiveBackground: "rgba(255, 255, 255, 0.12)",
+			scrollbarSliderBackground: this.scrollbarThumb,
+			scrollbarSliderHoverBackground: this.scrollbarThumbHover,
+			scrollbarSliderActiveBackground: this.scrollbarThumbActive,
+			overviewRulerBorder: this.lineSoft,
 		};
 	}
 }

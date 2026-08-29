@@ -1,5 +1,6 @@
 .git-history-page,
-.commit-detail-page {
+.commit-detail-page,
+.commit-detail-content {
   // The list/rows manage their own horizontal padding, so drop the default
   // page-content gutter (scoped to these pages to avoid leaking globally).
   > .page-content {
@@ -42,6 +43,15 @@
     text-align: left;
     color: inherit;
     cursor: pointer;
+
+		&:hover,
+		&[data-selected="true"] {
+			background: var(--surface-soft);
+		}
+
+		&[data-selected="true"] {
+			box-shadow: inset 2px 0 var(--accent);
+		}
 
     &:active {
       background: rgba(255, 255, 255, 0.04);
@@ -248,4 +258,10 @@
       color: var(--file-git-color);
     }
   }
+}
+
+.commit-detail-content {
+	display: flex;
+	min-height: 100%;
+	flex-direction: column;
 }

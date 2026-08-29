@@ -40,14 +40,14 @@
   }
 }
 
-@mixin browser {
-  body[platform="browser"] & {
+@mixin desktop-ui {
+  body[ui-platform="desktop"] & {
     @content;
   }
 }
 
-@mixin browser-keyboard-visible {
-  body[platform="browser"].keyboard-visible & {
+@mixin desktop-ui-keyboard-visible {
+  body[ui-platform="desktop"].keyboard-visible & {
     @content;
   }
 }

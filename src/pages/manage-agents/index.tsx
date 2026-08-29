@@ -20,6 +20,7 @@ import {
 } from "state/acp";
 import { getHostInfo } from "state/connection";
 import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
+import { openInWorkbench } from "workbench/navigation";
 
 type BusyAction = "install" | "toggle" | "remove";
 
@@ -70,7 +71,17 @@ export default function ManageAgentsPage() {
 				const terminalId = await createTerminal();
 				if (!terminalId) return;
 				closePage("manage-agents");
-				toToTab("terminals");
+				if (
+					!openInWorkbench({
+						kind: "terminal",
+						id: `terminal:${terminalId}`,
+						title: "Terminal",
+						icon: "icon-terminal",
+						terminalId,
+					})
+				) {
+					toToTab("terminals");
+				}
 				await waitForXterm(terminalId, 5000);
 				await new Promise((resolve) => setTimeout(resolve, 300));
 				sendTerminalInput(terminalId, `${command}\r`);

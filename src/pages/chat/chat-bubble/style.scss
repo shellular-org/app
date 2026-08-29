@@ -61,6 +61,17 @@
     animation: none;
   }
 
+  @include desktop-ui {
+    &--assistant {
+      width: 100%;
+      max-width: 100%;
+    }
+
+    &--user {
+      max-width: min(680px, 72%);
+    }
+  }
+
   &--user {
     align-self: flex-end;
     align-items: flex-end;
@@ -420,8 +431,8 @@
         code {
           padding: 0;
           background: none;
-          font-size: 12px;
-          line-height: 1.5;
+          font-size: 1em;
+          line-height: 1.55;
         }
       }
 

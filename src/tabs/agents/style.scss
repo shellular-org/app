@@ -129,8 +129,6 @@
 
       .agent-tile-desc {
         font-size: 11px;
-        color: var(--secondary-text);
-        opacity: 0.58;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -201,7 +199,7 @@
 }
 
 // Header action buttons live in TabPageHeader, outside .agents-page.
-.tab-page-header-right .agents-header-btn {
+:is(.tab-page-header-right, .agents-sidebar-actions) .agents-header-btn {
   width: 32px;
   height: 32px;
   border-radius: 8px;

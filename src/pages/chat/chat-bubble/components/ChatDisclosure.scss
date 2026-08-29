@@ -5,12 +5,6 @@
 .chat-part-card:has(> .chat-disclosure-copy),
 .chat-disclosure-root:has(> .chat-disclosure-copy) {
   position: relative;
-
-  // The chevron lives inside the disclosure button while copy is its sibling.
-  // Reserve a separate control lane so the two never stack on narrow screens.
-  >.chat-part-card-title {
-    padding-right: 42px;
-  }
 }
 
 .chat-disclosure-copy {

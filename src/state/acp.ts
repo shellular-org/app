@@ -34,11 +34,6 @@ type AiSessionCreateSendableMsg = Extract<
 	SendableMsg,
 	{ type: typeof MsgType.AI_SESSION_CREATE }
 >;
-type AiSessionCreateDraftMsg = Omit<AiSessionCreateSendableMsg, "data"> & {
-	data: AiSessionCreateSendableMsg["data"] & {
-		configOptions?: AiSessionConfigOption[];
-	};
-};
 
 export interface InstallationCommand {
 	command: string;
@@ -384,11 +379,10 @@ export async function acpCreateSession(
 	agentId: AiBackend,
 	cwd: string,
 	prompt = "",
-	configOptions?: AiSessionConfigOption[],
 ): Promise<AcpLoadedSession> {
-	const msg: AiSessionCreateDraftMsg = {
+	const msg: AiSessionCreateSendableMsg = {
 		type: MsgType.AI_SESSION_CREATE,
-		data: { backend: agentId, prompt, workspacePath: cwd, cwd, configOptions },
+		data: { backend: agentId, prompt, workspacePath: cwd, cwd },
 	};
 	const result = await sendRequest<AiSessionCreateResultMsg>(msg);
 	assertNoError(result);
@@ -597,7 +591,7 @@ export function acpPrompt(
 	if (!msgId) {
 		closed = true;
 		unsubscribe();
-		callbacks.onError("Unable to send prompt");
+		throw new Error("Unable to send prompt");
 	}
 
 	return () => {
@@ -613,7 +607,7 @@ export function acpQueuePrompt(
 	text: string,
 	content?: AcpContentBlock[],
 ): void {
-	sendConnectionMessage({
+	const msgId = sendConnectionMessage({
 		type: MsgType.AI_PROMPT,
 		data: {
 			backend: agentId,
@@ -622,6 +616,7 @@ export function acpQueuePrompt(
 			content: content?.length ? content : [{ type: "text", text }],
 		} as AiPromptMsg["data"],
 	} as SendableMsg);
+	if (!msgId) throw new Error("Unable to send prompt");
 }
 
 export async function acpUpdateQueuedPrompt(

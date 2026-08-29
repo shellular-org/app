@@ -74,6 +74,21 @@ let refreshTokenValue: string | null = null;
 let refreshInFlight: Promise<boolean> | null = null;
 let authCallbackSchemeInFlight: Promise<string> | null = null;
 let activeBrowserAuthRequestId: string | null = null;
+let authenticatedUserSnapshot: AuthUser | null = null;
+
+function setAuthenticatedUserSnapshot(user: AuthUser | null): void {
+	authenticatedUserSnapshot = user;
+}
+
+export function getAuthenticatedUserForAuth(): Readonly<
+	Pick<AuthUser, "id" | "email">
+> | null {
+	if (!authenticatedUserSnapshot) return null;
+	return {
+		id: authenticatedUserSnapshot.id,
+		email: authenticatedUserSnapshot.email,
+	};
+}
 
 function isBrowserCookieAuth(): boolean {
 	return process.env.PLATFORM === "browser";
@@ -90,26 +105,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	);
 	const [signingInProvider, setSigningInProvider] =
 		useState<AuthProviderId | null>(null);
+	const updateUser = useCallback((nextUser: AuthUser | null) => {
+		setAuthenticatedUserSnapshot(nextUser);
+		setUser(nextUser);
+	}, []);
 
 	const clearAuth = useCallback(async () => {
 		accessToken = null;
 		accessTokenExpiresAt = 0;
 		refreshTokenValue = null;
 		await secureStore.remove(REFRESH_TOKEN_KEY);
-		setUser(null);
+		updateUser(null);
 		setStatus("unauthenticated");
-	}, []);
+	}, [updateUser]);
 
-	const applyTokenResponse = useCallback(async (data: TokenResponse) => {
-		accessToken = data.accessToken;
-		accessTokenExpiresAt = data.accessTokenExpiresAt;
-		refreshTokenValue = data.refreshToken;
-		await secureStore.set(REFRESH_TOKEN_KEY, data.refreshToken);
-		setUser(data.user);
-		setStatus("authenticated");
-		setError(null);
-		setAccountError(null);
-	}, []);
+	const applyTokenResponse = useCallback(
+		async (data: TokenResponse) => {
+			accessToken = data.accessToken;
+			accessTokenExpiresAt = data.accessTokenExpiresAt;
+			refreshTokenValue = data.refreshToken;
+			await secureStore.set(REFRESH_TOKEN_KEY, data.refreshToken);
+			updateUser(data.user);
+			setStatus("authenticated");
+			setError(null);
+			setAccountError(null);
+		},
+		[updateUser],
+	);
 
 	const refresh = useCallback(async () => {
 		if (refreshInFlight) return refreshInFlight;
@@ -125,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 					accessToken = null;
 					accessTokenExpiresAt = data.accessTokenExpiresAt;
 					refreshTokenValue = null;
-					setUser(data.user);
+					updateUser(data.user);
 					setStatus("authenticated");
 					setError(null);
 					setAccountError(null);
@@ -170,7 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 			}
 		})();
 		return refreshInFlight;
-	}, [applyTokenResponse, clearAuth]);
+	}, [applyTokenResponse, clearAuth, updateUser]);
 
 	const ensureAccessToken = useCallback(async () => {
 		if (accessToken && accessTokenExpiresAt - Date.now() > REFRESH_SKEW_MS) {
@@ -353,7 +375,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 	const refreshMe = useCallback(async () => {
 		if (isBrowserCookieAuth()) {
 			const data = await authRequest<{ user: AuthUser }>("/auth/me");
-			setUser(data.user);
+			updateUser(data.user);
 			setAccountError(null);
 			return;
 		}
@@ -362,9 +384,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 		const data = await authRequest<{ user: AuthUser }>("/auth/me", {
 			headers: { Authorization: `Bearer ${token}` },
 		});
-		setUser(data.user);
+		updateUser(data.user);
 		setAccountError(null);
-	}, [ensureAccessToken]);
+	}, [ensureAccessToken, updateUser]);
 
 	const linkAccount = useCallback(
 		async (provider: AuthProviderId) => {
@@ -413,7 +435,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 						body: JSON.stringify({ code: params.linkCode }),
 					},
 				);
-				setUser(data.user);
+				updateUser(data.user);
 			} catch (err) {
 				const message = errorMessage(err);
 				if (!isAuthSuperseded(message)) {
@@ -424,7 +446,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				setAccountAction(null);
 			}
 		},
-		[ensureAccessToken, refreshMe],
+		[ensureAccessToken, refreshMe, updateUser],
 	);
 
 	const unlinkAccount = useCallback(
@@ -440,7 +462,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 						headers: token ? { Authorization: `Bearer ${token}` } : undefined,
 					},
 				);
-				setUser(data.user);
+				updateUser(data.user);
 			} catch (err) {
 				logAuthError(`unlink ${provider} account`, err);
 				setAccountError("We couldn't unlink this account. Please try again.");
@@ -448,7 +470,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 				setAccountAction(null);
 			}
 		},
-		[ensureAccessToken],
+		[ensureAccessToken, updateUser],
 	);
 
 	const logout = useCallback(async () => {
@@ -563,6 +585,7 @@ async function refreshWithoutReact(): Promise<boolean> {
 			accessToken = null;
 			accessTokenExpiresAt = data.accessTokenExpiresAt;
 			refreshTokenValue = null;
+			setAuthenticatedUserSnapshot(data.user);
 			return Boolean(data.user);
 		}
 
@@ -573,6 +596,7 @@ async function refreshWithoutReact(): Promise<boolean> {
 		accessToken = data.accessToken;
 		accessTokenExpiresAt = data.accessTokenExpiresAt;
 		refreshTokenValue = data.refreshToken;
+		setAuthenticatedUserSnapshot(data.user);
 		await secureStore.set(REFRESH_TOKEN_KEY, data.refreshToken);
 		return true;
 	} catch (err) {
@@ -583,6 +607,7 @@ async function refreshWithoutReact(): Promise<boolean> {
 		accessTokenExpiresAt = 0;
 		if (isAuthRejection(err)) {
 			refreshTokenValue = null;
+			setAuthenticatedUserSnapshot(null);
 			await secureStore.remove(REFRESH_TOKEN_KEY);
 		}
 		return false;
@@ -636,7 +661,7 @@ async function authRequest<T = unknown>(
 		error?: string;
 		message?: string;
 	};
-	if (json.success === false) {
+	if (!res.ok || json.success === false) {
 		const error = new Error(
 			json.error || json.message || "Authentication failed.",
 		) as AuthRequestError;

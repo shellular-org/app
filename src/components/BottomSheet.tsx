@@ -33,7 +33,7 @@ export default function BottomSheet({
 			<div className="fixed inset-0 z-1 flex items-end justify-center">
 				<DialogPanel
 					transition
-					className="w-full max-h-[85vh] overflow-y-auto rounded-t-[26px] bg-(--popup-background) border border-(--popup-border-color) shadow-[0_-18px_50px_var(--shadow-color)] px-5 pt-3 pb-[calc(20px+var(--sab,0px)+var(--keyboard-height,0px))] transition duration-300 ease-out data-closed:translate-y-6 data-closed:opacity-0"
+					className="w-full max-h-[85vh] overflow-y-auto rounded-t-[26px] bg-(--popup-background) border border-(--popup-border-color) shadow-[0_-18px_50px_var(--shadow-color)] px-5 pt-3 pb-[calc(20px+var(--sab,0px)+var(--keyboard-height,0px))] transition duration-300 ease-out data-closed:translate-y-6 data-closed:opacity-0 desktop-ui:w-[calc(100%-32px)] desktop-ui:max-w-[480px]"
 				>
 					<div className="mx-auto mb-5 h-1 w-11 rounded-full bg-(--surface-strong) opacity-70" />
 					<header className="mb-4">

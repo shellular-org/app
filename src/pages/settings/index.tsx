@@ -1,6 +1,7 @@
-import { ONBOARDING_KEY } from "App";
 import AppSelect from "components/AppSelect";
 import Page from "components/Page";
+import { redirectVerticalWheelToHorizontal } from "lib/horizontalWheel";
+import { ONBOARDING_KEY } from "lib/onboarding";
 import {
 	DEFAULT_EDITOR_SETTINGS,
 	DEFAULT_SERVER_SETTINGS,
@@ -25,6 +26,11 @@ import toast from "lib/toast";
 import React, { useEffect, useState } from "react";
 import { useShellular } from "state";
 import themes from "themes";
+import {
+	DESKTOP_COMMAND_IDS,
+	DESKTOP_COMMANDS,
+} from "workbench/desktopShortcuts";
+import KeyboardShortcutsSettings from "./KeyboardShortcutsSettings";
 import "./style.scss";
 
 // Settings save instantly on change, so a success toast per change would be
@@ -250,16 +256,31 @@ function matchesSettingsSearch(
 	);
 }
 
-export default function SettingsPage() {
-	const [activeTab, setActiveTab] = useState("look-and-feel");
+export type SettingsCategory =
+	| "look-and-feel"
+	| "startup"
+	| "editor"
+	| "terminal"
+	| "keybindings"
+	| "network"
+	| "developer";
+
+interface SettingsPageProps {
+	initialTab?: SettingsCategory;
+	onServerSaved?: () => void;
+}
+
+export default function SettingsPage({
+	initialTab = "look-and-feel",
+	onServerSaved,
+}: SettingsPageProps = {}) {
+	const [activeTab, setActiveTab] = useState<SettingsCategory>(initialTab);
 	const [searchQuery, setSearchQuery] = useState("");
 
 	// App State
-	const [currentTheme, setCurrentTheme] = useState(() => {
-		const name = themes.current?.name.toLowerCase();
-		if (name === "oled") return "black";
-		return name ?? "dark";
-	});
+	const [currentTheme, setCurrentTheme] = useState(
+		() => themes.currentId ?? "dark",
+	);
 	const [serverDomain, setServerDomain] = useState(
 		DEFAULT_SERVER_SETTINGS.domain,
 	);
@@ -281,6 +302,12 @@ export default function SettingsPage() {
 	);
 	const [editorTabSize, setEditorTabSize] = useState(
 		DEFAULT_EDITOR_SETTINGS.tabSize,
+	);
+	const [editorMinimap, setEditorMinimap] = useState(
+		DEFAULT_EDITOR_SETTINGS.minimap,
+	);
+	const [editorStickyScroll, setEditorStickyScroll] = useState(
+		DEFAULT_EDITOR_SETTINGS.stickyScroll,
 	);
 
 	const [terminalFontSize, setTerminalFontSize] = useState(
@@ -325,7 +352,11 @@ export default function SettingsPage() {
 	const [testOnboarding, setTestOnboarding] = useState(false);
 
 	useEffect(() => {
-		if (!process.env.DEV_MODE) {
+		setActiveTab(initialTab);
+	}, [initialTab]);
+
+	useEffect(() => {
+		if (!process.env.DEV_MODE || process.env.IS_MACOS) {
 			return;
 		}
 
@@ -338,7 +369,7 @@ export default function SettingsPage() {
 
 	useEffect(() => {
 		loadSettings().then((s) => {
-			setCurrentTheme(s.theme);
+			setCurrentTheme(themes.resolveId(s.theme));
 			setServerDomain(s.server.domain);
 			setServerProtocol(s.server.protocol);
 			setEditorFontSize(s.editor.fontSize);
@@ -346,6 +377,8 @@ export default function SettingsPage() {
 			setEditorWordWrap(s.editor.wordWrap);
 			setEditorLineNumbers(s.editor.lineNumbers);
 			setEditorTabSize(s.editor.tabSize);
+			setEditorMinimap(s.editor.minimap);
+			setEditorStickyScroll(s.editor.stickyScroll);
 			setTerminalFontSize(s.terminal.fontSize);
 			setTerminalFontFamily(s.terminal.fontFamily);
 			setTerminalCursorStyle(s.terminal.cursorStyle);
@@ -363,10 +396,9 @@ export default function SettingsPage() {
 	}, []);
 
 	async function handleThemeChange(name: string) {
-		const themeName = name.toLowerCase();
-		setCurrentTheme(themeName);
-		if (await persistSettings({ theme: themeName })) {
-			await themes.applyTheme(themeName);
+		setCurrentTheme(name);
+		if (await persistSettings({ theme: name })) {
+			await themes.applyTheme(name);
 		}
 	}
 
@@ -393,6 +425,16 @@ export default function SettingsPage() {
 	async function handleEditorTabSizeChange(value: number) {
 		setEditorTabSize(value);
 		await persistSettings({ editor: { tabSize: value } });
+	}
+
+	async function handleEditorMinimapChange(value: boolean) {
+		setEditorMinimap(value);
+		await persistSettings({ editor: { minimap: value } });
+	}
+
+	async function handleEditorStickyScrollChange(value: boolean) {
+		setEditorStickyScroll(value);
+		await persistSettings({ editor: { stickyScroll: value } });
 	}
 
 	async function handleTerminalFontSizeChange(value: number) {
@@ -489,19 +531,34 @@ export default function SettingsPage() {
 				})
 			) {
 				toast("Server settings saved", 2000);
+				onServerSaved?.();
 			}
 		} finally {
 			setIsSavingServer(false);
 		}
 	}
 
-	const sidebarCategories = [
+	const sidebarCategories: Array<{
+		id: SettingsCategory;
+		label: string;
+	}> = [
 		{ id: "look-and-feel", label: "Look & Feel" },
 		{ id: "startup", label: "Startup" },
 		{ id: "editor", label: "Editor" },
 		{ id: "terminal", label: "Terminal" },
+		...(process.env.IS_DESKTOP_UI
+			? ([{ id: "keybindings", label: "Keyboard Shortcuts" }] satisfies Array<{
+					id: SettingsCategory;
+					label: string;
+				}>)
+			: []),
 		{ id: "network", label: "Network" },
-		...(process.env.DEV_MODE ? [{ id: "developer", label: "Developer" }] : []),
+		...(process.env.DEV_MODE && !process.env.IS_MACOS
+			? ([{ id: "developer", label: "Developer" }] satisfies Array<{
+					id: SettingsCategory;
+					label: string;
+				}>)
+			: []),
 	];
 
 	const isSearching = searchQuery.trim().length > 0;
@@ -561,6 +618,14 @@ export default function SettingsPage() {
 			title: "Tab Size",
 			description: "Controls how many columns a tab occupies.",
 		},
+		{
+			title: "Minimap",
+			description: "Shows a compact overview of the file on desktop.",
+		},
+		{
+			title: "Sticky Scroll",
+			description: "Keeps the current scope visible while scrolling.",
+		},
 	]);
 	const showTerminalSettings = matchesSettingsSearch(searchQuery, [
 		{
@@ -606,6 +671,19 @@ export default function SettingsPage() {
 				"Replays the onboarding flow the next time you open the app.",
 		},
 	]);
+	const normalizedSettingsSearch = searchQuery.trim().toLowerCase();
+	const showKeyboardSettings =
+		process.env.IS_DESKTOP_UI &&
+		(!normalizedSettingsSearch ||
+			"keyboard shortcuts keybindings".includes(normalizedSettingsSearch) ||
+			DESKTOP_COMMAND_IDS.some((command) => {
+				const definition = DESKTOP_COMMANDS[command];
+				return (
+					command.toLowerCase().includes(normalizedSettingsSearch) ||
+					definition.label.toLowerCase().includes(normalizedSettingsSearch) ||
+					definition.category.toLowerCase().includes(normalizedSettingsSearch)
+				);
+			}));
 	const monospaceFontOptions = MONOSPACE_FONT_FAMILY_OPTIONS.map((font) => ({
 		value: font.value,
 		label: font.label,
@@ -633,7 +711,10 @@ export default function SettingsPage() {
 					</div>
 
 					{/* Categories */}
-					<div className="flex flex-row md:flex-col overflow-x-auto md:overflow-y-auto p-3 gap-1 custom-scroll">
+					<div
+						className="flex flex-row gap-1 overflow-x-auto p-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:flex-col md:overflow-y-auto"
+						onWheel={(event) => redirectVerticalWheelToHorizontal(event)}
+					>
 						{sidebarCategories.map((category) => (
 							<button
 								key={category.id}
@@ -673,9 +754,9 @@ export default function SettingsPage() {
 											<AppSelect
 												value={currentTheme}
 												onChange={handleThemeChange}
-												options={themes.list.map((t) => ({
-													value: t.toLowerCase(),
-													label: t,
+												options={themes.options.map((theme) => ({
+													value: theme.id,
+													label: theme.label,
 												}))}
 											/>
 										}
@@ -864,6 +945,28 @@ export default function SettingsPage() {
 											/>
 										}
 									/>
+									<SettingsItem
+										title="Minimap"
+										description="Shows a compact overview of the file on desktop."
+										control={
+											<Switch
+												label="Editor minimap"
+												checked={editorMinimap}
+												onChange={handleEditorMinimapChange}
+											/>
+										}
+									/>
+									<SettingsItem
+										title="Sticky Scroll"
+										description="Keeps the current scope visible while scrolling."
+										control={
+											<Switch
+												label="Editor sticky scroll"
+												checked={editorStickyScroll}
+												onChange={handleEditorStickyScrollChange}
+											/>
+										}
+									/>
 								</SettingsGroup>
 							</div>
 						)}
@@ -974,6 +1077,12 @@ export default function SettingsPage() {
 							</div>
 						)}
 
+						{((isSearching && showKeyboardSettings) ||
+							(!isSearching && activeTab === "keybindings")) &&
+							process.env.IS_DESKTOP_UI && (
+								<KeyboardShortcutsSettings query={searchQuery} />
+							)}
+
 						{((isSearching && showNetworkSettings) ||
 							(!isSearching && activeTab === "network")) && (
 							<div className="animate-in fade-in duration-300">
@@ -1025,7 +1134,8 @@ export default function SettingsPage() {
 
 						{((isSearching && showDeveloperSettings) ||
 							(!isSearching && activeTab === "developer")) &&
-							process.env.DEV_MODE && (
+							process.env.DEV_MODE &&
+							!process.env.IS_MACOS && (
 								<div className="animate-in fade-in duration-300">
 									{isSearching && (
 										<h2 className="text-[18px] font-semibold text-(--primary-text) mb-6 mt-8">

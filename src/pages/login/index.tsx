@@ -42,9 +42,10 @@ export default function LoginPage({
 			{process.env.DEV_MODE && onOpenSettings && (
 				<button
 					type="button"
-					className="haptic-trigger absolute right-5 top-[calc(var(--sat,0px)+14px)] text-secondary-text active:text-primary-text"
+					className="haptic-trigger absolute right-[calc(var(--sar,0px)+18px)] top-[calc(var(--sat,0px)+18px)] z-10 flex h-10 w-10 items-center justify-center rounded-xl border border-card-border bg-popup-background text-primary-text shadow-[var(--shadow)] transition-[background,transform] duration-150 hover:bg-[color-mix(in_srgb,var(--info)_8%,var(--popup-background))] active:scale-[0.96]"
 					onClick={onOpenSettings}
 					aria-label="Settings"
+					title="Settings"
 				>
 					<span className="icon-settings text-[19px]" aria-hidden="true" />
 				</button>

@@ -6,6 +6,7 @@ import { INTENT_ACTIONS_KEY } from "../intentActions";
 let cameraPermissionGranted = false;
 let appTheme: Theme | null = null;
 let intentHandler: Callback | null = null;
+let desktopCommandHandler: { id: string; callback: Callback } | null = null;
 
 type Intent = {
 	action: string;
@@ -131,6 +132,46 @@ export default {
 	},
 	setIntentHandler(callback: Callback) {
 		intentHandler = callback;
+	},
+	setDesktopCommandHandler(callback: Callback, [id]: [string]) {
+		if (desktopCommandHandler) {
+			desktopCommandHandler.callback.keep = false;
+			desktopCommandHandler.callback.success(null);
+		}
+		callback.keep = true;
+		desktopCommandHandler = { id, callback };
+	},
+	clearDesktopCommandHandler(callback: Callback, [id]: [string]) {
+		if (desktopCommandHandler?.id === id) {
+			desktopCommandHandler.callback.keep = false;
+			desktopCommandHandler.callback.success(null);
+			desktopCommandHandler = null;
+		}
+		callback.success();
+	},
+	getDesktopCapabilities(callback: Callback) {
+		callback.success({
+			localWorkspace: false,
+			canPickLocalFiles: false,
+			canRevealLocalPath: false,
+			canOpenSystemTerminal: false,
+		});
+	},
+	pickLocalFiles(callback: Callback) {
+		callback.success([]);
+	},
+	revealLocalPath(callback: Callback) {
+		callback.error("Native file explorer is unavailable");
+	},
+	openSystemTerminal(callback: Callback) {
+		callback.error("System terminal is unavailable");
+	},
+	setWindowTitle(callback: Callback, [title]: [string]) {
+		document.title = title;
+		callback.success();
+	},
+	setDesktopShortcutContext(callback: Callback) {
+		callback.success();
 	},
 	getVersionSdkInt(callback: Callback) {
 		callback.success(0);

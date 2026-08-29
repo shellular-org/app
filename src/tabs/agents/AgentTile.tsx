@@ -1,8 +1,7 @@
 import { pushPage, toToTab } from "App";
 import AgentIcon from "components/AgentIcon";
 import AppMenu from "components/AppMenu";
-import { getInstallationOptions } from "lib/agents";
-import ChatSessionsPage from "pages/sessions";
+import { getAgentIcon, getInstallationOptions } from "lib/agents";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AcpAgentInfo } from "state/acp";
 import { getHostInfo } from "state/connection";
@@ -11,12 +10,15 @@ import {
 	listenToSessionStreamingEvent,
 } from "state/sessions";
 import { createTerminal, getXterm, sendTerminalInput } from "state/terminals";
+import { openInWorkbench } from "workbench/navigation";
+import { showSessionsSidebar } from "workbench/secondarySidebar";
 
 interface AgentTileProps {
 	agent: AcpAgentInfo;
+	onSelect?: (agent: AcpAgentInfo) => void;
 }
 
-export default function AgentTile({ agent }: AgentTileProps) {
+export default function AgentTile({ agent, onSelect }: AgentTileProps) {
 	const [isStreaming, setIsStreaming] = useState(() =>
 		getAgentStreaming(agent.id),
 	);
@@ -42,6 +44,20 @@ export default function AgentTile({ agent }: AgentTileProps) {
 		try {
 			const terminalId = await createTerminal();
 			if (!terminalId) return;
+			if (
+				openInWorkbench({
+					kind: "terminal",
+					id: `terminal:${terminalId}`,
+					title: "Terminal",
+					icon: "icon-terminal",
+					terminalId,
+				})
+			) {
+				await waitForXterm(terminalId, 5000);
+				await new Promise((r) => setTimeout(r, 500));
+				sendTerminalInput(terminalId, `${command}\r`);
+				return;
+			}
 			toToTab("terminals");
 			await waitForXterm(terminalId, 5000);
 			await new Promise((r) => setTimeout(r, 500));
@@ -74,7 +90,7 @@ export default function AgentTile({ agent }: AgentTileProps) {
 						<span className="agent-tile-label">
 							{agent.title || agent.name}
 						</span>
-						<span className="agent-tile-desc">
+						<span className="agent-tile-desc card-subtext">
 							{getAgentDescription(agent)}
 						</span>
 					</div>
@@ -112,20 +128,41 @@ export default function AgentTile({ agent }: AgentTileProps) {
 			<button
 				type="button"
 				className="agent-tile haptic-trigger"
-				onClick={() =>
-					agent.id &&
+				onClick={async () => {
+					if (!agent.id) return;
+					if (onSelect) {
+						onSelect(agent);
+						return;
+					}
+					if (process.env.IS_DESKTOP_UI) {
+						showSessionsSidebar({ agentId: agent.id });
+						return;
+					}
+					if (
+						openInWorkbench({
+							kind: "agent-sessions",
+							id: `agent-sessions:${agent.id}`,
+							title: agent.title || agent.name,
+							icon: getAgentIcon(agent.id),
+							agentId: agent.id,
+						})
+					)
+						return;
+					const ChatSessionsPage = await import("pages/sessions");
 					pushPage(
 						`agent-${agent.id}`,
-						<ChatSessionsPage backend={agent.id} agent={agent} />,
-					)
-				}
+						<ChatSessionsPage.default backend={agent.id} agent={agent} />,
+					);
+				}}
 			>
 				<div className="agent-tile-icon-wrap">
 					<AgentIcon agent={agent} className="agent-tile-icon" />
 				</div>
 				<div className="agent-tile-text">
 					<span className="agent-tile-label">{agent.title || agent.name}</span>
-					<span className="agent-tile-desc">{getAgentDescription(agent)}</span>
+					<span className="agent-tile-desc card-subtext">
+						{getAgentDescription(agent)}
+					</span>
 				</div>
 				{isStreaming && <span className="badge" />}
 				<span

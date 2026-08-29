@@ -11,6 +11,36 @@
   }
 }
 
+.page-overlay.desktop-page-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: transparent;
+
+  .desktop-pushed-page-shell {
+    position: relative;
+    width: min(1040px, calc(100vw - 56px));
+    height: min(760px, calc(100vh - 56px));
+    min-width: min(560px, calc(100vw - 56px));
+    min-height: min(420px, calc(100vh - 56px));
+    overflow: hidden;
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    background: var(--primary);
+    box-shadow: 0 24px 80px var(--shadow-color);
+
+    > .page {
+      position: absolute;
+      inset: 0;
+      animation: none;
+    }
+  }
+}
+
 .tab-view {
   position: fixed;
   inset: 0;
@@ -43,7 +73,7 @@
         margin-left: calc(var(--sidebar-w) + var(--sat, 0px));
       }
 
-      @include browser {
+      @include desktop-ui {
         margin-left: var(--sidebar-w);
       }
     }
@@ -91,7 +121,7 @@
         padding: calc(var(--sat, 0px) + 16px) 8px calc(var(--sab, 0px) + 16px) calc(8px + var(--sat, 0px));
       }
 
-      @include browser {
+      @include desktop-ui {
         width: var(--sidebar-w);
         padding: 32px 0;
       }

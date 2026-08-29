@@ -10,6 +10,7 @@ import {
 import type { FitAddon } from "@xterm/addon-fit";
 import type { WebLinksAddon } from "@xterm/addon-web-links";
 import type { ITheme, Terminal } from "@xterm/xterm";
+import { observeElementResize } from "lib/elementResize";
 import { textifyEmoji } from "lib/emoji";
 import {
 	type AppSettings,
@@ -19,6 +20,7 @@ import {
 	SETTINGS_CHANGED_EVENT,
 	type TerminalSettings,
 } from "lib/settings";
+import { createTerminalResizeThrottle } from "lib/terminalResize";
 import themes from "themes";
 import {
 	getConnectionSnapshot,
@@ -922,7 +924,7 @@ function attachTouchScroll(
 
 		if (isAndroidSystemGestureEdge(touch.clientX)) return;
 
-		if (!process.env.IS_BROWSER) {
+		if (!process.env.IS_DESKTOP_UI) {
 			longTapTimeout = window.setTimeout(() => {
 				longTapTimeout = null;
 				const parent = container.closest(".terminal-container");
@@ -1429,15 +1431,31 @@ export async function attachToTerminal(
 		}).dispose,
 	);
 
-	// Wire resize
+	const sendTerminalResize = ({
+		cols,
+		rows,
+	}: {
+		cols: number;
+		rows: number;
+	}) => {
+		sendMessage({
+			type: MsgType.TERMINAL_RESIZE,
+			data: { terminalId, cols, rows },
+		});
+	};
+	const resizeThrottle = process.env.IS_DESKTOP_UI
+		? createTerminalResizeThrottle(sendTerminalResize)
+		: null;
+
+	// Wire resize. Desktop fits visually every frame but limits remote PTY
+	// updates; touch-native clients retain their existing immediate behavior.
 	disposers.push(
 		xterm.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-			sendMessage({
-				type: MsgType.TERMINAL_RESIZE,
-				data: { terminalId, cols, rows },
-			});
+			if (resizeThrottle) resizeThrottle.schedule({ cols, rows });
+			else sendTerminalResize({ cols, rows });
 		}).dispose,
 	);
+	if (resizeThrottle) disposers.push(resizeThrottle.dispose);
 
 	if (snapshot) {
 		xterm.write(textifyEmoji(snapshot));
@@ -1448,49 +1466,91 @@ export async function attachToTerminal(
 			fitAddon.fit();
 		} catch {}
 	};
-
-	let fitTimeout: ReturnType<typeof setTimeout> | undefined;
-	const ro = new ResizeObserver(() => {
-		clearTimeout(fitTimeout);
-		fitTimeout = setTimeout(() => {
-			try {
-				if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-					fitAddon.fit();
-					const entry = terminalEntries.get(terminalId);
-					const buf = xterm.buffer.active;
-					if (entry?.needsInitialScroll) {
-						entry.needsInitialScroll = false;
-						xterm.scrollToBottom();
-						setTimeout(() => {
-							(
-								xterm as unknown as {
-									_core: { scrollToBottom: (val: boolean) => void };
-								}
-							)._core.scrollToBottom(true);
-						}, 30);
-					} else if (buf.viewportY >= buf.baseY) {
-						xterm.scrollToBottom();
-						setTimeout(() => {
-							(
-								xterm as unknown as {
-									_core: { scrollToBottom: (val: boolean) => void };
-								}
-							)._core.scrollToBottom(true);
-						}, 100);
-					}
-				}
-			} catch {}
-		}, 50);
-	});
-	ro.observe(container);
-	disposers.push(() => ro.disconnect());
-
-	terminalDisposers.set(terminalId, disposers);
 	terminalEntries.set(terminalId, {
 		container,
 		terminal: xterm,
 		needsInitialScroll: true,
 	});
+
+	if (process.env.IS_DESKTOP_UI) {
+		let keepAtBottom: boolean | undefined;
+		let fittedGrid: { cols: number; rows: number } | undefined;
+		const fitDesktopTerminal = () => {
+			try {
+				if (container.offsetWidth <= 0 || container.offsetHeight <= 0) return;
+				const proposed = fitAddon.proposeDimensions();
+				if (
+					!proposed ||
+					(fittedGrid?.cols === proposed.cols &&
+						fittedGrid.rows === proposed.rows)
+				) {
+					return;
+				}
+				const entry = terminalEntries.get(terminalId);
+				const buffer = xterm.buffer.active;
+				keepAtBottom ??=
+					Boolean(entry?.needsInitialScroll) ||
+					buffer.viewportY >= buffer.baseY;
+				fittedGrid = proposed;
+				fitAddon.fit();
+			} catch {}
+		};
+		const stopObservingSize = observeElementResize(container, {
+			onFrame: fitDesktopTerminal,
+			onSettled: () => {
+				fitDesktopTerminal();
+				resizeThrottle?.flush();
+				const entry = terminalEntries.get(terminalId);
+				if (entry?.needsInitialScroll) entry.needsInitialScroll = false;
+				if (keepAtBottom) xterm.scrollToBottom();
+				keepAtBottom = undefined;
+				queueStickyCommandRefresh(terminalId);
+			},
+			delivery: "pre-paint",
+		});
+		disposers.push(stopObservingSize);
+	} else {
+		let fitTimeout: ReturnType<typeof setTimeout> | undefined;
+		const ro = new ResizeObserver(() => {
+			clearTimeout(fitTimeout);
+			fitTimeout = setTimeout(() => {
+				try {
+					if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+						fitAddon.fit();
+						const entry = terminalEntries.get(terminalId);
+						const buf = xterm.buffer.active;
+						if (entry?.needsInitialScroll) {
+							entry.needsInitialScroll = false;
+							xterm.scrollToBottom();
+							setTimeout(() => {
+								(
+									xterm as unknown as {
+										_core: { scrollToBottom: (val: boolean) => void };
+									}
+								)._core.scrollToBottom(true);
+							}, 30);
+						} else if (buf.viewportY >= buf.baseY) {
+							xterm.scrollToBottom();
+							setTimeout(() => {
+								(
+									xterm as unknown as {
+										_core: { scrollToBottom: (val: boolean) => void };
+									}
+								)._core.scrollToBottom(true);
+							}, 100);
+						}
+					}
+				} catch {}
+			}, 50);
+		});
+		ro.observe(container);
+		disposers.push(() => {
+			ro.disconnect();
+			clearTimeout(fitTimeout);
+		});
+	}
+
+	terminalDisposers.set(terminalId, disposers);
 	terminalShells.set(terminalId, shell);
 
 	// Add to active terminals if not already present
@@ -1508,19 +1568,21 @@ export async function attachToTerminal(
 
 	// Defer fit until after React mounts the container to DOM
 	// This ensures xterm renders with proper dimensions
-	requestAnimationFrame(() => {
+	if (!process.env.IS_DESKTOP_UI) {
 		requestAnimationFrame(() => {
-			try {
-				if (container.offsetWidth > 0 && container.offsetHeight > 0) {
-					fitAddon.fit();
-					// biome-ignore lint/suspicious/noExplicitAny: private xterm API
-					(xterm as any)._core.scrollToBottom(true);
+			requestAnimationFrame(() => {
+				try {
+					if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+						fitAddon.fit();
+						// biome-ignore lint/suspicious/noExplicitAny: private xterm API
+						(xterm as any)._core.scrollToBottom(true);
+					}
+				} catch (err) {
+					console.warn(`Failed to fit terminal ${terminalId}:`, err);
 				}
-			} catch (err) {
-				console.warn(`Failed to fit terminal ${terminalId}:`, err);
-			}
+			});
 		});
-	});
+	}
 
 	if (newTerminal) {
 		setActiveTerminalId(terminalId);

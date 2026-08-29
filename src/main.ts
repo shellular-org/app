@@ -132,8 +132,14 @@ async function load() {
 	document.body.dataset.message = bootMessage;
 	document.body.classList.remove("icon-empty");
 	document.body.setAttribute("platform", process.env.PLATFORM);
+	document.body.setAttribute(
+		"ui-platform",
+		process.env.IS_DESKTOP_UI ? "desktop" : "mobile",
+	);
 	document.addEventListener("backbutton", actionStack.pop);
 	window.addEventListener("resize", windowResize);
+	window.addEventListener("shellular:native-resize-start", windowResize.start);
+	window.addEventListener("shellular:native-resize-end", windowResize.end);
 	keyboard.on("show", whenKeyboardShow);
 	keyboard.on("hide", whenKeyboardHide);
 	document.addEventListener("click", externalLinks);
@@ -158,7 +164,7 @@ async function load() {
 		const versionCode = Number.parseInt(platform.versionCode, 10);
 		if (versionCode > Number.parseInt(process.env.VERSION_CODE, 10)) {
 			const confirmation = await dialog.confirm(
-				`New version ${platform.version} available on ${process.env.IS_IOS ? "App Store" : "Play Store"}, update?`,
+				`New version ${platform.version} available on ${process.env.IS_IOS || process.env.IS_MACOS ? "App Store" : "Play Store"}, update?`,
 				"New version available",
 			);
 

@@ -58,6 +58,16 @@ const licenses: LicenseGroup[] = [
 		icon: "icon-file-text",
 		entries: [
 			{
+				name: "Monaco Editor",
+				license: "MIT",
+				url: "https://github.com/microsoft/monaco-editor",
+			},
+			{
+				name: "Monaco Editor Webpack Plugin",
+				license: "MIT",
+				url: "https://github.com/microsoft/monaco-editor/tree/main/webpack-plugin",
+			},
+			{
 				name: "CodeMirror",
 				license: "MIT",
 				url: "https://github.com/codemirror/dev",
@@ -77,6 +87,37 @@ const licenses: LicenseGroup[] = [
 				name: "xterm.js",
 				license: "MIT",
 				url: "https://github.com/xtermjs/xterm.js",
+			},
+		],
+	},
+	{
+		category: "Color Themes",
+		icon: "icon-code",
+		entries: [
+			{
+				name: "One Dark Pro",
+				license: "MIT",
+				url: "https://github.com/Binaryify/OneDark-Pro",
+			},
+			{
+				name: "Dracula for Visual Studio Code",
+				license: "MIT",
+				url: "https://github.com/dracula/visual-studio-code",
+			},
+			{
+				name: "GitHub VS Code Theme",
+				license: "MIT",
+				url: "https://github.com/primer/github-vscode-theme",
+			},
+			{
+				name: "Tokyo Night",
+				license: "MIT",
+				url: "https://github.com/tokyo-night/tokyo-night-vscode-theme",
+			},
+			{
+				name: "Catppuccin for VS Code",
+				license: "MIT",
+				url: "https://github.com/catppuccin/vscode",
 			},
 		],
 	},

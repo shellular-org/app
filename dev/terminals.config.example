@@ -11,13 +11,19 @@ SSH_USER=
 SSH_HOST=developer.shellular.dev
 
 # Local server port the dev server runs on
-LOCAL_SERVER_PORT=3000
+LOCAL_SERVER_PORT=3011
+
+# Local relay port
+LOCAL_RELAY_PORT=6970
 
 # Path to the server directory (relative to the app repo root)
 SERVER_DIR=../server
 
 # Path to the packages directory (relative to the app repo root)
 PACKAGES_DIR=../packages
+
+# Directory exposed by the development CLI (absolute or relative to the app repo root)
+CLI_WORK_DIR=/
 
 # Display number for multi-monitor setups (1 = primary, 2 = secondary, etc.)
 # Leave empty to auto-detect and span the primary display.

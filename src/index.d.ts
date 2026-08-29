@@ -1,4 +1,4 @@
-type PLATFORM = "android" | "browser" | "ios";
+type PLATFORM = "android" | "browser" | "ios" | "macos";
 
 interface Bridge {
 	exec(
@@ -14,9 +14,12 @@ declare namespace NodeJS {
 	interface Process {
 		env: {
 			ID: string;
+			DEV_SERVER?: string;
 			IS_IOS: boolean;
+			IS_MACOS: boolean;
 			IS_ANDROID: boolean;
 			IS_BROWSER: boolean;
+			IS_DESKTOP_UI: boolean;
 			DEV_MODE: boolean;
 			PLATFORM: PLATFORM;
 			VERSION: string;

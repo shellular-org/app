@@ -2,6 +2,7 @@ type ResizeEvent = "resize" | "resizeStart";
 type ResizeEventListener = () => void;
 
 let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+let nativeResizeActive = false;
 
 const event: Record<ResizeEvent, ResizeEventListener[]> = {
 	resize: [],
@@ -24,14 +25,32 @@ const event: Record<ResizeEvent, ResizeEventListener[]> = {
  */
 
 export default function windowResize() {
-	if (!resizeTimeout) {
-		document.body.classList.add("resizing");
-		emit("resizeStart");
-	}
+	if (nativeResizeActive) return;
+	startResize();
 
 	if (resizeTimeout) clearTimeout(resizeTimeout);
 	resizeTimeout = setTimeout(onResize, 100);
 }
+
+function startResize() {
+	if (document.body.classList.contains("resizing")) return;
+	document.body.classList.add("resizing");
+	emit("resizeStart");
+}
+
+windowResize.start = () => {
+	nativeResizeActive = true;
+	if (resizeTimeout) clearTimeout(resizeTimeout);
+	resizeTimeout = null;
+	startResize();
+};
+
+windowResize.end = () => {
+	nativeResizeActive = false;
+	if (resizeTimeout) clearTimeout(resizeTimeout);
+	resizeTimeout = null;
+	onResize();
+};
 
 /**
  * Add event listener for window done resizing.
@@ -64,6 +83,7 @@ windowResize.off = (eventName: ResizeEvent, callback: ResizeEventListener) => {
  */
 function onResize() {
 	resizeTimeout = null;
+	if (!document.body.classList.contains("resizing")) return;
 	emit("resize");
 	document.body.classList.remove("resizing");
 }

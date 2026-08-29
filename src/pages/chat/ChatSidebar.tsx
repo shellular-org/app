@@ -11,21 +11,14 @@ import {
 	listenToSessionStreamingEvent,
 } from "state/sessions";
 
-/**
- * Slide-in sidebar (from the right) listing the chats opened in this chat's
- * folder, cached locally in the `chatTabs` store. Selecting a chat or starting a
- * new one pushes a fresh `ChatConversationPage`. Rendered inside the chat page —
- * there is no separate workspace component.
- */
+/** Shared chat-navigation content. Page owns its desktop/mobile presentation. */
 export default function ChatSidebar({
-	open,
-	onClose,
+	onNavigate,
 	workspacePath,
 	activeTabId,
 	currentAgentId,
 }: {
-	open: boolean;
-	onClose: () => void;
+	onNavigate: () => void;
 	workspacePath: string;
 	/** Local id of the chat currently being viewed, to highlight it. */
 	activeTabId: string;
@@ -34,29 +27,14 @@ export default function ChatSidebar({
 }) {
 	const { agents } = useShellular();
 	const tabs = useChatTabs(workspacePath);
-	const folderName =
-		workspacePath.split("/").filter(Boolean).pop() || workspacePath;
 
 	const availableAgents = Object.values(agents).filter(
 		(agent) => agent.available,
 	);
 	const singleAgent = availableAgents.length === 1 ? availableAgents[0] : null;
 
-	// Keep the panel mounted briefly while it animates out.
-	const [mounted, setMounted] = useState(open);
-	useEffect(() => {
-		if (open) {
-			setMounted(true);
-			return;
-		}
-		const timer = window.setTimeout(() => setMounted(false), 220);
-		return () => window.clearTimeout(timer);
-	}, [open]);
-
-	if (!mounted) return null;
-
 	const openExisting = (tab: ChatTab) => {
-		onClose();
+		onNavigate();
 		if (tab.id === activeTabId) return;
 		pushChat({
 			tabId: tab.id,
@@ -69,7 +47,7 @@ export default function ChatSidebar({
 	};
 
 	const newChat = (agentId: AiBackend) => {
-		onClose();
+		onNavigate();
 		const tabId = `chat:new:${agentId}:${Date.now()}`;
 		pushChat({
 			tabId,
@@ -82,100 +60,68 @@ export default function ChatSidebar({
 	};
 
 	return (
-		<div className={`project-chat-drawer ${open ? "is-open" : "is-closing"}`}>
-			<button
-				type="button"
-				className="project-chat-drawer-backdrop"
-				aria-label="Close chats"
-				onClick={onClose}
-			/>
-			<aside className="project-chat-drawer-panel">
-				<header className="project-chat-drawer-header">
-					<div className="project-chat-drawer-title">
-						<span className="icon-folder" aria-hidden="true" />
-						<span>{folderName}</span>
-					</div>
+		<div className="project-chat-navigation flex h-full min-h-0 flex-col">
+			<div className="project-chat-drawer-body">
+				{tabs.length === 0 && (
+					<p className="project-chat-drawer-empty">No chats yet</p>
+				)}
+				{tabs.map((tab) => (
+					<ChatTabRow
+						key={tab.id}
+						tab={tab}
+						agent={agents[tab.agentId]}
+						active={tab.id === activeTabId}
+						onSelect={() => openExisting(tab)}
+						onClose={() => removeChatTab(workspacePath, tab.id)}
+					/>
+				))}
+			</div>
+
+			<div className="project-chat-drawer-footer">
+				{availableAgents.length === 0 ? (
+					<p className="project-chat-drawer-empty">
+						No agents available on this device
+					</p>
+				) : singleAgent ? (
 					<button
 						type="button"
-						className="project-chat-drawer-close haptic-trigger"
-						onClick={onClose}
-						aria-label="Close"
+						className="project-chat-new-btn haptic-trigger"
+						onClick={() => newChat(singleAgent.id)}
 					>
-						<span className="icon-x" aria-hidden="true" />
+						<span className="icon-plus" aria-hidden="true" />
+						<span>New chat with {singleAgent.title || singleAgent.name}</span>
 					</button>
-				</header>
-
-				<div className="project-chat-drawer-body">
-					{tabs.length === 0 && (
-						<p className="project-chat-drawer-empty">No chats yet</p>
-					)}
-					{tabs.map((tab) => (
-						<ChatTabRow
-							key={tab.id}
-							tab={tab}
-							agent={agents[tab.agentId]}
-							active={tab.id === activeTabId}
-							onSelect={() => openExisting(tab)}
-							onClose={() => removeChatTab(workspacePath, tab.id)}
-						/>
-					))}
-				</div>
-
-				<div className="project-chat-drawer-footer">
-					{availableAgents.length === 0 ? (
-						<p className="project-chat-drawer-empty">
-							No agents available on this device
-						</p>
-					) : singleAgent ? (
-						// One agent needs no choice, so the action is the primary button
-						// and the agent is named inside it rather than picked.
-						<button
-							type="button"
-							className="project-chat-new-btn haptic-trigger"
-							onClick={() => newChat(singleAgent.id)}
-						>
-							<span className="icon-plus" aria-hidden="true" />
-							<span>New chat with {singleAgent.title || singleAgent.name}</span>
-						</button>
-					) : (
-						// Every agent is shown as a tappable avatar rather than hidden
-						// behind a menu: the row itself is what tells you this project can
-						// be opened with a different agent than the one you're in. It
-						// stays one line tall and scrolls sideways if agents outgrow it.
-						<>
-							<span className="project-chat-new-label">
-								Start a new chat with
-							</span>
-							<ul className="project-chat-agent-strip">
-								{availableAgents.map((agent) => {
-									const label = agent.title || agent.name;
-									const current = agent.id === currentAgentId;
-									return (
-										<li key={agent.id}>
-											{/* The button is the only box: it holds the logo and
-											    nothing else. The name lives in `aria-label` and the
-											    tooltip, so screen readers keep it. */}
-											<button
-												type="button"
-												className="project-chat-agent-chip haptic-trigger"
-												onClick={() => newChat(agent.id)}
-												aria-label={`New chat with ${label}`}
-												title={label}
-												data-current={current || undefined}
-											>
-												<AgentIcon
-													agent={agent}
-													className="project-chat-agent-avatar-img"
-												/>
-											</button>
-										</li>
-									);
-								})}
-							</ul>
-						</>
-					)}
-				</div>
-			</aside>
+				) : (
+					<>
+						<span className="project-chat-new-label">
+							Start a new chat with
+						</span>
+						<ul className="project-chat-agent-strip">
+							{availableAgents.map((agent) => {
+								const label = agent.title || agent.name;
+								const current = agent.id === currentAgentId;
+								return (
+									<li key={agent.id}>
+										<button
+											type="button"
+											className="project-chat-agent-chip haptic-trigger"
+											onClick={() => newChat(agent.id)}
+											aria-label={`New chat with ${label}`}
+											title={label}
+											data-current={current || undefined}
+										>
+											<AgentIcon
+												agent={agent}
+												className="project-chat-agent-avatar-img"
+											/>
+										</button>
+									</li>
+								);
+							})}
+						</ul>
+					</>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -215,6 +161,7 @@ function ChatTabRow({
 				type="button"
 				className="project-chat-session-main haptic-trigger"
 				onClick={onSelect}
+				aria-current={active ? "page" : undefined}
 			>
 				<span className="project-chat-session-icon">
 					{agent ? (
@@ -236,7 +183,7 @@ function ChatTabRow({
 				type="button"
 				className="project-chat-session-close haptic-trigger"
 				onClick={onClose}
-				aria-label="Close chat"
+				aria-label={`Close ${tab.title}`}
 			>
 				<span className="icon-x" aria-hidden="true" />
 			</button>

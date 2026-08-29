@@ -65,6 +65,7 @@ type ChatComposerProps = {
 	contextMeter?: React.ReactNode;
 	queueControls?: React.ReactNode;
 	isEditingQueuedPrompt?: boolean;
+	isSubmitting?: boolean;
 	imageAttachments: ComposerAttachment[];
 	reviewCommentCount: number;
 	onOpenGitReview: () => void;
@@ -72,13 +73,25 @@ type ChatComposerProps = {
 	onPromptSuggestion: (suggestion: PromptSuggestion) => void;
 	onPromptSuggestionHover: (index: number) => void;
 	onInput: () => void;
-	onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 	onPaste: (event: React.ClipboardEvent<HTMLDivElement>) => void;
 	onAttachFiles: (files: File[]) => void;
 	onRemoveImageAttachment: (id: string) => void;
 	onSend: () => void;
+	onSaveQueuedPrompt?: () => void;
 	onStop: () => void;
 };
+
+const MOBILE_WEB_QUERY = "(hover: none) and (pointer: coarse)";
+
+export function shouldSubmitComposerOnEnter(
+	isDesktopUI = process.env.IS_DESKTOP_UI,
+	isBrowser = process.env.IS_BROWSER,
+	matchesMobileWeb = typeof window !== "undefined" &&
+		typeof window.matchMedia === "function" &&
+		window.matchMedia(MOBILE_WEB_QUERY).matches,
+) {
+	return Boolean(isDesktopUI && !(isBrowser && matchesMobileWeb));
+}
 
 export function ChatComposer({
 	inputBarRef,
@@ -95,6 +108,7 @@ export function ChatComposer({
 	contextMeter,
 	queueControls,
 	isEditingQueuedPrompt = false,
+	isSubmitting = false,
 	imageAttachments,
 	reviewCommentCount,
 	onOpenGitReview,
@@ -102,11 +116,11 @@ export function ChatComposer({
 	onPromptSuggestion,
 	onPromptSuggestionHover,
 	onInput,
-	onKeyDown,
 	onPaste,
 	onAttachFiles,
 	onRemoveImageAttachment,
 	onSend,
+	onSaveQueuedPrompt,
 	onStop,
 }: ChatComposerProps) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
@@ -137,10 +151,84 @@ export function ChatComposer({
 		onInput();
 	};
 
+	const handleSubmitIntent = () => {
+		if (isSubmitting) return;
+		if (canSendPrompt && isConnected && agentAvailable) {
+			onSend();
+		} else if (sendBlockedReason) {
+			native.toast(sendBlockedReason);
+		}
+	};
+
+	const handleComposerKeyDown = (
+		event: React.KeyboardEvent<HTMLDivElement>,
+	) => {
+		if (event.nativeEvent.isComposing) return;
+
+		if (promptSuggestions.length > 0) {
+			if (event.key === "ArrowDown") {
+				event.preventDefault();
+				onPromptSuggestionHover(
+					(activePromptSuggestionIndex + 1) % promptSuggestions.length,
+				);
+				return;
+			}
+			if (event.key === "ArrowUp") {
+				event.preventDefault();
+				onPromptSuggestionHover(
+					(activePromptSuggestionIndex - 1 + promptSuggestions.length) %
+						promptSuggestions.length,
+				);
+				return;
+			}
+			if (event.key === "Tab") {
+				event.preventDefault();
+				onPromptSuggestion(
+					promptSuggestions[
+						Math.max(
+							0,
+							Math.min(
+								activePromptSuggestionIndex,
+								promptSuggestions.length - 1,
+							),
+						)
+					],
+				);
+				return;
+			}
+		}
+
+		if (
+			event.key !== "Enter" ||
+			event.shiftKey ||
+			!shouldSubmitComposerOnEnter()
+		) {
+			return;
+		}
+
+		event.preventDefault();
+		if (promptSuggestions.length > 0) {
+			onPromptSuggestion(
+				promptSuggestions[
+					Math.max(
+						0,
+						Math.min(activePromptSuggestionIndex, promptSuggestions.length - 1),
+					)
+				],
+			);
+			return;
+		}
+		if (isEditingQueuedPrompt) {
+			if (!isSubmitting) onSaveQueuedPrompt?.();
+			return;
+		}
+		handleSubmitIntent();
+	};
+
 	return (
 		<div
 			ref={inputBarRef}
-			className="fixed bottom-[calc(var(--keyboard-height,0px)+8px)] left-[max(10px,var(--sal))] right-[max(10px,var(--sar))] mx-auto flex w-auto max-w-[840px] flex-col gap-2 rounded-xl border border-card-border bg-secondary p-3 shadow-[0_10px_36px_var(--shadow-color),0_1px_0_var(--line-soft)_inset] transition-[border-radius,padding] duration-300 ease-in ios:rounded-[12px_12px_48px_48px] md:ios:rounded-xl ios-kbd:rounded-xl android:bottom-[max(8px,var(--sab))] android-kbd:bottom-[calc(var(--keyboard-height,8px)+8px)] browser:w-[calc(100%-32px)] browser:max-w-[1150px]"
+			className="chat-composer fixed bottom-[calc(var(--keyboard-height,0px)+8px)] left-[max(10px,var(--sal))] right-[max(10px,var(--sar))] mx-auto flex w-auto max-w-[840px] flex-col gap-2 rounded-xl border border-card-border bg-secondary p-3 shadow-[0_10px_36px_var(--shadow-color),0_1px_0_var(--line-soft)_inset] transition-[border-radius,padding] duration-300 ease-in ios:rounded-[12px_12px_48px_48px] md:ios:rounded-xl ios-kbd:rounded-xl android:bottom-[max(8px,var(--sab))] android-kbd:bottom-[calc(var(--keyboard-height,8px)+8px)] browser:w-[calc(100%-32px)] browser:max-w-[1150px] desktop-ui:w-[calc(100%-32px)] desktop-ui:max-w-[1150px]"
 		>
 			{queueControls}
 			{reviewCommentCount > 0 && (
@@ -149,6 +237,7 @@ export function ChatComposer({
 						type="button"
 						className="inline-flex h-full min-w-0 items-center gap-1.5 px-2 text-xs font-semibold text-inherit"
 						onClick={onOpenGitReview}
+						disabled={isSubmitting}
 					>
 						<span className="icon-message-square" aria-hidden="true" />
 						<span className="overflow-hidden text-ellipsis whitespace-nowrap">
@@ -160,6 +249,7 @@ export function ChatComposer({
 						type="button"
 						className="flex h-full w-7 shrink-0 items-center justify-center border-l border-accent/20 text-secondary-text"
 						onClick={onClearReviewComments}
+						disabled={isSubmitting}
 						aria-label="Remove review comments"
 					>
 						<span className="icon-x" aria-hidden="true" />
@@ -170,6 +260,7 @@ export function ChatComposer({
 				<AttachmentBadgeRow
 					attachments={imageAttachments}
 					onRemove={onRemoveImageAttachment}
+					disabled={isSubmitting}
 				/>
 			)}
 			<Combobox
@@ -179,7 +270,7 @@ export function ChatComposer({
 				}}
 				as="div"
 				className="flex min-w-0 flex-col"
-				disabled={!agentAvailable || !isConnected}
+				disabled={!agentAvailable || !isConnected || isSubmitting}
 			>
 				{promptSuggestions.length > 0 && (
 					<ComboboxOptions
@@ -230,8 +321,9 @@ export function ChatComposer({
 					// Stays editable while the connection is down: a reconnect is
 					// usually brief, and losing what you were mid-sentence on is worse
 					// than being able to type something you can't send yet. Sending is
-					// gated separately by canSendPrompt.
-					contentEditable={agentAvailable}
+					// gated separately by canSendPrompt. A submission briefly locks it
+					// so text typed during async model confirmation cannot be cleared.
+					contentEditable={agentAvailable && !isSubmitting}
 					suppressContentEditableWarning
 					role="textbox"
 					aria-label="Chat message"
@@ -242,7 +334,7 @@ export function ChatComposer({
 						!inputRef.current?.textContent.trim() ? "true" : undefined
 					}
 					onInput={onInput}
-					onKeyDown={onKeyDown}
+					onKeyDown={handleComposerKeyDown}
 					onPointerDown={handleComposerPointerDown}
 					onPaste={onPaste}
 					aria-controls={
@@ -253,7 +345,7 @@ export function ChatComposer({
 							? () => native.toast(unavailableMessage)
 							: undefined
 					}
-					aria-disabled={!agentAvailable || !isConnected}
+					aria-disabled={!agentAvailable || !isConnected || isSubmitting}
 				/>
 			</Combobox>
 			<div className="flex min-w-0 items-center gap-2 ios:px-3 ios-kbd:p-0">
@@ -272,7 +364,7 @@ export function ChatComposer({
 						type="button"
 						className="haptic-trigger flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent p-0 text-[1.15rem] text-secondary-text transition-[background,opacity] duration-150 active:bg-surface-soft disabled:cursor-default disabled:opacity-35 [-webkit-tap-highlight-color:transparent]"
 						onClick={() => fileInputRef.current?.click()}
-						disabled={!agentAvailable || !isConnected}
+						disabled={!agentAvailable || !isConnected || isSubmitting}
 						aria-label="Attach image"
 					>
 						<span className="icon-image" aria-hidden="true" />
@@ -298,15 +390,11 @@ export function ChatComposer({
 						// *why* (e.g. an image is still uploading) via a toast instead of
 						// silently doing nothing. The dimmed look is a class, not the
 						// native `disabled` attribute, which would swallow the tap.
-						className={`haptic-trigger flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent p-0 text-[1.15rem] text-[var(--active-text-color)] transition-opacity duration-150 disabled:opacity-35 [-webkit-tap-highlight-color:transparent] ${canSendPrompt && isConnected && agentAvailable ? "" : "opacity-35"}`}
-						onClick={() => {
-							if (canSendPrompt && isConnected && agentAvailable) {
-								onSend();
-							} else if (sendBlockedReason) {
-								native.toast(sendBlockedReason);
-							}
-						}}
-						aria-disabled={!canSendPrompt || !isConnected || !agentAvailable}
+						className={`haptic-trigger flex h-[34px] w-[34px] shrink-0 cursor-pointer items-center justify-center rounded-[9px] border-0 bg-transparent p-0 text-[1.15rem] text-[var(--active-text-color)] transition-opacity duration-150 disabled:opacity-35 [-webkit-tap-highlight-color:transparent] ${canSendPrompt && isConnected && agentAvailable && !isSubmitting ? "" : "opacity-35"}`}
+						onClick={handleSubmitIntent}
+						aria-disabled={
+							!canSendPrompt || !isConnected || !agentAvailable || isSubmitting
+						}
 						aria-label={isStreaming ? "Queue prompt" : "Send"}
 					>
 						<span className="icon-send" aria-hidden="true" />
@@ -324,9 +412,11 @@ export function ChatComposer({
 function AttachmentBadgeRow({
 	attachments,
 	onRemove,
+	disabled,
 }: {
 	attachments: ComposerAttachment[];
 	onRemove: (id: string) => void;
+	disabled: boolean;
 }) {
 	const rowRef = useRef<HTMLDivElement>(null);
 	const [hiddenCount, setHiddenCount] = useState(0);
@@ -366,6 +456,7 @@ function AttachmentBadgeRow({
 						key={attachment.id}
 						attachment={attachment}
 						onRemove={() => onRemove(attachment.id)}
+						disabled={disabled}
 					/>
 				))}
 			</div>
@@ -384,9 +475,11 @@ function AttachmentBadgeRow({
 function ImageAttachmentBadge({
 	attachment,
 	onRemove,
+	disabled,
 }: {
 	attachment: ComposerAttachment;
 	onRemove: () => void;
+	disabled: boolean;
 }) {
 	const icon = getFileIcon(attachment.name);
 	const className = [
@@ -429,6 +522,7 @@ function ImageAttachmentBadge({
 				type="button"
 				className="haptic-trigger flex h-[18px] w-[18px] shrink-0 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-[12px] text-secondary-text transition-[background,color] duration-150 [-webkit-tap-highlight-color:transparent] active:bg-card-border active:text-primary-text"
 				onClick={onRemove}
+				disabled={disabled}
 				aria-label={`Remove ${attachment.relativePath}`}
 			>
 				<span className="icon-x" aria-hidden="true" />

@@ -12,14 +12,18 @@ import {
 	ServerCloseCodeAndReason,
 	type SessionJoinedMsg,
 } from "@shellular/protocol";
+import localCli from "bridge/localCli";
 import native from "bridge/native";
-import { getAccessTokenForAuth } from "lib/auth";
+import { getAccessTokenForAuth, getAuthenticatedUserForAuth } from "lib/auth";
 import {
 	decryptMessage,
 	decryptProxyBinaryFrame,
 	encryptMessage,
+	encryptTcpTunnelDataFrame,
 	isPlaintextMessage,
+	keyFromBase64,
 	type ProxyBinaryHttpResponseData,
+	type ProxyBinaryTcpTunnelData,
 } from "lib/e2ee";
 import {
 	getHostCapabilities,
@@ -37,6 +41,11 @@ export type SendableMsg = {
 	>;
 }[OutgoingMsg["type"]];
 
+export interface RequestOptions {
+	timeoutMs?: number;
+	signal?: AbortSignal;
+}
+
 export type ConnectionStatus =
 	| "disconnected"
 	| "connecting"
@@ -50,6 +59,7 @@ export interface BatteryInfo {
 
 type Listener = () => void;
 const PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT = "proxy:binary:http-response-data";
+const PROXY_BINARY_TCP_TUNNEL_DATA_EVENT = "proxy:binary:tcp-tunnel-data";
 
 /**
  * Host identity plus the dynamic CLI update status. `updateAvailable` /
@@ -60,6 +70,10 @@ const PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT = "proxy:binary:http-response-data";
 export type ConnectedHostInfo = HostInfo & {
 	updateAvailable?: boolean;
 	latestCliVersion?: string;
+	capabilities?: {
+		tcpTunnel?: 1;
+		[key: string]: unknown;
+	};
 };
 
 interface ConnectionSnapshot {
@@ -67,6 +81,7 @@ interface ConnectionSnapshot {
 	sessionToken: string;
 	hostInfo: ConnectedHostInfo | null;
 	connectionStatus: ConnectionStatus;
+	transport: "local" | "remote" | null;
 	batteryInfo: BatteryInfo | null;
 	/**
 	 * How many reconnect attempts have been made in the current run (reset to 0
@@ -113,6 +128,8 @@ type WebSocketTokenResponse = {
 	relayUrl: string;
 };
 
+type DirectTicket = { ticket: string; clientId: string };
+
 /** Thrown by requestWebSocketToken; `httpStatus` lets callers detect 4xx to
  * distinguish "this server doesn't support the request" (old server) from a
  * generic network/5xx failure that shouldn't trigger fallback. */
@@ -129,6 +146,10 @@ type ConnectionTicket = {
 	/** Epoch ms, already reduced by TICKET_EXPIRY_MARGIN_MS. */
 	expiresAt: number;
 };
+
+type ConnectionTargetOptions =
+	| { directTicket: DirectTicket; remoteTicket?: never }
+	| { directTicket?: never; remoteTicket?: ConnectionTicket | null };
 
 // Legacy central server. Older CLI versions still point at this domain and
 // don't know how to return a `relayUrl` — for them the domain itself IS the
@@ -172,7 +193,7 @@ const RECONNECT_DELAYS = [1_000, 2_000, 4_000, 4_000, 8_000, 16_000];
 const TICKET_EXPIRY_MARGIN_MS = 5_000;
 const CLIENT_ID_STORAGE_KEY = "shellular:client-id";
 
-class MessageEvent<TMsg extends ClientIncomingMsg> extends Event {
+class MessageEvent<TMsg = ClientIncomingMsg> extends Event {
 	readonly msg: TMsg;
 
 	constructor(type: string, msg: TMsg) {
@@ -190,6 +211,15 @@ class ProxyBinaryHttpResponseDataEvent extends Event {
 	}
 }
 
+class ProxyBinaryTcpTunnelDataEvent extends Event {
+	readonly data: ProxyBinaryTcpTunnelData;
+
+	constructor(data: ProxyBinaryTcpTunnelData) {
+		super(PROXY_BINARY_TCP_TUNNEL_DATA_EVENT);
+		this.data = data;
+	}
+}
+
 export async function getClientId(): Promise<string> {
 	const existing = await store.get<string>(CLIENT_ID_STORAGE_KEY);
 	if (existing) {
@@ -203,7 +233,10 @@ export async function getClientId(): Promise<string> {
 
 export class Connection extends EventTarget {
 	private ws: WebSocket | null = null;
-	private pendingResponses = new Map<string, (msg: unknown) => void>();
+	private pendingResponses = new Map<
+		string,
+		{ resolve: (msg: unknown) => void; cleanup: () => void }
+	>();
 	private encryptionKey: Uint8Array | null = null;
 	// Resolved from the host's version on SESSION_JOINED. Conservative until
 	// then, so anything sent before the handshake lands stays uncompressed.
@@ -221,7 +254,11 @@ export class Connection extends EventTarget {
 	// (pong, battery update, terminal output, …) proves the socket is alive.
 	private lastInboundAt = Date.now();
 
-	constructor(initialServerUrl: string, encryptionKey?: Uint8Array | null) {
+	constructor(
+		initialServerUrl: string,
+		encryptionKey?: Uint8Array | null,
+		private readonly directTicket?: DirectTicket,
+	) {
 		super();
 		this.resolvedServerUrl = initialServerUrl;
 		this.encryptionKey = encryptionKey ?? null;
@@ -237,6 +274,18 @@ export class Connection extends EventTarget {
 				if (envelope.type === MsgType.ENCRYPTED) {
 					const inner = decryptMessage(envelope, this.encryptionKey);
 					if (!inner) return; // silent drop
+					if (
+						typeof inner.type === "string" &&
+						inner.type.startsWith("tcp:tunnel:")
+					) {
+						this.dispatchEvent(
+							new MessageEvent(
+								inner.type,
+								inner as unknown as ClientIncomingMsg,
+							),
+						);
+						return;
+					}
 					msgRaw = JSON.stringify(inner);
 				}
 			} catch {
@@ -260,7 +309,8 @@ export class Connection extends EventTarget {
 			const pending = this.pendingResponses.get(msg.respTo);
 			if (pending) {
 				this.pendingResponses.delete(msg.respTo);
-				pending(msg);
+				pending.cleanup();
+				pending.resolve(msg);
 			}
 		}
 
@@ -278,7 +328,11 @@ export class Connection extends EventTarget {
 		const msg = decryptProxyBinaryFrame(frame, this.encryptionKey);
 		if (!msg) return;
 
-		this.dispatchEvent(new ProxyBinaryHttpResponseDataEvent(msg));
+		if ("tunnelId" in msg) {
+			this.dispatchEvent(new ProxyBinaryTcpTunnelDataEvent(msg));
+		} else {
+			this.dispatchEvent(new ProxyBinaryHttpResponseDataEvent(msg));
+		}
 	}
 
 	private async handleIncomingWebSocketData(data: unknown) {
@@ -311,6 +365,14 @@ export class Connection extends EventTarget {
 		hostId: string,
 		cachedTicket?: ConnectionTicket | null,
 	): Promise<SessionJoinedMsg> {
+		if (this.directTicket) {
+			this.clientId = this.directTicket.clientId;
+			const directUrl = new URL(this.resolvedServerUrl);
+			directUrl.searchParams.set("ticket", this.directTicket.ticket);
+			this.ws = new WebSocket(directUrl.toString());
+			this.ws.binaryType = "arraybuffer";
+			return this.waitForHandshake(this.ws);
+		}
 		let resolvedServerUrl: string;
 		let wsInfo: WebSocketTokenResponse;
 
@@ -356,7 +418,6 @@ export class Connection extends EventTarget {
 					Date.now() + wsInfo.expiresIn * 1000 - TICKET_EXPIRY_MARGIN_MS,
 			};
 		}
-
 		this.resolvedServerUrl = resolvedServerUrl;
 
 		const wsUrl = new URL(wsInfo.relayUrl);
@@ -366,7 +427,10 @@ export class Connection extends EventTarget {
 		this.ws = new WebSocket(wsUrl.toString());
 		const ws = this.ws;
 		ws.binaryType = "arraybuffer";
+		return this.waitForHandshake(ws);
+	}
 
+	private waitForHandshake(ws: WebSocket): Promise<SessionJoinedMsg> {
 		return new Promise((resolve, reject) => {
 			let settled = false;
 
@@ -389,11 +453,6 @@ export class Connection extends EventTarget {
 				cleanupHandshakeListeners();
 				reject(error);
 			};
-
-			if (!ws) {
-				rejectOnce(new Error("WebSocket connection was not created"));
-				return;
-			}
 
 			const onHandshakeError = (event: Event) => {
 				console.error("[Connection] WebSocket error during handshake", event);
@@ -436,6 +495,16 @@ export class Connection extends EventTarget {
 					}
 				}
 
+				let tcpTunnelCapability: 1 | undefined;
+				try {
+					const handshake = JSON.parse(raw) as {
+						data?: { capabilities?: { tcpTunnel?: unknown } };
+					};
+					if (handshake.data?.capabilities?.tcpTunnel === 1) {
+						tcpTunnelCapability = 1;
+					}
+				} catch {}
+
 				const parsed = parseMessage(raw, ClientHandshakeRespMsgSchema);
 				if (!parsed.data) {
 					console.error("[Connection] Handshake parse failed", {
@@ -448,6 +517,11 @@ export class Connection extends EventTarget {
 				}
 
 				const msg = parsed.data;
+				if (msg.type === MsgType.SESSION_JOINED && tcpTunnelCapability) {
+					(msg.data as ConnectedHostInfo).capabilities = {
+						tcpTunnel: tcpTunnelCapability,
+					};
+				}
 
 				switch (msg.type) {
 					case MsgType.SESSION_JOINED:
@@ -459,6 +533,7 @@ export class Connection extends EventTarget {
 							void this.handleIncomingWebSocketData(nextEvent.data);
 						});
 						ws.addEventListener("close", (event) => {
+							this.failPendingRequests("Connection closed");
 							this.dispatchEvent(
 								new CustomEvent<ConnectionCloseDetail>("disconnected", {
 									detail: { code: event.code, reason: event.reason },
@@ -499,12 +574,12 @@ export class Connection extends EventTarget {
 
 		try {
 			if (this.encryptionKey && !isPlaintextMessage(msgObj.type)) {
-				// With E2EE the relay can't inject clientId, so we include it
-				const msgWithClient = this.clientId
-					? { ...fullMsg, clientId: this.clientId }
-					: fullMsg;
+				if (!this.clientId) {
+					console.error("failed to send encrypted message without a client ID");
+					return null;
+				}
 				const envelope = encryptMessage(
-					msgWithClient as { id: string; type: string },
+					{ ...fullMsg, clientId: this.clientId },
 					this.encryptionKey,
 					this.hostCapabilities.gzipPayloads,
 				);
@@ -514,13 +589,69 @@ export class Connection extends EventTarget {
 			}
 		} catch (err) {
 			console.error("failed to send message", err);
+			return null;
 		}
 
 		return id;
 	}
 
-	sendRequest<TMsg = unknown>(msgObj: SendableMsg): Promise<TMsg> {
+	sendTcpTunnelData(
+		tunnelId: string,
+		sequence: number,
+		data: Uint8Array,
+	): boolean {
+		if (
+			!this.ws ||
+			this.ws.readyState !== WebSocket.OPEN ||
+			!this.encryptionKey ||
+			!this.clientId
+		) {
+			return false;
+		}
+		try {
+			const frame = encryptTcpTunnelDataFrame(
+				this.clientId,
+				tunnelId,
+				sequence,
+				data,
+				this.encryptionKey,
+			);
+			// Copy into an ArrayBuffer-backed view for the DOM WebSocket API. The
+			// sodium typings permit SharedArrayBuffer even though it never returns one.
+			this.ws.send(Uint8Array.from(frame));
+			return true;
+		} catch (error) {
+			console.error("failed to send TCP tunnel data", error);
+			return false;
+		}
+	}
+
+	private failPendingRequests(error: string): void {
+		for (const [requestId, pending] of [...this.pendingResponses]) {
+			this.pendingResponses.delete(requestId);
+			pending.cleanup();
+			pending.resolve({
+				id: `closed_${requestId}`,
+				type: MsgType.SESSION_ERROR,
+				respTo: requestId,
+				error,
+			});
+		}
+	}
+
+	sendRequest<TMsg = unknown>(
+		msgObj: SendableMsg,
+		options: RequestOptions = {},
+	): Promise<TMsg> {
 		return new Promise((resolve) => {
+			if (options.signal?.aborted) {
+				resolve({
+					id: "aborted",
+					type: MsgType.SESSION_ERROR,
+					error: "Request aborted",
+				} as TMsg);
+				return;
+			}
 			const msgId = this.send(msgObj);
 			if (!msgId) {
 				resolve({
@@ -530,20 +661,37 @@ export class Connection extends EventTarget {
 				} as TMsg);
 				return;
 			}
-			const timeout = setTimeout(() => {
+			const finish = (message: unknown) => {
+				const pending = this.pendingResponses.get(msgId);
+				if (!pending) return;
 				this.pendingResponses.delete(msgId);
+				pending.cleanup();
+				resolve(message as TMsg);
+			};
+			const timeout = setTimeout(() => {
 				console.error("Request timed out", msgObj);
-				resolve({
+				finish({
 					id: `timeout_${msgId}`,
 					type: MsgType.SESSION_ERROR,
 					respTo: msgId,
 					error: "Request timed out",
 				} as TMsg);
-			}, RECV_TIMEOUT);
+			}, options.timeoutMs ?? RECV_TIMEOUT);
+			const abort = () =>
+				finish({
+					id: `aborted_${msgId}`,
+					type: MsgType.SESSION_ERROR,
+					respTo: msgId,
+					error: "Request aborted",
+				});
+			options.signal?.addEventListener("abort", abort, { once: true });
 
-			this.pendingResponses.set(msgId, (msg) => {
-				clearTimeout(timeout);
-				resolve(msg as TMsg);
+			this.pendingResponses.set(msgId, {
+				resolve: (message) => resolve(message as TMsg),
+				cleanup: () => {
+					clearTimeout(timeout);
+					options.signal?.removeEventListener("abort", abort);
+				},
 			});
 		});
 	}
@@ -576,6 +724,19 @@ export class Connection extends EventTarget {
 			this.removeEventListener(PROXY_BINARY_HTTP_RESPONSE_DATA_EVENT, wrapped);
 	}
 
+	onBinaryTcpTunnelData(
+		handler: (msg: ProxyBinaryTcpTunnelData) => void,
+	): () => void {
+		const wrapped = (event: Event) => {
+			if (event instanceof ProxyBinaryTcpTunnelDataEvent) {
+				handler(event.data);
+			}
+		};
+		this.addEventListener(PROXY_BINARY_TCP_TUNNEL_DATA_EVENT, wrapped);
+		return () =>
+			this.removeEventListener(PROXY_BINARY_TCP_TUNNEL_DATA_EVENT, wrapped);
+	}
+
 	/**
 	 * True when no inbound frame has arrived for longer than the given window,
 	 * i.e. the socket is very likely dead even if no `close` has fired yet.
@@ -601,6 +762,7 @@ class ConnectionManager {
 		sessionToken: "",
 		hostInfo: null,
 		connectionStatus: "disconnected",
+		transport: null,
 		batteryInfo: null,
 		reconnectAttempt: 0,
 		hostUpdating: false,
@@ -625,6 +787,7 @@ class ConnectionManager {
 	// The host we're currently meant to be connected to. Retained across
 	// reconnects so app-resume / network-online can re-establish the session.
 	private activeHostId: string | null = null;
+	private localMode = false;
 	private onConnected:
 		| ((token: string, prevStatus: ConnectionStatus) => void | Promise<void>)
 		| null = null;
@@ -671,6 +834,13 @@ class ConnectionManager {
 		return this.connection.onBinaryHttpResponseData(handler);
 	}
 
+	onBinaryTcpTunnelData(
+		handler: (msg: ProxyBinaryTcpTunnelData) => void,
+	): () => void {
+		if (!this.connection) return () => {};
+		return this.connection.onBinaryTcpTunnelData(handler);
+	}
+
 	sendMessage(msg: SendableMsg): string | null {
 		if (!this.connection) {
 			return null;
@@ -679,7 +849,20 @@ class ConnectionManager {
 		return this.connection.send(msg) ?? null;
 	}
 
-	sendRequest<TMsg = unknown>(msg: SendableMsg): Promise<TMsg> {
+	sendTcpTunnelData(
+		tunnelId: string,
+		sequence: number,
+		data: Uint8Array,
+	): boolean {
+		return (
+			this.connection?.sendTcpTunnelData(tunnelId, sequence, data) ?? false
+		);
+	}
+
+	sendRequest<TMsg = unknown>(
+		msg: SendableMsg,
+		options?: RequestOptions,
+	): Promise<TMsg> {
 		if (!this.connection) {
 			return Promise.resolve({
 				id: "offline",
@@ -687,7 +870,7 @@ class ConnectionManager {
 				error: "Not connected",
 			} as TMsg);
 		}
-		return this.connection.sendRequest<TMsg>(msg);
+		return this.connection.sendRequest<TMsg>(msg, options);
 	}
 
 	connectToServer(
@@ -695,26 +878,37 @@ class ConnectionManager {
 		hostId: string,
 		encryptionKey?: Uint8Array | null,
 		status: ConnectionStatus = "connecting",
-		ticket?: ConnectionTicket | null,
+		options: ConnectionTargetOptions = {},
 	): Promise<void> {
 		const attemptId = ++this.activeConnectAttempt;
+		const { directTicket, remoteTicket } = options;
 
 		this.closePendingSocket();
 		this.encryptionKey = encryptionKey ?? null;
+		this.localMode = Boolean(directTicket);
 		this.activeHostId = hostId;
 		this.setSnapshot({
 			serverUrl: url,
 			sessionToken: hostId,
 			connectionStatus: status,
+			transport: directTicket ? "local" : "remote",
 		});
 
 		return new Promise<void>((resolve, reject) => {
-			const nextConnection = new Connection(url, this.encryptionKey);
+			// Local/direct path connects straight to the CLI's WebSocket (ws-scheme),
+			// so hand the Connection a ready ws URL. The relay path passes the raw
+			// central url and lets open() resolve the regional relay via the token.
+			const initialServerUrl = directTicket ? toWsUrl(url) : url;
+			const nextConnection = new Connection(
+				initialServerUrl,
+				this.encryptionKey,
+				directTicket,
+			);
 			let handshakeCompleted = false;
 			this.pendingSocket = nextConnection;
 
 			nextConnection
-				.open(hostId, ticket)
+				.open(hostId, remoteTicket)
 				.then((msg) => {
 					if (attemptId !== this.activeConnectAttempt) return;
 					handshakeCompleted = true;
@@ -737,6 +931,7 @@ class ConnectionManager {
 							updateAvailable: msg.data.updateAvailable,
 							latestCliVersion: msg.data.latestCliVersion,
 							canSelfUpdate: msg.data.canSelfUpdate,
+							capabilities: (msg.data as ConnectedHostInfo).capabilities,
 						},
 						connectionStatus: "connected",
 						batteryInfo: null,
@@ -759,6 +954,7 @@ class ConnectionManager {
 					if (status !== "reconnecting") {
 						this.setSnapshot({
 							connectionStatus: "disconnected",
+							transport: null,
 						});
 					}
 					reject(err);
@@ -772,6 +968,7 @@ class ConnectionManager {
 					if (status !== "reconnecting") {
 						this.setSnapshot({
 							connectionStatus: "disconnected",
+							transport: null,
 						});
 					}
 					reject(
@@ -795,6 +992,7 @@ class ConnectionManager {
 					this.setSnapshot({
 						hostInfo: null,
 						connectionStatus: "disconnected",
+						transport: null,
 						batteryInfo: null,
 					});
 					this.onDisconnected?.();
@@ -807,10 +1005,37 @@ class ConnectionManager {
 		});
 	}
 
+	async connectToLocal(status: ConnectionStatus = "connecting"): Promise<void> {
+		const user = getAuthenticatedUserForAuth();
+		if (!user) {
+			throw new Error("Sign in again to connect locally.");
+		}
+		await localCli.ensureRunning();
+		const deviceInfo = await native.getDeviceInfo();
+		const clientId = await getClientId();
+		const ticket = await localCli.ticket({
+			clientId,
+			appVersion: `${process.env.VERSION} (${process.env.VERSION_CODE})`,
+			platform: "macos",
+			deviceModel: deviceInfo.model,
+			deviceIsEmulator: deviceInfo.isEmulator,
+			deviceManufacturer: deviceInfo.manufacturer,
+			user: { id: user.id, email: user.email },
+		});
+		return this.connectToServer(
+			ticket.wsUrl,
+			ticket.hostId,
+			keyFromBase64(ticket.encryptionKey),
+			status,
+			{ directTicket: { ticket: ticket.ticket, clientId: ticket.clientId } },
+		);
+	}
+
 	disconnect() {
 		this.cancelReconnect();
 		this.encryptionKey = null;
 		this.activeHostId = null;
+		this.localMode = false;
 		this.stopPing();
 		this.closeConnection();
 		this.closePendingSocket();
@@ -819,6 +1044,7 @@ class ConnectionManager {
 			sessionToken: "",
 			hostInfo: null,
 			connectionStatus: "disconnected",
+			transport: null,
 			batteryInfo: null,
 			reconnectAttempt: 0,
 			hostUpdating: false,
@@ -951,6 +1177,7 @@ class ConnectionManager {
 			this.setSnapshot({
 				connectionStatus: "disconnected",
 				hostInfo: null,
+				transport: null,
 				batteryInfo: null,
 				reconnectAttempt: 0,
 				hostUpdating: false,
@@ -983,7 +1210,13 @@ class ConnectionManager {
 					? this.reconnectTicket
 					: null;
 			try {
-				await this.connectToServer(url, hostId, key, "reconnecting", ticket);
+				if (this.localMode) {
+					await this.connectToLocal("reconnecting");
+				} else {
+					await this.connectToServer(url, hostId, key, "reconnecting", {
+						remoteTicket: ticket,
+					});
+				}
 				this.reconnectAttempt = 0;
 			} catch {
 				this.attemptReconnect(hostId);
@@ -1275,12 +1508,29 @@ export function onBinaryHttpResponseData(
 	return connectionManager.onBinaryHttpResponseData(handler);
 }
 
+export function onBinaryTcpTunnelData(
+	handler: (msg: ProxyBinaryTcpTunnelData) => void,
+): () => void {
+	return connectionManager.onBinaryTcpTunnelData(handler);
+}
+
 export function sendMessage(msg: SendableMsg): string | null {
 	return connectionManager.sendMessage(msg);
 }
 
-export function sendRequest<TMsg = unknown>(msg: SendableMsg): Promise<TMsg> {
-	return connectionManager.sendRequest<TMsg>(msg);
+export function sendTcpTunnelData(
+	tunnelId: string,
+	sequence: number,
+	data: Uint8Array,
+): boolean {
+	return connectionManager.sendTcpTunnelData(tunnelId, sequence, data);
+}
+
+export function sendRequest<TMsg = unknown>(
+	msg: SendableMsg,
+	options?: RequestOptions,
+): Promise<TMsg> {
+	return connectionManager.sendRequest<TMsg>(msg, options);
 }
 
 export function connectToServer(
@@ -1289,6 +1539,10 @@ export function connectToServer(
 	encryptionKey?: Uint8Array | null,
 ): Promise<void> {
 	return connectionManager.connectToServer(url, hostId, encryptionKey);
+}
+
+export function connectToLocal(): Promise<void> {
+	return connectionManager.connectToLocal();
 }
 
 export function disconnect() {

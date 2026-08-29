@@ -25,6 +25,7 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { type AcpAgentInfo, acpListAgents } from "state/acp";
+import { initializeLocalCli } from "state/localCli";
 import {
 	loadBookmarkedSessions,
 	resetBookmarkedSessions,
@@ -46,6 +47,7 @@ import type {
 	FileEntry,
 	GitBranch,
 	GitCommitFileDiff,
+	GitDiffTarget,
 	GitFileStatus,
 	GitLogPage,
 	GitOperation,
@@ -72,7 +74,6 @@ import {
 	addProject,
 	enrichProjectsWithGitInfo,
 	loadProjects as loadProjectsFromStorage,
-	type Project,
 	type ProjectInfo,
 	removeProject,
 } from "./projects";
@@ -170,6 +171,7 @@ interface ShellularContextValue {
 			message?: string;
 			branch?: string;
 			force?: boolean;
+			diffTarget?: import("./filesystem").GitDiffTarget;
 		},
 	) => Promise<{
 		ok: boolean;
@@ -217,6 +219,7 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 	const [lastConnectedHost, setLastConnectedHost] = useState<HostInfo | null>(
 		null,
 	);
+	const projectsRequestRef = useRef(0);
 	const projectsCacheRef = useRef<{ hostId: string; loadedAt: number } | null>(
 		null,
 	);
@@ -383,51 +386,54 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		// teardown happens only on a final disconnect (onDisconnected).
 		setOnPreDisconnectCallback(detachTerminalListeners);
 
-		setOnConnectedCallback(
-			async (_token: string, prevStatus: ConnectionStatus) => {
-				const { hostInfo } = getConnectionSnapshot();
+		const handleConnected = async (
+			_token: string,
+			prevStatus: ConnectionStatus,
+		) => {
+			const { hostInfo, transport } = getConnectionSnapshot();
 
-				if (!hostInfo) {
-					return;
-				}
+			if (!hostInfo) {
+				return;
+			}
 
-				// Increment session count for rating prompt (only on fresh connections)
-				if (prevStatus === "connecting") {
-					incrementSessionCount().catch(console.error);
-				}
+			// Increment session count for rating prompt (only on fresh connections)
+			if (prevStatus === "connecting") {
+				incrementSessionCount().catch(console.error);
+			}
 
-				// Always refresh projects after connecting. Later tab visits use the
-				// five-minute in-memory cache in `loadProjects`.
-				loadProjects(true).catch(console.error);
+			// Always refresh projects after connecting. Later tab visits use the
+			// five-minute in-memory cache in `loadProjects`.
+			loadProjects(true).catch(console.error);
 
-				if (hostInfo.id !== projectsCacheRef.current?.hostId) {
-					setProjects([]);
-					loadBookmarkedSessions(hostInfo.id).catch(console.error);
-					loadChatTabs(hostInfo.id).catch(console.error);
-				}
+			if (hostInfo.id !== projectsCacheRef.current?.hostId) {
+				setProjects([]);
+				loadBookmarkedSessions(hostInfo.id).catch(console.error);
+				loadChatTabs(hostInfo.id).catch(console.error);
+			}
 
-				if (pendingSavedHostRef.current) {
-					const savedHost = await findHostById(hostInfo.id);
-					await upsertSavedHost({
-						alias: savedHost?.alias,
-						hostId: pendingSavedHostRef.current.hostId,
-						machineId: hostInfo.machineId,
-						username: hostInfo.username,
-						encryptionKey: pendingSavedHostRef.current.encryptionKey,
-						hostname: hostInfo.hostname,
-						platform: hostInfo.platform,
-						lastConnected: Date.now(),
-						cliVersion: hostInfo.cliVersion ?? savedHost?.cliVersion,
-					});
-					setSavedHosts(await getSavedHosts());
-				} else if (hostInfo) {
-					console.warn("[hosts] Skipping save because hostId is missing");
-				}
-				await restoreTerminals();
-			},
-		);
+			if (transport === "remote" && pendingSavedHostRef.current) {
+				const savedHost = await findHostById(hostInfo.id);
+				await upsertSavedHost({
+					alias: savedHost?.alias,
+					hostId: pendingSavedHostRef.current.hostId,
+					machineId: hostInfo.machineId,
+					username: hostInfo.username,
+					encryptionKey: pendingSavedHostRef.current.encryptionKey,
+					hostname: hostInfo.hostname,
+					platform: hostInfo.platform,
+					lastConnected: Date.now(),
+					cliVersion: hostInfo.cliVersion ?? savedHost?.cliVersion,
+				});
+				setSavedHosts(await getSavedHosts());
+			} else if (transport === "remote") {
+				console.warn("[hosts] Skipping save because no remote host is pending");
+			}
+			await restoreTerminals();
+		};
+		setOnConnectedCallback(handleConnected);
 
 		setOnDisconnectedCallback(() => {
+			projectsRequestRef.current += 1;
 			detachAllTerminals();
 			setProjects([]);
 			setAgents({});
@@ -438,6 +444,15 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 
 		// Store in ref for event handlers
 		restoreTerminalsRef.current = restoreTerminals;
+
+		// Native startup prepares the CLI before the web UI loads. Connect only
+		// after all renderer lifecycle callbacks are installed so a fast local
+		// handshake cannot skip terminal/project/session restoration.
+		const current = getConnectionSnapshot();
+		if (current.connectionStatus === "connected") {
+			void handleConnected(current.sessionToken, "reconnecting");
+		}
+		if (process.env.IS_MACOS) void initializeLocalCli();
 	}, [loadProjects]);
 
 	// Keep the latest connected host / connect fn in refs so the lifecycle
@@ -502,40 +517,48 @@ export function ShellularProvider({ children }: { children: ReactNode }) {
 		};
 	}, []);
 
-	const handleAddProject = useCallback(
-		async (path: string) => {
-			const { hostInfo } = getConnectionSnapshot();
-			if (!hostInfo) {
-				return;
-			}
+	const handleAddProject = useCallback(async (path: string) => {
+		const { hostInfo } = getConnectionSnapshot();
+		if (!hostInfo) {
+			return;
+		}
 
-			const rawProjects: Project[] = projects.map((p) => ({
-				path: p.path,
-				name: p.name,
-				addedAt: p.addedAt,
-			}));
-			const updated = await addProject(hostInfo.id, path, rawProjects);
-			setProjects(await enrichProjectsWithGitInfo(updated, hostInfo?.dir));
-		},
-		[projects],
-	);
-
-	const handleRemoveProject = useCallback(
-		async (path: string) => {
-			const { hostInfo } = getConnectionSnapshot();
-			if (!hostInfo) {
-				return;
+		const request = ++projectsRequestRef.current;
+		setLoadingProjects(true);
+		try {
+			const updated = await addProject(hostInfo.id, path);
+			const enriched = await enrichProjectsWithGitInfo(updated, hostInfo.dir);
+			if (
+				projectsRequestRef.current === request &&
+				getConnectionSnapshot().hostInfo?.id === hostInfo.id
+			) {
+				setProjects(enriched);
 			}
-			const rawProjects: Project[] = projects.map((p) => ({
-				path: p.path,
-				name: p.name,
-				addedAt: p.addedAt,
-			}));
-			const updated = await removeProject(hostInfo.id, path, rawProjects);
-			setProjects(await enrichProjectsWithGitInfo(updated, hostInfo?.dir));
-		},
-		[projects],
-	);
+		} finally {
+			if (projectsRequestRef.current === request) setLoadingProjects(false);
+		}
+	}, []);
+
+	const handleRemoveProject = useCallback(async (path: string) => {
+		const { hostInfo } = getConnectionSnapshot();
+		if (!hostInfo) {
+			return;
+		}
+		const request = ++projectsRequestRef.current;
+		setLoadingProjects(true);
+		try {
+			const updated = await removeProject(hostInfo.id, path);
+			const enriched = await enrichProjectsWithGitInfo(updated, hostInfo.dir);
+			if (
+				projectsRequestRef.current === request &&
+				getConnectionSnapshot().hostInfo?.id === hostInfo.id
+			) {
+				setProjects(enriched);
+			}
+		} finally {
+			if (projectsRequestRef.current === request) setLoadingProjects(false);
+		}
+	}, []);
 
 	const value: ShellularContextValue = {
 		...connection,
@@ -598,6 +621,7 @@ export type {
 	GitCommit,
 	GitCommitFile,
 	GitCommitFileDiff,
+	GitDiffTarget,
 	GitFileStatus,
 	GitLogPage,
 	GitOperation,

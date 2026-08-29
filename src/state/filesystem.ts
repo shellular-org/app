@@ -18,7 +18,17 @@ import {
 	MsgType,
 	type ProjectFileSearchResultMsg,
 } from "@shellular/protocol";
+import type { RequestOptions, SendableMsg } from "./connection";
 import { sendRequest } from "./connection";
+
+export const GIT_WORKTREE_CHANGED_EVENT = "shellular:git-worktree-changed";
+
+export function notifyGitWorktreeChanged(path: string) {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(
+		new CustomEvent(GIT_WORKTREE_CHANGED_EVENT, { detail: { path } }),
+	);
+}
 
 export interface GitLogPage {
 	commits: GitCommit[];
@@ -39,6 +49,11 @@ export type {
 	GitWorkingTreeFileDiff,
 	GitWorkingTreeStatus,
 };
+
+export type GitDiffTarget =
+	| "head-to-worktree"
+	| "head-to-index"
+	| "index-to-worktree";
 
 export type GitFileStatus =
 	| "modified"
@@ -84,6 +99,12 @@ export interface ProjectFileSearchResult {
 			issues: string[];
 		};
 	};
+}
+
+export interface ProjectTreeEntry {
+	relativePath: string;
+	type: "file" | "directory";
+	gitStatus?: GitFileStatus;
 }
 
 function base64ToBytes(content: string): Uint8Array {
@@ -153,6 +174,33 @@ export async function listDir(
 	}));
 }
 
+/**
+ * Lightweight, backwards-compatible listing used by the project explorer.
+ * Older CLIs ignore the extra flags and still return an ordinary FS_LIST result.
+ */
+export async function listProjectDirectory(
+	path: string,
+	options: RequestOptions = {},
+): Promise<FileEntry[]> {
+	const res = await sendRequest<FsListResultMsg>(
+		{
+			type: MsgType.FS_LIST,
+			data: {
+				path,
+				showHidden: true,
+				includeMetadata: false,
+				includeGitStatus: false,
+			},
+		} as unknown as SendableMsg,
+		options,
+	);
+	if (res.error) throw new Error(res.error);
+	return (res.data?.entries ?? []).map((entry) => ({
+		...entry,
+		gitStatus: entry.gitStatus ?? undefined,
+	}));
+}
+
 export async function searchProjectFiles(
 	path: string,
 	query: string,
@@ -161,19 +209,23 @@ export async function searchProjectFiles(
 		selectedPath?: string;
 		includeHistory?: boolean;
 		refresh?: boolean;
+		request?: RequestOptions;
 	} = {},
 ): Promise<ProjectFileSearchResult> {
-	const res = await sendRequest<ProjectFileSearchResultMsg>({
-		type: MsgType.PROJECT_FILE_SEARCH,
-		data: {
-			path,
-			query,
-			limit: options.limit,
-			selectedPath: options.selectedPath,
-			includeHistory: options.includeHistory,
-			refresh: options.refresh,
+	const res = await sendRequest<ProjectFileSearchResultMsg>(
+		{
+			type: MsgType.PROJECT_FILE_SEARCH,
+			data: {
+				path,
+				query,
+				limit: options.limit,
+				selectedPath: options.selectedPath,
+				includeHistory: options.includeHistory,
+				refresh: options.refresh,
+			},
 		},
-	});
+		options.request,
+	);
 	if (res.error) throw new Error(res.error);
 	return {
 		entries: (res.data?.entries ?? []).map((entry) => ({
@@ -295,19 +347,22 @@ export async function runGitOperation(
 		message?: string;
 		branch?: string;
 		force?: boolean;
+		diffTarget?: GitDiffTarget;
 	} = {},
 ): Promise<NonNullable<GitOperationResultMsg["data"]>> {
+	const data = {
+		path,
+		operation,
+		files: options.files,
+		file: options.file,
+		message: options.message,
+		branch: options.branch,
+		force: options.force,
+		diffTarget: options.diffTarget,
+	};
 	const res = await sendRequest<GitOperationResultMsg>({
 		type: MsgType.GIT_OPERATION,
-		data: {
-			path,
-			operation,
-			files: options.files,
-			file: options.file,
-			message: options.message,
-			branch: options.branch,
-			force: options.force,
-		},
+		data,
 	});
 	if (res.error) throw new Error(res.error);
 	if (!res.data) throw new Error("No git operation data received");
@@ -328,6 +383,7 @@ export async function writeFile(
 		},
 	});
 	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(path);
 }
 
 export async function writeFileBinary(
@@ -343,6 +399,7 @@ export async function createDir(path: string): Promise<void> {
 		data: { path },
 	});
 	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(path);
 }
 
 export async function deleteEntry(path: string): Promise<void> {
@@ -351,4 +408,17 @@ export async function deleteEntry(path: string): Promise<void> {
 		data: { path },
 	});
 	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(path);
+}
+
+export async function renameEntry(
+	oldPath: string,
+	newPath: string,
+): Promise<void> {
+	const res = await sendRequest<FsResultMsg>({
+		type: MsgType.FS_RENAME,
+		data: { oldPath, newPath },
+	});
+	if (res.error) throw new Error(res.error);
+	notifyGitWorktreeChanged(newPath);
 }

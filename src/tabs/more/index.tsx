@@ -6,6 +6,7 @@ import AboutPage from "pages/about";
 import ReachOutPage from "pages/reach-out";
 import SettingsPage from "pages/settings";
 import { useState } from "react";
+import { tryOpenUtilitySurface } from "workbench/openers";
 
 interface AppTile {
 	id: string;
@@ -34,6 +35,8 @@ export default function MoreTab() {
 			description: "App preferences and configuration",
 			icon: "icon-settings",
 			onTap: () => {
+				if (tryOpenUtilitySurface("settings", "Settings", "icon-settings"))
+					return;
 				pushPage("settings", <SettingsPage />, { showConnectionBanner: false });
 			},
 		},
@@ -43,6 +46,10 @@ export default function MoreTab() {
 			description: "Contact us, report an issue, or say hi",
 			icon: "icon-message-circle",
 			onTap: () => {
+				if (
+					tryOpenUtilitySurface("reach-out", "Reach Out", "icon-message-circle")
+				)
+					return;
 				pushPage("reach-out", <ReachOutPage />, {
 					showConnectionBanner: false,
 				});
@@ -54,6 +61,7 @@ export default function MoreTab() {
 			description: "Version info and licenses",
 			icon: "icon-info",
 			onTap: () => {
+				if (tryOpenUtilitySurface("about", "About", "icon-info")) return;
 				pushPage("about", <AboutPage />, { showConnectionBanner: false });
 			},
 		},
@@ -91,9 +99,7 @@ export default function MoreTab() {
 								<span className="text-[15px] font-semibold text-primary-text">
 									{label}
 								</span>
-								<span className="text-[12px] text-secondary-text opacity-60">
-									{description}
-								</span>
+								<span className="card-subtext text-[12px]">{description}</span>
 							</div>
 							<span
 								className="icon-chevron-right shrink-0 text-[16px] text-secondary-text opacity-40"

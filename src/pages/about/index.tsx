@@ -1,6 +1,4 @@
 import { pushPage } from "App";
-import browser from "bridge/browser";
-import native from "bridge/native";
 import Page from "components/Page";
 import { AnimatePresence, domAnimation, LazyMotion, m } from "framer-motion";
 import ReachOutPage from "pages/reach-out";
@@ -10,6 +8,8 @@ import betterKeepIcon from "res/better_keep.png";
 import chess69Icon from "res/chess69.png";
 import licenses from "./licenses";
 import "./style.scss";
+import { openBrowserSurface } from "workbench/browserSurface";
+import { tryOpenUtilitySurface } from "workbench/openers";
 
 export default function AboutPage() {
 	const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -19,7 +19,7 @@ export default function AboutPage() {
 	}
 
 	return (
-		<Page title="About">
+		<Page title="About" className="about-page">
 			<LazyMotion features={domAnimation}>
 				<div className="about-hero">
 					<div className="about-hero-icon-wrapper">
@@ -48,11 +48,19 @@ export default function AboutPage() {
 						<button
 							type="button"
 							className="about-link-item"
-							onClick={() =>
+							onClick={() => {
+								if (
+									tryOpenUtilitySurface(
+										"reach-out",
+										"Reach Out",
+										"icon-message-circle",
+									)
+								)
+									return;
 								pushPage("reach-out", <ReachOutPage />, {
 									showConnectionBanner: false,
-								})
-							}
+								});
+							}}
 						>
 							<span
 								className="icon-message-circle about-link-icon"
@@ -73,7 +81,9 @@ export default function AboutPage() {
 						<button
 							type="button"
 							className="about-link-item"
-							onClick={() => native.openInBrowser("https://acode.app")}
+							onClick={() =>
+								openBrowserSurface("https://acode.app", "Acode Editor")
+							}
 						>
 							<img
 								src={acodeIcon}
@@ -90,7 +100,10 @@ export default function AboutPage() {
 							type="button"
 							className="about-link-item"
 							onClick={() =>
-								native.openInBrowser("https://betterkeep.app/welcome")
+								openBrowserSurface(
+									"https://betterkeep.app/welcome",
+									"Better Keep",
+								)
 							}
 						>
 							<img
@@ -107,7 +120,9 @@ export default function AboutPage() {
 						<button
 							type="button"
 							className="about-link-item"
-							onClick={() => native.openInBrowser("https://chess69.com")}
+							onClick={() =>
+								openBrowserSurface("https://chess69.com", "Hanging Piece")
+							}
 						>
 							<img
 								src={chess69Icon}
@@ -128,8 +143,7 @@ export default function AboutPage() {
 					{licenses.map((group) => {
 						const isOpen = !!expanded[group.category];
 						return (
-							<m.div
-								layout
+							<div
 								className="about-card about-license-group"
 								key={group.category}
 							>
@@ -156,10 +170,9 @@ export default function AboutPage() {
 								<AnimatePresence initial={false}>
 									{isOpen && (
 										<m.div
-											layout
-											initial={{ opacity: 0, y: -4 }}
-											animate={{ opacity: 1, y: 0 }}
-											exit={{ opacity: 0, y: -4 }}
+											initial={{ height: 0, opacity: 0 }}
+											animate={{ height: "auto", opacity: 1 }}
+											exit={{ height: 0, opacity: 0 }}
 											transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
 											style={{ overflow: "hidden" }}
 										>
@@ -169,7 +182,9 @@ export default function AboutPage() {
 														type="button"
 														className="about-license-entry"
 														key={entry.name}
-														onClick={() => browser.open(entry.url)}
+														onClick={() =>
+															openBrowserSurface(entry.url, entry.name)
+														}
 													>
 														<span className="about-license-name">
 															{entry.name}
@@ -187,7 +202,7 @@ export default function AboutPage() {
 										</m.div>
 									)}
 								</AnimatePresence>
-							</m.div>
+							</div>
 						);
 					})}
 				</section>

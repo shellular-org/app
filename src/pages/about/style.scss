@@ -272,3 +272,43 @@
   opacity: 0.35;
   flex-shrink: 0;
 }
+
+@include desktop-ui {
+  .about-hero {
+    align-items: flex-start;
+    padding: 4px 0 10px;
+  }
+
+  .about-hero-icon-wrapper {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    margin-bottom: 2px;
+  }
+
+  .about-hero-icon {
+    font-size: 34px;
+  }
+
+  .about-hero-credit {
+    max-width: 560px;
+    text-align: left;
+  }
+
+  .about-card {
+    border-radius: 8px;
+    box-shadow: none;
+  }
+
+  .about-license-entries {
+    max-height: 260px;
+    overflow: auto;
+  }
+
+  .reach-out-page,
+  .about-page {
+    > .page-content {
+      padding: 18px;
+    }
+  }
+}

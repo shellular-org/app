@@ -1,3 +1,4 @@
+import "./style.scss";
 import clsx from "clsx";
 import Page from "components/Page";
 import { type AuthProviderId, useAuth } from "lib/auth";
@@ -32,7 +33,7 @@ const ROW_ICON = "w-6 shrink-0 text-center text-[20px] text-accent";
 const PROVIDER_ROW_ICON =
 	"w-6 shrink-0 text-center text-[20px] text-primary-text before:!text-current";
 const ROW_LABEL = "truncate text-[14px] font-[650] text-primary-text";
-const ROW_VALUE = "truncate text-[12px] text-secondary-text opacity-[0.68]";
+const ROW_VALUE = "card-subtext truncate text-[12px]";
 const SECTION_TITLE =
 	"ml-1 text-[11px] font-bold uppercase tracking-[0.9px] text-secondary-text opacity-45";
 const PILL =
@@ -119,10 +120,10 @@ export default function AccountPage() {
 	);
 
 	return (
-		<Page title="Account">
+		<Page title="Account" className="account-page">
 			{user ? (
-				<div className="flex flex-col gap-6 pb-[calc(var(--sab,0px)+24px)]">
-					<section className="flex items-center gap-3.5 rounded-2xl border border-card-border bg-popup-background p-4 shadow-[var(--shadow)]">
+				<div className="account-content flex flex-col gap-6 pb-[calc(var(--sab,0px)+24px)]">
+					<section className="account-summary flex items-center gap-3.5 rounded-2xl border border-card-border bg-popup-background p-4 shadow-[var(--shadow)]">
 						<div
 							className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-full bg-surface-strong text-accent"
 							aria-hidden="true"
@@ -141,13 +142,11 @@ export default function AccountPage() {
 							<h2 className="truncate text-[18px] font-[750] text-primary-text">
 								{user.name || user.email}
 							</h2>
-							<p className="truncate text-[13px] text-secondary-text opacity-70">
-								{user.email}
-							</p>
+							<p className="card-subtext truncate text-[13px]">{user.email}</p>
 						</div>
 					</section>
 
-					<section className="flex flex-col gap-2.5">
+					<section className="account-profile-section flex flex-col gap-2.5">
 						<h3 className={SECTION_TITLE}>Profile</h3>
 						<div className={CARD}>
 							<CopyRow
@@ -165,7 +164,7 @@ export default function AccountPage() {
 						</div>
 					</section>
 
-					<section className="flex flex-col gap-2.5">
+					<section className="account-linked-section flex flex-col gap-2.5">
 						<h3 className={SECTION_TITLE}>Linked accounts</h3>
 						<div className={CARD}>
 							{PROVIDERS.map((provider) => {
@@ -245,7 +244,7 @@ export default function AccountPage() {
 
 					<button
 						type="button"
-						className="haptic-trigger flex min-h-12 items-center justify-center gap-2 rounded-xl border border-card-border bg-surface-soft text-[14px] font-[750] text-primary-text active:opacity-70"
+						className="account-logout haptic-trigger flex min-h-12 items-center justify-center gap-2 rounded-xl border border-card-border bg-surface-soft text-[14px] font-[750] text-primary-text active:opacity-70"
 						onClick={() => logout().catch(console.error)}
 					>
 						<span

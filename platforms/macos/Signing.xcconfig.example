@@ -1,0 +1,4 @@
+// Copy this file to Signing.xcconfig and replace the values below.
+// Signing.xcconfig is ignored by Git.
+DEVELOPMENT_TEAM = COMPANY_TEAM_ID
+SHELLULAR_NOTARY_PROFILE = shellular-notary
