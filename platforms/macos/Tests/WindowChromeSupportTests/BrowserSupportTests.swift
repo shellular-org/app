@@ -2281,8 +2281,8 @@ final class BrowserSidebarMetricsTests: XCTestCase {
             toolbar.edgeInsets = NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
 
             let leadingButtons = (0..<4).map { _ in NSButton() }
-            let trailingButtons = (0..<2).map { _ in NSButton() }
-            let buttons = leadingButtons + trailingButtons
+            let trailingButton = NSButton()
+            let buttons = leadingButtons + [trailingButton]
             for button in buttons {
                 button.translatesAutoresizingMaskIntoConstraints = false
                 button.widthAnchor.constraint(equalToConstant: 30).isActive = true
@@ -2294,19 +2294,17 @@ final class BrowserSidebarMetricsTests: XCTestCase {
 
             let addressBar = BrowserAddressBar()
             toolbar.addArrangedSubview(addressBar)
-            for button in trailingButtons {
-                toolbar.addArrangedSubview(button)
-            }
+            toolbar.addArrangedSubview(trailingButton)
             toolbar.layoutSubtreeIfNeeded()
 
             XCTAssertFalse(toolbar.hasAmbiguousLayout, "toolbar width: \(width)")
             XCTAssertGreaterThan(addressBar.frame.width, 0, "toolbar width: \(width)")
             XCTAssertLessThan(
                 addressBar.frame.maxX,
-                trailingButtons[0].frame.minX,
+                trailingButton.frame.minX,
                 "toolbar width: \(width)"
             )
-            XCTAssertLessThanOrEqual(trailingButtons[1].frame.maxX, width - 8, "toolbar width: \(width)")
+            XCTAssertLessThanOrEqual(trailingButton.frame.maxX, width - 8, "toolbar width: \(width)")
             XCTAssertGreaterThan(addressBar.textField.frame.width, 0, "toolbar width: \(width)")
             for button in buttons {
                 XCTAssertEqual(button.frame.width, 30, accuracy: 0.001, "toolbar width: \(width)")

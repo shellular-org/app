@@ -293,7 +293,6 @@ private final class BrowserWindowController:
     private let reloadButton = NSButton()
     private let homeButton = NSButton()
     private let addressBar = BrowserAddressBar()
-    private let developerToolsButton = NSButton()
     private let moreButton = NSButton()
     private let progress = NSProgressIndicator()
     private let contentViewContainer = NSView()
@@ -561,18 +560,11 @@ private final class BrowserWindowController:
         addressBar.clearButton.action = #selector(clearAddressAction)
         toolbar.addArrangedSubview(addressBar)
         configureIconButton(
-            developerToolsButton,
-            symbol: "hammer",
-            help: "Developer Tools (⌘⌥I or ⌘⇧I)",
-            action: #selector(developerToolsAction)
-        )
-        configureIconButton(
             moreButton,
             symbol: "ellipsis.circle",
             help: "Browser Options",
             action: #selector(moreAction)
         )
-        toolbar.addArrangedSubview(developerToolsButton)
         toolbar.addArrangedSubview(moreButton)
 
         progress.isIndeterminate = false
@@ -828,25 +820,6 @@ private final class BrowserWindowController:
         reloadButton.image = NSImage(systemSymbolName: isLoading ? "xmark" : "arrow.clockwise", accessibilityDescription: isLoading ? "Stop" : "Reload")
         progress.isHidden = !isLoading
         progress.doubleValue = isInternalPage ? 1 : tab.webView.estimatedProgress
-        let canRequestDeveloperTools = BrowserDeveloperToolsAvailability.canRequestVisibility(
-            hasRuntime: developerToolsUserScript != nil,
-            state: tab.developerTools
-        )
-        developerToolsButton.isEnabled = canRequestDeveloperTools
-        developerToolsButton.state = tab.developerTools.isVisible ? .on : .off
-        developerToolsButton.isBordered = tab.developerTools.isVisible
-        developerToolsButton.contentTintColor = tab.developerTools.isVisible
-            ? palette.accent
-            : palette.secondaryText
-        if developerToolsUserScript == nil {
-            developerToolsButton.toolTip = BrowserDeveloperToolsContextMenu.unavailableToolTip
-        } else if tab.developerTools.initializationFailed {
-            developerToolsButton.toolTip = BrowserDeveloperToolsContextMenu.initializationFailedToolTip
-        } else if tab.developerTools.isReady {
-            developerToolsButton.toolTip = "Developer Tools (⌘⌥I or ⌘⇧I)"
-        } else {
-            developerToolsButton.toolTip = "Developer Tools are loading"
-        }
         window?.title = tab.title.isEmpty ? "Shellular Browser" : "\(tab.title) — Shellular Browser"
         updateSecurityChrome(for: tab)
         syncTabStrip()
