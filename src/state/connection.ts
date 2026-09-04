@@ -28,6 +28,7 @@ import {
 import { getBaseServerUrl } from "lib/settings";
 import * as store from "lib/store";
 import { nanoid } from "nanoid";
+import { getReconnectDelayMs } from "./reconnectDelay";
 
 type OutgoingMsg = ClientToHostMsg | ClientToServerMsg;
 export type SendableMsg = {
@@ -165,7 +166,6 @@ const PING_INTERVAL_MS = 25_000;
 // slack before we tear down and reconnect.
 const LIVENESS_TIMEOUT_MS = 55_000;
 const MAX_RECONNECT_ATTEMPTS = 10;
-const RECONNECT_DELAYS = [1_000, 2_000, 4_000, 4_000, 8_000, 16_000];
 // Treat a ticket as spent slightly before it really lapses: it has to survive
 // the trip to the relay and be verified there, not merely be valid at the
 // moment we read it out of the cache.
@@ -864,7 +864,7 @@ class ConnectionManager {
 			batteryInfo: null,
 			reconnectAttempt: 0,
 		});
-		this.attemptReconnect(hostId);
+		this.attemptReconnect(hostId, true);
 	}
 
 	/**
@@ -937,7 +937,7 @@ class ConnectionManager {
 		this.setSnapshot({ reconnectAttempt: 0 });
 	}
 
-	private async attemptReconnect(hostId: string) {
+	private async attemptReconnect(hostId: string, immediate = false) {
 		const key = this.encryptionKey;
 		const url = this.snapshot.serverUrl || (await getBaseServerUrl());
 
@@ -961,17 +961,7 @@ class ConnectionManager {
 
 		this.setSnapshot({ reconnectAttempt: this.reconnectAttempt });
 
-		const base =
-			RECONNECT_DELAYS[
-				Math.max(
-					Math.min(this.reconnectAttempt - 1, RECONNECT_DELAYS.length - 1),
-					0,
-				)
-			];
-		// jitter (±20%) avoids many clients hammering a shared server
-		// a server restart drops every client at once, so a fixed ladder would have
-		// them all retry on the same instants.
-		const delay = base * (0.8 + Math.random() * 0.4);
+		const delay = getReconnectDelayMs(this.reconnectAttempt, immediate);
 
 		this.reconnectTimeout = setTimeout(async () => {
 			this.reconnectTimeout = null;
