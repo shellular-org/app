@@ -12,13 +12,23 @@ export default {
 		}
 	},
 	/**
-	 * Write data to a file
+	 * Write data to a file.
+	 *
+	 * `isBinary` mirrors the native FileHandler: `file.writeBinary()` sends the
+	 * bytes base64-encoded and sets this flag, and the native handlers decode
+	 * it. Ignoring the flag stored that base64 text instead of the file's
+	 * contents, so every binary write through this service was corrupted.
 	 * @param {any} callback
-	 * @param {[string, ArrayBuffer]} param1
+	 * @param {[string, ArrayBuffer | string, boolean?]} param1
 	 */
-	async write(callback: Callback, [path, data]: [string, ArrayBuffer]) {
+	async write(
+		callback: Callback,
+		[path, data, isBinary]: [string, ArrayBuffer | string, boolean?],
+	) {
 		try {
-			await opfs.writeFile(path, data);
+			const contents =
+				isBinary && typeof data === "string" ? base64ToArrayBuffer(data) : data;
+			await opfs.writeFile(path, contents);
 			callback.success();
 		} catch (error) {
 			callback.error(errorMessage(error));
@@ -114,10 +124,14 @@ export default {
 			});
 			document.body.appendChild(a);
 			a.click();
+			// The blob: URL is handed to the download manager (or an external app
+			// on Android) after `click()` returns, so revoking it on the next tick
+			// can kill it mid-handoff and the download fails. Leave it long enough
+			// for the handoff to complete.
 			setTimeout(() => {
 				document.body.removeChild(a);
 				window.URL.revokeObjectURL(url);
-			}, 0);
+			}, 60_000);
 			if (notificationTitle) {
 				new Notification(notificationTitle, {
 					body: notificationBody || "",
@@ -271,6 +285,15 @@ function getContentType(filename: string) {
 		default:
 			return "application/octet-stream";
 	}
+}
+
+function base64ToArrayBuffer(content: string): ArrayBuffer {
+	const binary = atob(content);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	return bytes.buffer;
 }
 
 function errorMessage(error: unknown): string {
