@@ -2,11 +2,17 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+def appPackage = new groovy.json.JsonSlurper().parseText(
+    providers.fileContents(rootProject.layout.projectDirectory.file('../../package.json')).asText.get()
+)
+
 android {
     namespace = 'io.foxbiz.shellular'
     compileSdk = 36
 
     defaultConfig {
+    versionCode = appPackage.versionCode as Integer
+    versionName = appPackage.version
     minSdk = 24
     targetSdk = 36
 
